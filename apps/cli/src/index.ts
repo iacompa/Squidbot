@@ -1,0 +1,2552 @@
+import readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import fs from "node:fs";
+import path from "node:path";
+import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
+import { initializeDatabase, type SandboxRecord } from "@squidbot/db";
+import {
+  BenchmarkRunner,
+  compareEvalRuns,
+  createCanaryForVariant,
+  DatasetRegistry,
+  EvalResultStore,
+  listLeaderboard,
+  loadDatasetManifest,
+  MutationProposer,
+  promoteVariant,
+  rollbackEvolution,
+  runStaticChecks,
+  SkillVariantStore
+} from "@squidbot/evals";
+import { MemoryGraphStore } from "@squidbot/memory";
+import {
+  DeliveryRouter,
+  getPlatformMatrixEntry,
+  listPlatformMatrix,
+  MessagingAdapterRegistry,
+  MessagingGateway,
+  MessagingStore,
+  type MessagingPlatform
+} from "@squidbot/messaging";
+import { parseCommandLine, SandboxManager, sandboxFromRecord } from "@squidbot/sandbox";
+import { Scheduler, type CreateJobRequest } from "@squidbot/scheduler";
+import { evaluateSkill, installDeveloperWorkflowSkills, normalizeSkillId, SkillService, validateSkillManifest } from "@squidbot/skills";
+import { defaultTeamManifest, RoleRegistry, TeamCoordinator, TeamStore, validateTeamManifest } from "@squidbot/team";
+import {
+  AgentRuntime,
+  approveMemoryCandidate,
+  buildTrace,
+  computeTraceMetrics,
+  createId,
+  ensureLocalConfig,
+  exportTraceMarkdown,
+  getTrace,
+  getLatestTrace,
+  listRuns,
+  redactValue,
+  searchEvents,
+  type AgentEvent,
+  type JsonObject,
+  registerTerminalTools,
+  registerTestTools,
+  registerWorkspaceTools,
+  ToolRegistry
+} from "@squidbot/core";
+
+type ParsedArgs = {
+  command: string;
+  workspace?: string;
+  testCommand?: string;
+  message?: string;
+};
+
+function parseArgs(argv: string[]): ParsedArgs {
+  const [command = "help", ...rest] = argv;
+  let workspace: string | undefined;
+  let testCommand: string | undefined;
+  const messageParts: string[] = [];
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const item = rest[index];
+    if (item === "--workspace") {
+      workspace = rest[index + 1];
+      index += 1;
+    } else if (item === "--test-command") {
+      testCommand = rest[index + 1];
+      index += 1;
+    } else {
+      messageParts.push(item);
+    }
+  }
+
+  return { command, workspace, testCommand, message: messageParts.join(" ").trim() || undefined };
+}
+
+function resolveFromInvocationCwd(targetPath: string): string {
+  const invocationCwd = process.env.INIT_CWD ?? process.cwd();
+  return path.resolve(invocationCwd, targetPath);
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const config = ensureLocalConfig();
+  const database = initializeDatabase(config.databasePath);
+
+  try {
+    if (args.command === "init") {
+      database.setSetting("model.provider", "local");
+      console.log(`Initialized SquidBot local data at ${config.appDataDir}`);
+      console.log(`Database: ${config.databasePath}`);
+      return;
+    }
+
+    if (args.command === "traces") {
+      handleTracesCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "reflections") {
+      const parts = splitCommandParts(args.message);
+      const subcommand = parts[0] ?? "list";
+
+      if (subcommand === "show") {
+        const reflectionId = parts[1];
+        if (!reflectionId) {
+          throw new Error("Reflection ID is required. Example: npm run reflections -- show reflection_...");
+        }
+
+        const reflection = database.getReflection(reflectionId);
+        console.log(reflection ? JSON.stringify(reflection, null, 2) : `Reflection not found: ${reflectionId}`);
+        return;
+      }
+
+      if (subcommand === "gaps") {
+        const reflectionId = parts[1];
+        if (!reflectionId) {
+          throw new Error("Usage: npm run reflections -- gaps <reflection-id>");
+        }
+
+        const reflection = database.getReflection(reflectionId);
+        if (!reflection) {
+          throw new Error(`Reflection not found: ${reflectionId}`);
+        }
+
+        printJson({
+          reflection,
+          gaps: database.listAffordanceGapsForReflection(reflectionId)
+        });
+        return;
+      }
+
+      const reflections = database.listReflections(10);
+      if (reflections.length === 0) {
+        console.log("No reflections recorded yet.");
+        return;
+      }
+
+      console.log("Recent reflections");
+      for (const reflection of reflections) {
+        console.log(`- ${reflection.id}`);
+        console.log(`  task: ${reflection.task}`);
+        console.log(`  outcome: ${reflection.outcome}`);
+        console.log(`  candidates: ${reflection.memoryCandidates.length}`);
+        console.log(`  created: ${reflection.createdAt}`);
+      }
+      return;
+    }
+
+    if (args.command === "gaps") {
+      handleGapsCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "sandbox") {
+      await handleSandboxCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "skill" || args.command === "skills") {
+      await handleSkillCommand(database, config.appDataDir, args, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "job" || args.command === "jobs") {
+      await handleJobCommand(database, config.appDataDir, args, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "team" || args.command === "teams") {
+      await handleTeamCommand(database, args, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "eval") {
+      await handleEvalCommand(database, config.appDataDir, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "evolve") {
+      await handleEvolveCommand(database, config.appDataDir, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "messaging") {
+      await handleMessagingCommand(database, args, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "memory") {
+      const parts = splitCommandParts(args.message);
+      const subcommand = parts[0] ?? "list";
+
+      if (subcommand === "graph") {
+        handleMemoryGraphCommand(database, parts.slice(1));
+        return;
+      }
+
+      if (subcommand === "show") {
+        const memoryId = parts[1];
+        if (!memoryId) {
+          throw new Error("Memory ID is required. Example: npm run memory -- show memory_...");
+        }
+
+        const memory = database.getMemory(memoryId);
+        console.log(memory ? JSON.stringify(memory, null, 2) : `Memory not found: ${memoryId}`);
+        return;
+      }
+
+      if (subcommand === "approve") {
+        const reflectionId = parts[1];
+        const candidateIndex = Number(parts[2]);
+        if (!reflectionId || !Number.isInteger(candidateIndex)) {
+          throw new Error("Usage: npm run memory -- approve <reflection-id> <candidate-index>");
+        }
+
+        const result = approveMemoryCandidate(database, reflectionId, candidateIndex);
+        console.log("Approved memory");
+        console.log(`- id: ${result.memory.id}`);
+        console.log(`- type: ${result.memory.type}`);
+        console.log(`- title: ${result.memory.title}`);
+        console.log(`- source reflection: ${result.reflection.id}`);
+        return;
+      }
+
+      const memories = database.listApprovedMemories(50);
+      if (memories.length === 0) {
+        console.log("No approved memories yet.");
+        return;
+      }
+
+      console.log("Approved memories");
+      for (const memory of memories) {
+        console.log(`- ${memory.id}`);
+        console.log(`  type: ${memory.type}`);
+        console.log(`  title: ${memory.title}`);
+        console.log(`  approved: ${memory.approvedAt ?? "not approved"}`);
+      }
+      return;
+    }
+
+    if (args.command === "connectors") {
+      const parts = splitCommandParts(args.message);
+      const subcommand = parts[0] ?? "list";
+      const registry = new ConnectorRegistry(database);
+      installDeveloperWorkflowConnectors(registry);
+
+      if (subcommand === "install") {
+        const manifestPath = parts[1];
+        if (!manifestPath) {
+          throw new Error("Usage: npm run connectors -- install ./connectors/demo/salesConnector.json");
+        }
+
+        const manifest = registry.installManifest(resolveFromInvocationCwd(manifestPath));
+        console.log(`Installed connector: ${manifest.name}`);
+        console.log(`- protocol: ${manifest.protocol}`);
+        console.log(`- fixture mode: ${manifest.fixtureMode ? "on" : "off"}`);
+        console.log(`- operations: ${manifest.endpoints.map((endpoint) => endpoint.operationId).join(", ")}`);
+        return;
+      }
+
+      if (subcommand === "import-openapi") {
+        const specPath = parts[1];
+        const nameFlagIndex = parts.indexOf("--name");
+        const connectorName = nameFlagIndex >= 0 ? parts[nameFlagIndex + 1] : undefined;
+        if (!specPath || !connectorName) {
+          throw new Error("Usage: npm run connectors -- import-openapi ./specs/petstore.yaml --name petstore");
+        }
+
+        const result = importOpenApi({
+          specPath: resolveFromInvocationCwd(specPath),
+          name: connectorName,
+          manifestOutputPath: resolveFromInvocationCwd(`connectors/generated/${connectorName}.json`),
+          generatedRoot: resolveFromInvocationCwd(`packages/connectors/src/generated/${connectorName}`)
+        });
+        registry.registerConnector(result.manifest);
+        console.log(`Imported OpenAPI connector: ${result.manifest.name}`);
+        console.log(`- manifest: ${result.manifestPath}`);
+        console.log(`- generated: ${result.generatedDir}`);
+        console.log(`- operations: ${result.manifest.endpoints.map((endpoint) => endpoint.operationId).join(", ")}`);
+        return;
+      }
+
+      if (subcommand === "call") {
+        const connectorName = parts[1];
+        const operationName = parts[2];
+        if (!connectorName) {
+          throw new Error("Usage: npm run connectors -- call <connector-name> [operation-name]");
+        }
+
+        const connector = registry.getConnector(connectorName);
+        if (!connector) {
+          throw new Error(`Connector is not installed: ${connectorName}`);
+        }
+
+        const workspacePath = resolveFromInvocationCwd(args.workspace ?? ".");
+        const runtime = createRuntime({ database, workspacePath });
+        const result = await runtime.sendMessage(`Call ${connectorName} connector ${operationName ?? ""}`.trim());
+        console.log(result.content);
+        return;
+      }
+
+      const connectors = registry.listConnectors();
+      if (connectors.length === 0) {
+        console.log("No connectors installed yet.");
+        return;
+      }
+
+      console.log("Installed connectors");
+      for (const connector of connectors) {
+        console.log(`- ${connector.name}`);
+        console.log(`  type: ${connector.systemType}`);
+        console.log(`  protocol: ${connector.protocol}`);
+        console.log(`  fixture: ${connector.fixtureMode ? "on" : "off"}`);
+        console.log(`  operations: ${connector.endpoints.map((endpoint) => endpoint.operationId).join(", ")}`);
+      }
+      return;
+    }
+
+    if (args.command === "settings") {
+      const parts = splitCommandParts(args.message);
+      const subcommand = parts[0] ?? "list";
+
+      if (subcommand === "get") {
+        const key = parts[1];
+        if (!key) {
+          throw new Error("Usage: npm run settings -- get <key>");
+        }
+
+        console.log(`${key}: ${redactSettingValue(key, readSettingWithDefault(database, key))}`);
+        return;
+      }
+
+      if (subcommand === "set") {
+        const key = parts[1];
+        const value = parts.slice(2).join(" ");
+        if (!key || !value) {
+          throw new Error("Usage: npm run settings -- set <key> <value>");
+        }
+
+        database.setSetting(key, parseSettingValue(key, value));
+        console.log(`Saved setting: ${key}`);
+        return;
+      }
+
+      if (subcommand === "unset") {
+        const key = parts[1];
+        if (!key) {
+          throw new Error("Usage: npm run settings -- unset <key>");
+        }
+
+        database.deleteSetting(key);
+        console.log(`Removed setting: ${key}`);
+        return;
+      }
+
+      const settings = withDefaultModelSettings(database.getAllSettings());
+      console.log("Settings");
+      for (const [key, value] of Object.entries(settings)) {
+        if (key === "modelProvider" || key === "byokEnabled") {
+          continue;
+        }
+        console.log(`- ${key}: ${redactSettingValue(key, value)}`);
+      }
+      return;
+    }
+
+    if (args.command === "model") {
+      const parts = splitCommandParts(args.message);
+      const subcommand = parts[0] ?? "budget";
+
+      if (subcommand === "budget") {
+        const budget = database.getSetting<string | number>("model.budget.api");
+        const budgetTokens = normalizeTokenBudget(budget);
+        const today = new Date().toISOString().slice(0, 10);
+        const usage = database.getModelUsage("api", today);
+        const usedTokens = usage?.tokens ?? 0;
+        console.log("Model budget");
+        console.log(`- provider: api`);
+        console.log(`- date: ${today}`);
+        console.log(`- budget tokens: ${budgetTokens ?? "not set"}`);
+        console.log(`- used tokens: ${usedTokens}`);
+        console.log(`- remaining tokens: ${budgetTokens === null ? "unlimited" : Math.max(0, budgetTokens - usedTokens)}`);
+        console.log(`- estimated cost: ${formatCost(usage?.cost ?? 0)}`);
+        return;
+      }
+
+      throw new Error("Usage: npm run model -- budget");
+    }
+
+    if (args.command === "chat") {
+      const workspacePath = resolveFromInvocationCwd(args.workspace ?? ".");
+      database.setSetting("workspacePath", workspacePath);
+
+      const runtime = createRuntime({ database, workspacePath });
+
+      if (args.message) {
+        const result = await runtime.sendMessage(args.message);
+        console.log(result.content);
+        deliverMessagingRunSummary(database, result.runId, result.content);
+        return;
+      }
+
+      console.log(`SquidBot mock chat. Workspace: ${workspacePath}`);
+      console.log("Type a message or /exit.");
+      const rl = readline.createInterface({ input, output });
+
+      while (true) {
+        const answer = await rl.question("> ");
+        if (answer.trim() === "/exit") {
+          rl.close();
+          return;
+        }
+
+        const result = await runtime.sendMessage(answer);
+        console.log(result.content);
+        deliverMessagingRunSummary(database, result.runId, result.content);
+      }
+    }
+
+    if (args.command === "run") {
+      if (!args.message) {
+        throw new Error("A quoted task is required. Example: npm run run -- --workspace ./examples/buggy-python \"Fix the failing test\"");
+      }
+
+      const workspacePath = resolveFromInvocationCwd(args.workspace ?? ".");
+      database.setSetting("workspacePath", workspacePath);
+
+      const runtime = createRuntime({ database, workspacePath });
+      const result = await runtime.runTask(args.message, { testCommand: args.testCommand });
+
+      console.log("Plan");
+      console.log(`- Problem: ${result.plan.problem}`);
+      console.log(`- Risk: ${result.plan.riskLevel}`);
+      console.log("- Actions:");
+      for (const action of result.plan.actions) {
+        console.log(`  - ${action.description} (${action.toolName})`);
+      }
+
+      console.log("");
+      console.log("Tool calls");
+      for (const toolResult of result.toolResults) {
+        const status = toolResult.ok ? "ok" : "failed";
+        console.log(`- ${toolResult.toolName}: ${status}`);
+        if (toolResult.toolName === "workspace.createPatch" && toolResult.ok) {
+          const output = toolResult.output as { patch?: string };
+          console.log(indentBlock(output.patch ?? "", "  "));
+        }
+        if (toolResult.toolName === "test.run" && toolResult.ok) {
+          const output = toolResult.output as { exitCode?: number | null; stdout?: string; stderr?: string; dryRun?: boolean };
+          console.log(`  ${output.dryRun ? "dry run" : `exit code: ${output.exitCode ?? "unknown"}`}`);
+          if (output.stdout) {
+            console.log(indentBlock(output.stdout.trim(), "  stdout: "));
+          }
+          if (output.stderr) {
+            console.log(indentBlock(output.stderr.trim(), "  stderr: "));
+          }
+        }
+        if (toolResult.toolName.startsWith("connector.") && toolResult.ok) {
+          const output = toolResult.output as { fixture?: boolean; response?: unknown };
+          console.log(`  ${output.fixture ? "fixture response" : "response"}`);
+          console.log(indentBlock(JSON.stringify(output.response ?? output, null, 2), "  "));
+        }
+      }
+
+      console.log("");
+      console.log(result.finalSummary);
+      console.log(`Reflection: ${result.reflection.id} (${result.reflection.outcome})`);
+      console.log(`Memory candidates: ${result.reflection.memoryCandidates.length}`);
+      console.log(`Memories loaded: ${result.retrievedMemories.length}`);
+      deliverMessagingRunSummary(database, result.runId, result.finalSummary);
+      return;
+    }
+
+    console.log("Usage:");
+    console.log("  npm run init");
+    console.log("  npm run chat -- --workspace ./examples/buggy-python \"list files\"");
+    console.log("  npm run run -- --workspace ./examples/buggy-python \"Fix the failing test\" --test-command \"pytest\"");
+    console.log("  npm run traces");
+    console.log("  npm run reflections");
+    console.log("  npm run reflections -- show <reflection-id>");
+    console.log("  npm run reflections -- gaps <reflection-id>");
+    console.log("  npm run gaps -- list");
+    console.log("  npm run gaps -- show <gap-id>");
+    console.log("  npm run gaps -- resolve <gap-id>");
+    console.log("  npm run sandbox -- list");
+    console.log("  npm run sandbox -- create ./examples/buggy-python");
+    console.log("  npm run sandbox -- status <sandbox-id>");
+    console.log("  npm run sandbox -- approve <sandbox-id>");
+    console.log("  npm run sandbox -- reject <sandbox-id>");
+    console.log("  npm run skill -- list");
+    console.log("  npm run skill -- create --from-run <run-id> --name fix-add-bug --description \"Fixes add()\"");
+    console.log("  npm run job -- create --type task --task \"list files\" --schedule \"every weekday at 9am\" --name \"Daily check\"");
+    console.log("  npm run job -- list");
+    console.log("  npm run job -- runnow <job-id>");
+    console.log("  npm run memory -- list");
+    console.log("  npm run memory -- approve <reflection-id> <candidate-index>");
+    console.log("  npm run memory -- graph search --hybrid \"calculator bug\" --top 5");
+    console.log("  npm run connectors -- install ./connectors/demo/salesConnector.json");
+    console.log("  npm run connectors -- import-openapi ./specs/petstore.yaml --name petstore");
+    console.log("  npm run connectors -- list");
+    console.log("  npm run settings -- set model.provider local");
+    console.log("  npm run settings -- set model.apiKey abc123");
+    console.log("  npm run settings -- unset model.apiKey");
+    console.log("  npm run model -- budget");
+  } finally {
+    database.close();
+  }
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});
+
+function indentBlock(value: string, prefix: string): string {
+  if (!value) {
+    return "";
+  }
+
+  return value
+    .split(/\r?\n/)
+    .map((line, index) => `${index === 0 ? prefix : " ".repeat(prefix.length)}${line}`)
+    .join("\n");
+}
+
+function splitCommandParts(value: string | undefined): string[] {
+  return value?.split(/\s+/).filter(Boolean) ?? [];
+}
+
+function createRuntime(options: { database: ReturnType<typeof initializeDatabase>; workspacePath: string; sessionId?: string }): AgentRuntime {
+  const toolRegistry = new ToolRegistry();
+  registerWorkspaceTools(toolRegistry);
+  registerTerminalTools(toolRegistry);
+  registerTestTools(toolRegistry);
+  const connectorRegistry = new ConnectorRegistry(options.database);
+  installDeveloperWorkflowConnectors(connectorRegistry);
+  registerConnectorTools(toolRegistry, connectorRegistry);
+
+  return new AgentRuntime({
+    database: options.database,
+    workspacePath: options.workspacePath,
+    sessionId: options.sessionId,
+    toolRegistry
+  });
+}
+
+function createMessagingGateway(database: ReturnType<typeof initializeDatabase>, workspacePath?: string): MessagingGateway {
+  const store = new MessagingStore(database);
+  new MessagingAdapterRegistry(store).installDefaults();
+  return new MessagingGateway({
+    database,
+    workspacePath: workspacePath ?? database.getSetting<string>("workspacePath") ?? resolveFromInvocationCwd("."),
+    createRuntime: (resolvedWorkspacePath, sessionId) => createRuntime({ database, workspacePath: resolvedWorkspacePath, sessionId }),
+    runSkillCommand: async (skillArgs, sessionId) => {
+      const subcommand = skillArgs[0];
+      const skillRef = skillArgs[1];
+      if (subcommand !== "run" || !skillRef) {
+        throw new Error("Usage: /squid skill run <skillId> --workspace <path> [--test]");
+      }
+      const service = new SkillService(database);
+      installDeveloperWorkflowSkills(service);
+      const skillId = resolveSkillReference(service, skillRef);
+      if (!skillId) {
+        throw new Error(`Skill not found: ${skillRef}`);
+      }
+      const plan = service.prepareRun(skillId, collectFlagValue(skillArgs, "--version"));
+      const requestedWorkspace = collectFlagValue(skillArgs, "--workspace");
+      const skillWorkspacePath =
+        requestedWorkspace ??
+        plan.version.testFixtures[0]?.repoPath ??
+        workspacePath ??
+        database.getSetting<string>("workspacePath");
+      if (!skillWorkspacePath) {
+        throw new Error("Messaging skill run requires --workspace <path> or a skill fixture.");
+      }
+      const runtime = createRuntime({
+        database,
+        workspacePath: resolveFromInvocationCwd(skillWorkspacePath),
+        sessionId
+      });
+      const result = await runtime.runTask(plan.task, {
+        testCommand: collectFlagValue(skillArgs, "--test-command") ?? plan.testCommand,
+        skillCall: {
+          skillId,
+          version: plan.version.version,
+          testMode: skillArgs.includes("--test")
+        }
+      });
+      service.appendSkillRunEvent({
+        runId: result.runId,
+        skillId,
+        version: plan.version.version,
+        workspacePath: skillWorkspacePath,
+        testMode: skillArgs.includes("--test"),
+        traceId: result.trace.id
+      });
+      return { runId: result.runId, summary: result.finalSummary };
+    }
+  });
+}
+
+function deliverMessagingRunSummary(database: ReturnType<typeof initializeDatabase>, runId: string, text: string): void {
+  const store = new MessagingStore(database);
+  if (store.listDeliveryRules("runSummary").some((rule) => rule.enabled)) {
+    createMessagingGateway(database).deliverRunSummary(runId, text);
+  }
+}
+
+function deliverMessagingTrigger(
+  database: ReturnType<typeof initializeDatabase>,
+  triggerType: Parameters<DeliveryRouter["deliverToRules"]>[0],
+  message: Parameters<DeliveryRouter["deliverToRules"]>[1]
+): void {
+  const store = new MessagingStore(database);
+  const router = new DeliveryRouter(store);
+  if (!router.listRules(triggerType).some((rule) => rule.enabled)) {
+    return;
+  }
+  const results = router.deliverToRules(triggerType, message);
+  for (const result of results) {
+    database.appendEvent({
+      id: createId("evt"),
+      timestamp: new Date().toISOString(),
+      sessionId: "session_messaging",
+      type: result.ok ? "messaging.delivery.sent" : "messaging.delivery.failed",
+      data: {
+        runId: message.runId ?? message.teamRunId ?? message.jobId ?? message.skillId ?? "run_session_messaging",
+        triggerType,
+        messagingEventId: result.eventId ?? null,
+        error: result.error ?? null
+      }
+    });
+  }
+  refreshTraceForSession(database, "session_messaging");
+}
+
+async function handleMessagingCommand(database: ReturnType<typeof initializeDatabase>, args: ParsedArgs, parts: string[]): Promise<void> {
+  const store = new MessagingStore(database);
+  const registry = new MessagingAdapterRegistry(store);
+  registry.installDefaults();
+  const gateway = createMessagingGateway(database, resolveFromInvocationCwd(args.workspace ?? database.getSetting<string>("workspacePath") ?? "."));
+  const subcommand = parts[0] ?? "adapters";
+
+  if (subcommand === "adapters") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ adapters: registry.list(parts.includes("--include-archived")) });
+      return;
+    }
+    if (action === "show") {
+      const adapter = resolveMessagingAdapter(store, registry, requireValue(parts[2], "Adapter ID is required."));
+      printJson({ adapter });
+      return;
+    }
+    if (action === "install") {
+      printJson({ adapter: registry.installFromFile(resolveFromInvocationCwd(requireValue(parts[2], "Adapter manifest path is required."))) });
+      return;
+    }
+    if (action === "enable") {
+      const adapter = resolveMessagingAdapter(store, registry, requireValue(parts[2], "Adapter ID is required."));
+      if (!adapter) {
+        throw new Error(`Adapter not found: ${parts[2]}`);
+      }
+      printJson({ adapter: registry.enable(adapter.id) });
+      return;
+    }
+    if (action === "disable") {
+      const adapter = resolveMessagingAdapter(store, registry, requireValue(parts[2], "Adapter ID is required."));
+      if (!adapter) {
+        throw new Error(`Adapter not found: ${parts[2]}`);
+      }
+      printJson({ adapter: registry.disable(adapter.id) });
+      return;
+    }
+    if (action === "test") {
+      const adapter = resolveMessagingAdapter(store, registry, requireValue(parts[2], "Adapter ID is required."));
+      if (!adapter) {
+        throw new Error(`Adapter not found: ${parts[2]}`);
+      }
+      printJson({ ok: adapter.status !== "archived", adapter });
+      return;
+    }
+  }
+
+  if (subcommand === "matrix") {
+    const platform = parts[1];
+    printJson(platform ? { platform: getPlatformMatrixEntry(platform) } : { matrix: listPlatformMatrix() });
+    return;
+  }
+
+  if (subcommand === "configure") {
+    const platform = requireValue(parts[1], "Platform is required.");
+    const entries = collectKeyValueFlags(parts.slice(2));
+    for (const [key, value] of Object.entries(entries)) {
+      database.setSetting(`messaging.${platform}.${key}`, value);
+    }
+    printJson({ platform, configured: Object.keys(entries), redacted: true });
+    return;
+  }
+
+  if (subcommand === "channels") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ channels: store.listChannels(collectFlagValue(parts, "--platform")) });
+      return;
+    }
+    if (action === "add") {
+      const platform = requireValue(collectFlagValue(parts, "--platform"), "--platform is required") as MessagingPlatform;
+      const adapter = store.getAdapterByPlatform(platform) ?? store.getAdapter(`adapter_${platform}`);
+      if (!adapter) {
+        throw new Error(`Adapter not installed for platform: ${platform}`);
+      }
+      const externalChannelId = requireValue(collectFlagValue(parts, "--external-channel"), "--external-channel is required");
+      const channel = store.createChannel({
+        adapterId: adapter.id,
+        platform,
+        externalChannelId,
+        displayName: collectFlagValue(parts, "--name") ?? externalChannelId,
+        channelType: normalizeChannelType(collectFlagValue(parts, "--type"), platform)
+      });
+      printJson({ channel });
+      return;
+    }
+    if (action === "enable" || action === "disable" || action === "pause") {
+      const channelId = requireValue(parts[2], "Channel ID is required.");
+      const status = action === "enable" ? "active" : action === "pause" ? "paused" : "disabled";
+      printJson({ channel: store.updateChannelStatus(channelId, status) });
+      return;
+    }
+  }
+
+  if (subcommand === "allowlist") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ rules: store.listAllowlistRules(collectFlagValue(parts, "--platform")) });
+      return;
+    }
+    if (action === "add-user") {
+      printJson({
+        rule: store.createAllowlistRule({
+          platform: requireValue(collectFlagValue(parts, "--platform"), "--platform is required"),
+          externalUserId: requireValue(collectFlagValue(parts, "--external-user"), "--external-user is required"),
+          externalChannelId: collectFlagValue(parts, "--external-channel") ?? null,
+          ruleType: "allowUser",
+          riskLimit: normalizeRisk(collectFlagValue(parts, "--risk-limit"))
+        })
+      });
+      return;
+    }
+    if (action === "add-channel") {
+      printJson({
+        rule: store.createAllowlistRule({
+          platform: requireValue(collectFlagValue(parts, "--platform"), "--platform is required"),
+          externalChannelId: requireValue(collectFlagValue(parts, "--external-channel"), "--external-channel is required"),
+          ruleType: "allowChannel",
+          riskLimit: normalizeRisk(collectFlagValue(parts, "--risk-limit"))
+        })
+      });
+      return;
+    }
+    if (action === "remove") {
+      printJson({ removed: store.removeAllowlistRule(requireValue(parts[2], "Rule ID is required.")) });
+      return;
+    }
+  }
+
+  if (subcommand === "fixture") {
+    const action = parts[1];
+    if (action !== "send") {
+      throw new Error("Usage: npm run messaging -- fixture send ./fixtures/messaging/slack/inbound-message.json");
+    }
+    const fixturePath = resolveFromInvocationCwd(requireValue(parts[2], "Fixture path is required."));
+    const raw = loadFixturePayload(fixturePath);
+    const platform = inferFixturePlatform(raw);
+    const adapter = store.getAdapterByPlatform(platform) ?? store.getAdapter(`adapter_${platform}`);
+    if (!adapter) {
+      throw new Error(`Adapter not installed for fixture platform: ${platform}`);
+    }
+    const normalized = await gateway.ingest(raw, adapter.id);
+    maybeTrustFixture(store, raw, normalized);
+    const route = await gateway.route(normalized);
+    printJson({ event: normalized, route });
+    return;
+  }
+
+  if (subcommand === "send") {
+    const channelId = requireValue(collectFlagValue(parts, "--channel"), "--channel is required");
+    const text = requireValue(collectFlagValue(parts, "--text"), "--text is required");
+    printJson({ delivery: await gateway.send({ channelId }, { text }) });
+    return;
+  }
+
+  if (subcommand === "delivery") {
+    const action = parts[1] ?? "list";
+    const router = new DeliveryRouter(store);
+    if (action === "list") {
+      printJson({ rules: router.listRules(collectFlagValue(parts, "--trigger")) });
+      return;
+    }
+    if (action === "add") {
+      const channelId = requireValue(collectFlagValue(parts, "--channel"), "--channel is required");
+      const triggerType = requireValue(collectFlagValue(parts, "--trigger"), "--trigger is required") as Parameters<DeliveryRouter["addRule"]>[0]["triggerType"];
+      printJson({ rule: router.addRule({ name: collectFlagValue(parts, "--name") ?? `${triggerType} delivery`, triggerType, targetChannelId: channelId }) });
+      return;
+    }
+    if (action === "remove") {
+      printJson({ removed: router.removeRule(requireValue(parts[2], "Delivery rule ID is required.")) });
+      return;
+    }
+    if (action === "enable" || action === "disable") {
+      printJson({ rule: router.setRuleEnabled(requireValue(parts[2], "Delivery rule ID is required."), action === "enable") });
+      return;
+    }
+  }
+
+  if (subcommand === "inbox") {
+    printJson({ events: store.listEvents({ platform: collectFlagValue(parts, "--platform"), runId: collectFlagValue(parts, "--run"), limit: collectFlagNumber(parts, "--limit") ?? 100 }) });
+    return;
+  }
+
+  if (subcommand === "sessions") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ sessions: store.listSessions(collectFlagValue(parts, "--platform")) });
+      return;
+    }
+    if (action === "show") {
+      const sessionId = requireValue(parts[2], "Session ID is required.");
+      printJson({ session: store.getSession(sessionId), events: store.listEvents({ limit: 25 }).filter((event) => event.sessionId === sessionId) });
+      return;
+    }
+    printJson({ sessions: store.listSessions(collectFlagValue(parts, "--platform")) });
+    return;
+  }
+
+  if (subcommand === "identities") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ identities: store.listIdentities(collectFlagValue(parts, "--platform")) });
+      return;
+    }
+    if (action === "link") {
+      const platform = requireValue(collectFlagValue(parts, "--platform"), "--platform is required");
+      const externalUserId = requireValue(collectFlagValue(parts, "--external-user"), "--external-user is required");
+      const identity = store.upsertIdentity({ platform, externalUserId, trustLevel: "trusted", metadata: { linkedViaCli: true, localUserId: collectFlagValue(parts, "--local-user") ?? "local" } });
+      printJson({ identity });
+      return;
+    }
+  }
+
+  throw new Error("Usage: npm run messaging -- adapters|matrix|configure|channels|allowlist|fixture|send|delivery|inbox|sessions|identities");
+}
+
+function resolveMessagingAdapter(store: MessagingStore, registry: MessagingAdapterRegistry, value: string) {
+  if (value === "fixture") {
+    return registry.get("adapter_custom") ?? store.getAdapterByPlatform("custom");
+  }
+  return registry.get(value) ?? registry.get(`adapter_${value}`) ?? store.getAdapterByPlatform(value);
+}
+
+function handleTracesCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): void {
+  const subcommand = parts[0] ?? "latest";
+
+  if (subcommand === "latest") {
+    const latest = getLatestTrace(database);
+    printJson(latest ? { trace: latest, metrics: computeTraceMetrics(latest) } : { trace: null });
+    return;
+  }
+
+  if (subcommand === "list") {
+    const sortFlag = collectFlagValue(parts, "--sort-by");
+    const sortBy = sortFlag === "duration" || sortFlag === "cost" || sortFlag === "createdAt" ? sortFlag : "createdAt";
+    printJson({
+      runs: listRuns(database, {
+        limit: collectFlagNumber(parts, "--limit") ?? 50,
+        offset: collectFlagNumber(parts, "--offset") ?? 0,
+        sortBy
+      })
+    });
+    return;
+  }
+
+  if (subcommand === "show") {
+    const runId = parts[1];
+    if (!runId) {
+      throw new Error("Usage: npm run traces -- show <runId>");
+    }
+    const trace = getTrace(database, runId);
+    if (!trace) {
+      throw new Error(`Trace not found for run: ${runId}`);
+    }
+    printJson({ trace, metrics: computeTraceMetrics(trace) });
+    return;
+  }
+
+  if (subcommand === "search") {
+    printJson({
+      results: searchEvents(database, {
+        runId: collectFlagValue(parts, "--run-id"),
+        type: collectFlagValue(parts, "--type"),
+        provider: collectFlagValue(parts, "--provider"),
+        tool: collectFlagValue(parts, "--tool"),
+        jobId: collectFlagValue(parts, "--job-id"),
+        teamRunId: collectFlagValue(parts, "--team-run-id"),
+        text: collectFlagValue(parts, "--text"),
+        limit: collectFlagNumber(parts, "--limit") ?? 100
+      })
+    });
+    return;
+  }
+
+  if (subcommand === "export") {
+    const runId = parts[1];
+    if (!runId) {
+      throw new Error("Usage: npm run traces -- export <runId> --format json|md");
+    }
+
+    const format = collectFlagValue(parts, "--format") === "md" ? "md" : "json";
+    const trace = getTrace(database, runId);
+    if (!trace) {
+      throw new Error(`Trace not found for run: ${runId}`);
+    }
+
+    const outPath =
+      collectFlagValue(parts, "--out") ??
+      `squidbot-trace-${runId.replace(/[^a-zA-Z0-9_-]/g, "_")}.${format === "md" ? "md" : "json"}`;
+    const resolvedOutPath = resolveFromInvocationCwd(outPath);
+    const body =
+      format === "md"
+        ? exportTraceMarkdown(trace)
+        : `${JSON.stringify({ trace, metrics: computeTraceMetrics(trace) }, null, 2)}\n`;
+    fs.writeFileSync(resolvedOutPath, body, "utf8");
+    printJson({ runId, format, path: resolvedOutPath });
+    return;
+  }
+
+  throw new Error("Usage: npm run traces -- list|show <runId>|export <runId>|search");
+}
+
+function handleGapsCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): void {
+  const subcommand = parts[0] ?? "list";
+
+  if (subcommand === "list") {
+    const requestedStatus = collectFlagValue(parts, "--status");
+    const status = parts.includes("--include-resolved") ? "all" : requestedStatus === "resolved" || requestedStatus === "wontfix" || requestedStatus === "open" ? requestedStatus : undefined;
+    printJson({
+      gaps: database.listAffordanceGaps({
+        status,
+        limit: collectFlagNumber(parts, "--limit") ?? 100
+      })
+    });
+    return;
+  }
+
+  if (subcommand === "show") {
+    const gapId = parts[1];
+    if (!gapId) {
+      throw new Error("Usage: npm run gaps -- show <gapId>");
+    }
+
+    const gap = database.getAffordanceGap(gapId);
+    if (!gap) {
+      throw new Error(`Affordance gap not found: ${gapId}`);
+    }
+
+    printJson({
+      gap,
+      reflection: gap.reflectionId ? database.getReflection(gap.reflectionId) : null
+    });
+    return;
+  }
+
+  if (subcommand === "resolve") {
+    const gapId = parts[1];
+    if (!gapId) {
+      throw new Error("Usage: npm run gaps -- resolve <gapId>");
+    }
+
+    const status = collectFlagValue(parts, "--status") === "wontfix" ? "wontfix" : "resolved";
+    const gap = database.resolveAffordanceGap(gapId, status);
+    const reflection = gap.reflectionId ? database.getReflection(gap.reflectionId) : null;
+    database.appendEvent({
+      id: createId("evt"),
+      timestamp: new Date().toISOString(),
+      sessionId: reflection?.sessionId ?? "session_affordance_gaps",
+      type: "affordance.resolved",
+      data: {
+        runId: gap.runId,
+        reflectionId: gap.reflectionId,
+        gapId: gap.id,
+        status: gap.status,
+        resolvedAt: gap.resolvedAt
+      }
+    });
+    printJson({ gap });
+    return;
+  }
+
+  throw new Error("Usage: npm run gaps -- list|show|resolve");
+}
+
+async function handleSandboxCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): Promise<void> {
+  const subcommand = parts[0] ?? "list";
+  const manager = new SandboxManager();
+
+  if (subcommand === "list") {
+    const requestedStatus = collectFlagValue(parts, "--status");
+    const status =
+      requestedStatus === "active" ||
+      requestedStatus === "promoted" ||
+      requestedStatus === "rejected" ||
+      requestedStatus === "destroyed" ||
+      requestedStatus === "failed"
+        ? requestedStatus
+        : parts.includes("--include-closed")
+          ? "all"
+          : "active";
+    printJson({
+      sandboxes: database.listSandboxes({
+        status,
+        limit: collectFlagNumber(parts, "--limit") ?? 100
+      })
+    });
+    return;
+  }
+
+  if (subcommand === "create") {
+    const workspace = parts[1];
+    if (!workspace) {
+      throw new Error("Usage: npm run sandbox -- create <workspace-path>");
+    }
+    const sandbox = await manager.create(resolveFromInvocationCwd(workspace), readSandboxOptions(database));
+    const record = database.insertSandbox({
+      id: sandbox.id,
+      sessionId: "session_cli_sandbox",
+      runId: null,
+      workspacePath: sandbox.originalWorkspacePath,
+      sandboxPath: sandbox.path,
+      backend: sandbox.backend,
+      status: "active",
+      resourceLimits: sandbox.resourceLimits,
+      networkPolicy: sandbox.networkPolicy,
+      createdAt: sandbox.createdAt
+    });
+    appendSandboxEvent(database, record, "sandbox.created", {
+      sandboxId: record.id,
+      workspacePath: record.workspacePath,
+      sandboxPath: record.sandboxPath,
+      limits: record.resourceLimits,
+      networkPolicy: record.networkPolicy
+    });
+    printJson({ sandbox: record });
+    return;
+  }
+
+  if (subcommand === "status") {
+    const record = requireSandboxRecord(database, parts[1]);
+    printJson({ sandbox: record });
+    return;
+  }
+
+  if (subcommand === "apply-patch") {
+    const record = requireSandboxRecord(database, parts[1]);
+    const patchPath = parts[2];
+    if (!patchPath) {
+      throw new Error("Usage: npm run sandbox -- apply-patch <sandbox-id> <patch-file>");
+    }
+    const sandbox = sandboxFromRecord({
+      id: record.id,
+      sandboxPath: record.sandboxPath,
+      workspacePath: record.workspacePath,
+      createdAt: record.createdAt,
+      resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
+      networkPolicy: record.networkPolicy
+    });
+    const patch = fs.readFileSync(resolveFromInvocationCwd(patchPath), "utf8");
+    const startedAt = Date.now();
+    try {
+      await manager.applyPatch(sandbox, patch);
+      const diff = await manager.diff(sandbox);
+      const updated = database.updateSandbox(record.id, {
+        diff,
+        lastError: null
+      });
+      appendSandboxEvent(database, record, "sandbox.command", {
+        sandboxId: record.id,
+        command: "git",
+        args: ["apply"],
+        exitCode: 0,
+        durationMs: Date.now() - startedAt,
+        purpose: "applyPatch"
+      });
+      appendSandboxDiffEvents(database, updated);
+      printJson({ sandbox: updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const updated = database.updateSandbox(record.id, {
+        status: "failed",
+        lastError: message
+      });
+      appendSandboxEvent(database, updated, "sandbox.command", {
+        sandboxId: record.id,
+        command: "git",
+        args: ["apply"],
+        exitCode: 1,
+        durationMs: Date.now() - startedAt,
+        purpose: "applyPatch",
+        error: message
+      });
+      throw error;
+    }
+    return;
+  }
+
+  if (subcommand === "run") {
+    const record = requireSandboxRecord(database, parts[1]);
+    const commandLine = parts.slice(2).join(" ");
+    if (!commandLine) {
+      throw new Error("Usage: npm run sandbox -- run <sandbox-id> <command> [args...]");
+    }
+    const parsed = parseCommandLine(commandLine);
+    const sandbox = sandboxFromRecord({
+      id: record.id,
+      sandboxPath: record.sandboxPath,
+      workspacePath: record.workspacePath,
+      createdAt: record.createdAt,
+      resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
+      networkPolicy: record.networkPolicy
+    });
+    const result = await manager.runCommand(sandbox, parsed.command, parsed.args, {
+      timeoutMs: collectFlagNumber(parts, "--timeout-ms") ?? 15_000
+    });
+    const updated = database.appendSandboxTestResult(record.id, result);
+    appendSandboxEvent(database, record, "sandbox.command", {
+      sandboxId: record.id,
+      command: parsed.command,
+      args: parsed.args,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      timedOut: result.timedOut,
+      blockedByPolicy: result.blockedByPolicy === true,
+      resourceLimitExceeded: result.resourceLimitExceeded === true
+    });
+    if (result.resourceLimitExceeded) {
+      appendSandboxEvent(database, record, "sandbox.resourceLimitExceeded", {
+        sandboxId: record.id,
+        command: parsed.command,
+        limits: record.resourceLimits
+      });
+    }
+    printJson({ sandbox: updated, result });
+    return;
+  }
+
+  if (subcommand === "diff") {
+    const record = requireSandboxRecord(database, parts[1]);
+    const sandbox = sandboxFromRecord({
+      id: record.id,
+      sandboxPath: record.sandboxPath,
+      workspacePath: record.workspacePath,
+      createdAt: record.createdAt,
+      resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
+      networkPolicy: record.networkPolicy
+    });
+    const diff = await manager.diff(sandbox);
+    const updated = database.updateSandbox(record.id, { diff });
+    appendSandboxDiffEvents(database, updated);
+    printJson({ sandbox: updated });
+    return;
+  }
+
+  if (subcommand === "approve") {
+    const record = requireSandboxRecord(database, parts[1]);
+    if (record.status !== "active") {
+      throw new Error(`Sandbox is not active: ${record.id}`);
+    }
+    const approvalId = createId("approval");
+    const sandbox = sandboxFromRecord({
+      id: record.id,
+      sandboxPath: record.sandboxPath,
+      workspacePath: record.workspacePath,
+      createdAt: record.createdAt,
+      resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
+      networkPolicy: record.networkPolicy
+    });
+    await manager.promote(sandbox, approvalId);
+    await manager.destroy(sandbox);
+    const now = new Date().toISOString();
+    const updated = database.updateSandbox(record.id, {
+      status: "promoted",
+      approvalId,
+      promotedAt: now,
+      destroyedAt: now
+    });
+    appendSandboxEvent(database, updated, "sandbox.promoted", {
+      sandboxId: updated.id,
+      approvalId,
+      promoter: "cli",
+      diffLength: updated.diff.length
+    });
+    appendSandboxEvent(database, updated, "sandbox.destroyed", {
+      sandboxId: updated.id,
+      reason: "promoted"
+    });
+    printJson({ sandbox: updated });
+    return;
+  }
+
+  if (subcommand === "reject") {
+    const record = requireSandboxRecord(database, parts[1]);
+    const sandbox = sandboxFromRecord({
+      id: record.id,
+      sandboxPath: record.sandboxPath,
+      workspacePath: record.workspacePath,
+      createdAt: record.createdAt,
+      resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
+      networkPolicy: record.networkPolicy
+    });
+    await manager.destroy(sandbox);
+    const updated = database.updateSandbox(record.id, {
+      status: "rejected",
+      destroyedAt: new Date().toISOString()
+    });
+    appendSandboxEvent(database, updated, "sandbox.destroyed", {
+      sandboxId: updated.id,
+      reason: "rejected"
+    });
+    printJson({ sandbox: updated });
+    return;
+  }
+
+  throw new Error("Usage: npm run sandbox -- list|create|status|apply-patch|run|diff|approve|reject");
+}
+
+async function handleSkillCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  appDataDir: string,
+  args: ParsedArgs,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "list";
+  const service = new SkillService(database, {
+    skillsRoot: path.join(appDataDir, "skills"),
+    sessionId: "session_cli_skills"
+  });
+  installDeveloperWorkflowSkills(service);
+
+  if (subcommand === "list") {
+    printJson({ skills: service.listSkills(collectFlagNumber(parts, "--limit") ?? 100) });
+    return;
+  }
+
+  if (subcommand === "create") {
+    const runId = collectFlagValue(parts, "--from-run");
+    const name = collectFlagValue(parts, "--name");
+    const description = collectFlagValue(parts, "--description") ?? "Captured SquidBot run packaged as a reusable skill.";
+    if (!runId || !name) {
+      throw new Error("Usage: npm run skill -- create --from-run <runId> --name <name> --description <description>");
+    }
+    printJson(service.createFromRun({ runId, name, description }));
+    return;
+  }
+
+  if (subcommand === "show") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    if (!skillId) {
+      throw new Error("Usage: npm run skill -- show <skillId> [--version <version>]");
+    }
+    const skill = service.getSkill(skillId);
+    const version = service.getVersion(skillId, collectFlagValue(parts, "--version"));
+    if (!skill) {
+      throw new Error(`Skill not found: ${skillId}`);
+    }
+    if (!version) {
+      throw new Error(`Skill version not found: ${skillId}@${collectFlagValue(parts, "--version") ?? skill.currentVersion}`);
+    }
+    const packageManifest = validatePackageManifest(version.packagePath);
+    printJson({
+      skill,
+      version,
+      packageManifest,
+      versions: service.listVersions(skillId),
+      evaluations: service.listEvaluations(skillId, version.version)
+    });
+    return;
+  }
+
+  if (subcommand === "run") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    if (!skillId) {
+      throw new Error("Usage: npm run skill -- run <skillId> --workspace <path> [--version <version>] [--test]");
+    }
+    const plan = service.prepareRun(skillId, collectFlagValue(parts, "--version"));
+    const workspacePath =
+      args.workspace ??
+      collectFlagValue(parts, "--workspace") ??
+      plan.version.testFixtures[0]?.repoPath ??
+      database.getSetting<string>("workspacePath");
+    if (!workspacePath) {
+      throw new Error("Skill run requires --workspace <path> or a fixture repo.");
+    }
+    const runtime = createRuntime({
+      database,
+      workspacePath: resolveFromInvocationCwd(workspacePath)
+    });
+    const result = await runtime.runTask(plan.task, {
+      testCommand: args.testCommand ?? collectFlagValue(parts, "--test-command") ?? plan.testCommand,
+      skillCall: {
+        skillId,
+        version: plan.version.version,
+        testMode: parts.includes("--test")
+      }
+    });
+    service.appendSkillRunEvent({
+      runId: result.runId,
+      skillId,
+      version: plan.version.version,
+      workspacePath,
+      testMode: parts.includes("--test"),
+      traceId: result.trace.id
+    });
+    printJson({
+      skill: plan.skill,
+      version: plan.version.version,
+      runId: result.runId,
+      finalSummary: result.finalSummary,
+      trace: result.trace
+    });
+    return;
+  }
+
+  if (subcommand === "test" || subcommand === "evaluate") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    if (!skillId) {
+      throw new Error("Usage: npm run skill -- test <skillId> [--version <version>]");
+    }
+    printJson({ evaluation: await evaluateSkill(database, skillId, { version: collectFlagValue(parts, "--version") }) });
+    return;
+  }
+
+  if (subcommand === "promote") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    const version = collectFlagValue(parts, "--version");
+    if (!skillId || !version) {
+      throw new Error("Usage: npm run skill -- promote <skillId> --version <version> [--override]");
+    }
+    const evaluation = parts.includes("--override") ? undefined : await evaluateSkill(database, skillId, { version });
+    printJson({ version: service.promote(skillId, version, { evaluation, override: parts.includes("--override") }) });
+    return;
+  }
+
+  if (subcommand === "rollback") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    const version = collectFlagValue(parts, "--to");
+    if (!skillId || !version) {
+      throw new Error("Usage: npm run skill -- rollback <skillId> --to <version>");
+    }
+    printJson({ skill: service.rollback(skillId, version) });
+    return;
+  }
+
+  if (subcommand === "delete") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    if (!skillId) {
+      throw new Error("Usage: npm run skill -- delete <skillId> [--version <version>]");
+    }
+    printJson({ archived: service.archive(skillId, collectFlagValue(parts, "--version")) });
+    return;
+  }
+
+  if (subcommand === "compare") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    const from = collectFlagValue(parts, "--from");
+    const to = collectFlagValue(parts, "--to");
+    if (!skillId || !from || !to) {
+      throw new Error("Usage: npm run skill -- compare <skillId> --from <version> --to <version>");
+    }
+    printJson({ diff: service.compare(skillId, from, to) });
+    return;
+  }
+
+  if (subcommand === "bump") {
+    const skillId = resolveSkillReference(service, parts[1]);
+    if (!skillId) {
+      throw new Error("Usage: npm run skill -- bump <skillId>");
+    }
+    printJson({ version: service.bumpVersion(skillId) });
+    return;
+  }
+
+  throw new Error("Usage: npm run skill -- list|create|show|run|test|promote|rollback|delete|compare|bump");
+}
+
+async function handleJobCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  appDataDir: string,
+  args: ParsedArgs,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "list";
+  const scheduler = createScheduler(database, appDataDir);
+
+  if (subcommand === "list") {
+    const statusFlag = collectFlagValue(parts, "--status");
+    const status =
+      statusFlag === "active" || statusFlag === "paused" || statusFlag === "running" || statusFlag === "completed" || statusFlag === "all"
+        ? statusFlag
+        : parts.includes("--all")
+          ? "all"
+          : undefined;
+    printJson({ jobs: scheduler.listJobs({ status, limit: collectFlagNumber(parts, "--limit") ?? 100 }) });
+    return;
+  }
+
+  if (subcommand === "show" || subcommand === "status") {
+    const jobId = parts[1];
+    if (!jobId) {
+      throw new Error("Usage: npm run job -- show <job-id>");
+    }
+    printJson(scheduler.showJob(jobId));
+    return;
+  }
+
+  if (subcommand === "create") {
+    const type = collectFlagValue(parts, "--type");
+    const name = collectFlagValue(parts, "--name");
+    const schedule = collectFlagValue(parts, "--schedule");
+    if (type !== "skill" && type !== "task") {
+      throw new Error("Usage: npm run job -- create --type skill|task --schedule <cron-or-phrase> --name <name> ...");
+    }
+    if (!name || !schedule) {
+      throw new Error("Job creation requires --name and --schedule.");
+    }
+
+    const refId = type === "skill" ? collectFlagValue(parts, "--skill") : collectFlagValue(parts, "--task");
+    if (!refId) {
+      throw new Error(type === "skill" ? "Skill jobs require --skill <skill-id>." : "Task jobs require --task <task string>.");
+    }
+
+    const workspaceFlag = collectFlagValue(parts, "--workspace") ?? args.workspace;
+    const request: CreateJobRequest = {
+      name,
+      type,
+      refId,
+      version: type === "skill" ? collectFlagValue(parts, "--version") ?? null : null,
+      schedule,
+      workspacePath: workspaceFlag ? resolveFromInvocationCwd(workspaceFlag) : database.getSetting<string>("workspacePath") ?? null,
+      testCommand: collectFlagValue(parts, "--test-command") ?? args.testCommand ?? null,
+      testMode: parts.includes("--test")
+    };
+    printJson({ job: scheduler.createJob(request) });
+    return;
+  }
+
+  if (subcommand === "pause") {
+    printJson({ job: scheduler.pauseJob(requireJobId(parts[1], "pause")) });
+    return;
+  }
+
+  if (subcommand === "resume") {
+    printJson({ job: scheduler.resumeJob(requireJobId(parts[1], "resume")) });
+    return;
+  }
+
+  if (subcommand === "remove" || subcommand === "delete") {
+    printJson({ removed: scheduler.removeJob(requireJobId(parts[1], "remove")) });
+    return;
+  }
+
+  if (subcommand === "runnow" || subcommand === "run-now") {
+    const result = await scheduler.runNow(requireJobId(parts[1], "runnow"));
+    deliverMessagingTrigger(database, "jobComplete", {
+      text: `Job ${result.job.id} completed with outcome ${result.run.outcome}.`,
+      jobId: result.job.id,
+      runId: result.run.runId ?? undefined
+    });
+    printJson(result);
+    return;
+  }
+
+  if (subcommand === "tick" || subcommand === "run-due") {
+    const results = await scheduler.runDueJobs();
+    for (const result of results) {
+      deliverMessagingTrigger(database, "jobComplete", {
+        text: `Job ${result.job.id} completed with outcome ${result.run.outcome}.`,
+        jobId: result.job.id,
+        runId: result.run.runId ?? undefined
+      });
+    }
+    printJson({ results });
+    return;
+  }
+
+  if (subcommand === "worker") {
+    const intervalMs = collectFlagNumber(parts, "--interval-ms") ?? 60_000;
+    const cycles = collectFlagNumber(parts, "--cycles") ?? 1;
+    const results = [];
+    for (let index = 0; index < Math.max(1, cycles); index += 1) {
+      const cycleResults = await scheduler.runDueJobs();
+      for (const result of cycleResults) {
+        deliverMessagingTrigger(database, "jobComplete", {
+          text: `Job ${result.job.id} completed with outcome ${result.run.outcome}.`,
+          jobId: result.job.id,
+          runId: result.run.runId ?? undefined
+        });
+      }
+      results.push(...cycleResults);
+      if (index < cycles - 1) {
+        await sleep(Math.max(1000, intervalMs));
+      }
+    }
+    printJson({ results });
+    return;
+  }
+
+  throw new Error("Usage: npm run job -- list|show|create|pause|resume|runnow|remove|tick|worker");
+}
+
+async function handleTeamCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  args: ParsedArgs,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "list";
+  const coordinator = new TeamCoordinator(database);
+  const registry = new RoleRegistry(database);
+  registry.installDefaults();
+  const store = new TeamStore(database);
+
+  if (subcommand === "roles") {
+    const roleCommand = parts[1] ?? "list";
+    if (roleCommand === "list") {
+      printJson({ roles: registry.list({ includeArchived: parts.includes("--include-archived") }) });
+      return;
+    }
+    if (roleCommand === "show") {
+      const roleId = parts[2];
+      if (!roleId) {
+        throw new Error("Usage: npm run team -- roles show <role-id>");
+      }
+      const role = registry.get(roleId);
+      if (!role) {
+        throw new Error(`Role not found: ${roleId}`);
+      }
+      printJson({ role });
+      return;
+    }
+    if (roleCommand === "install") {
+      const rolePath = parts[2];
+      if (!rolePath) {
+        throw new Error("Usage: npm run team -- roles install ./path/to/role.json");
+      }
+      printJson({ role: registry.installFromFile(resolveFromInvocationCwd(rolePath)) });
+      return;
+    }
+    throw new Error("Usage: npm run team -- roles list|show|install");
+  }
+
+  if (subcommand === "create") {
+    const name = collectFlagValue(parts, "--name") ?? "Engineering Core Team";
+    const roles = (collectFlagValue(parts, "--roles") ?? "coordinator,researcher,implementer,tester,reviewer")
+      .split(",")
+      .map((role) => role.trim())
+      .filter(Boolean);
+    const id = normalizeTeamId(collectFlagValue(parts, "--id") ?? name);
+    const manifest = validateTeamManifest(
+      {
+        ...defaultTeamManifest,
+        id,
+        name,
+        description: collectFlagValue(parts, "--description") ?? defaultTeamManifest.description,
+        roles,
+        coordinatorRoleId: roles.includes("coordinator") ? "coordinator" : roles[0],
+        defaultPolicy: {
+          ...defaultTeamManifest.defaultPolicy,
+          maxConcurrentAgents: collectFlagNumber(parts, "--max-agents") ?? defaultTeamManifest.defaultPolicy.maxConcurrentAgents
+        }
+      },
+      registry.list().map((role) => role.id)
+    );
+    printJson({ team: coordinator.createTeam(manifest) });
+    return;
+  }
+
+  if (subcommand === "list") {
+    if (coordinator.listTeams().length === 0) {
+      coordinator.ensureDefaultSetup();
+    }
+    printJson({ teams: coordinator.listTeams(), runs: coordinator.listTeamRuns(undefined, 20) });
+    return;
+  }
+
+  if (subcommand === "show") {
+    const teamId = parts[1];
+    if (!teamId) {
+      throw new Error("Usage: npm run team -- show <team-id>");
+    }
+    const team = coordinator.getTeam(teamId);
+    if (!team) {
+      throw new Error(`Team not found: ${teamId}`);
+    }
+    printJson({ team, runs: coordinator.listTeamRuns(teamId, 20) });
+    return;
+  }
+
+  if (subcommand === "run") {
+    const teamId = parts[1];
+    const task = collectTeamRunTask(parts);
+    if (!teamId || !task) {
+      throw new Error('Usage: npm run team -- run <team-id> --workspace ./path "Task text"');
+    }
+    const result = await coordinator.runTeamTask({
+      teamId,
+      workspacePath: args.workspace ? resolveFromInvocationCwd(args.workspace) : database.getSetting<string>("workspacePath") ?? undefined,
+      task,
+      mode: parts.includes("--dry-run") ? "dry-run" : "sandbox",
+      maxAgents: collectFlagNumber(parts, "--max-agents")
+    });
+    if (result.handoffs.length > 0) {
+      deliverMessagingTrigger(database, "teamHandoff", {
+        text: `Team run ${result.run.id} has ${result.handoffs.length} open handoff(s).`,
+        teamRunId: result.run.id
+      });
+    }
+    printJson(result);
+    return;
+  }
+
+  if (subcommand === "status" || subcommand === "inspect") {
+    const teamRunId = requireTeamRunId(parts[1], subcommand);
+    const run = store.getTeamRun(teamRunId);
+    if (!run) {
+      throw new Error(`Team run not found: ${teamRunId}`);
+    }
+    printJson({
+      run,
+      subtasks: store.listSubtasks(teamRunId),
+      blackboardEntries: store.listBlackboardEntries({ teamRunId }),
+      messages: store.listMessages(teamRunId),
+      conflicts: store.listConflicts(teamRunId, "all"),
+      handoffs: store.listHandoffs({ teamRunId, status: "all" })
+    });
+    return;
+  }
+
+  if (subcommand === "blackboard") {
+    const teamRunId = requireTeamRunId(parts[1], "blackboard");
+    printJson({ entries: store.listBlackboardEntries({ teamRunId }) });
+    return;
+  }
+
+  if (subcommand === "messages") {
+    const teamRunId = requireTeamRunId(parts[1], "messages");
+    printJson({ messages: store.listMessages(teamRunId) });
+    return;
+  }
+
+  if (subcommand === "conflicts") {
+    const teamRunId = requireTeamRunId(parts[1], "conflicts");
+    printJson({ conflicts: store.listConflicts(teamRunId, "all") });
+    return;
+  }
+
+  if (subcommand === "pause") {
+    coordinator.pauseTeamRun(requireTeamRunId(parts[1], "pause"));
+    printJson({ ok: true });
+    return;
+  }
+
+  if (subcommand === "resume") {
+    coordinator.resumeTeamRun(requireTeamRunId(parts[1], "resume"));
+    printJson({ ok: true });
+    return;
+  }
+
+  if (subcommand === "cancel") {
+    coordinator.cancelTeamRun(requireTeamRunId(parts[1], "cancel"));
+    printJson({ ok: true });
+    return;
+  }
+
+  if (subcommand === "handoffs") {
+    printJson({ handoffs: store.listHandoffs({ status: parts.includes("--all") ? "all" : "open" }) });
+    return;
+  }
+
+  if (subcommand === "handoff") {
+    const handoffCommand = parts[1] ?? "show";
+    if (handoffCommand === "show") {
+      const handoffId = parts[2];
+      if (!handoffId) {
+        throw new Error("Usage: npm run team -- handoff show <handoff-id>");
+      }
+      const handoff = store.getHandoff(handoffId);
+      if (!handoff) {
+        throw new Error(`Handoff not found: ${handoffId}`);
+      }
+      printJson({ handoff });
+      return;
+    }
+    if (handoffCommand === "answer") {
+      const handoffId = parts[2];
+      const text = collectFlagValue(parts, "--text") ?? collectFlagValue(parts, "--option");
+      if (!handoffId || !text) {
+        throw new Error('Usage: npm run team -- handoff answer <handoff-id> --text "..."');
+      }
+      const handoff = store.answerHandoff(handoffId, text, { source: "cli" });
+      database.appendEvent({
+        id: createId("evt"),
+        timestamp: new Date().toISOString(),
+        sessionId: `session_${handoff.teamRunId}`,
+        type: "team.handoff.resolved",
+        data: {
+          runId: handoff.teamRunId,
+          teamRunId: handoff.teamRunId,
+          handoffId,
+          responseText: text
+        }
+      });
+      refreshTraceForSession(database, `session_${handoff.teamRunId}`);
+      printJson({ handoff });
+      return;
+    }
+    throw new Error("Usage: npm run team -- handoff show|answer");
+  }
+
+  throw new Error("Usage: npm run team -- roles|create|list|show|run|status|inspect|blackboard|messages|conflicts|pause|resume|cancel|handoffs|handoff");
+}
+
+async function handleEvalCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  appDataDir: string,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "datasets";
+  const store = new EvalResultStore(database);
+  const registry = new DatasetRegistry(database);
+
+  if (subcommand === "datasets") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ datasets: registry.list() });
+      return;
+    }
+    if (action === "show") {
+      const datasetId = parts[2];
+      if (!datasetId) {
+        throw new Error("Usage: npm run eval -- datasets show <dataset-id>");
+      }
+      const dataset = registry.get(datasetId);
+      if (!dataset) {
+        throw new Error(`Dataset not found: ${datasetId}`);
+      }
+      printJson({ dataset, tasks: store.listTasks(datasetId) });
+      return;
+    }
+    if (action === "validate") {
+      const datasetPath = parts[2];
+      if (!datasetPath) {
+        throw new Error("Usage: npm run eval -- datasets validate <dataset-folder-or-json>");
+      }
+      const manifest = registry.validate(resolveFromInvocationCwd(datasetPath));
+      printJson({ valid: true, manifest });
+      return;
+    }
+    if (action === "install") {
+      const datasetPath = parts[2];
+      if (!datasetPath) {
+        throw new Error("Usage: npm run eval -- datasets install <dataset-folder-or-json>");
+      }
+      const dataset = registry.install(resolveFromInvocationCwd(datasetPath));
+      refreshTraceForSession(database, "session_eval_datasets");
+      printJson({ dataset, tasks: store.listTasks(dataset.id) });
+      return;
+    }
+    throw new Error("Usage: npm run eval -- datasets list|show|validate|install");
+  }
+
+  if (subcommand === "run") {
+    const datasetId = collectFlagValue(parts, "--dataset");
+    if (!datasetId) {
+      throw new Error("Usage: npm run eval -- run --dataset <datasetId> --skill <skillId> [--version <version>] OR --variant <variantId>");
+    }
+    if (collectFlagValue(parts, "--team")) {
+      throw new Error("Team evaluation targets are not supported yet in Phase 14; use --skill or --variant for offline benchmarks.");
+    }
+    const runner = new BenchmarkRunner(database, { skillsRoot: path.join(appDataDir, "skills") });
+    const result = await runner.run({
+      datasetId,
+      skillId: collectFlagValue(parts, "--skill"),
+      version: collectFlagValue(parts, "--version"),
+      variantId: collectFlagValue(parts, "--variant")
+    });
+    deliverMessagingTrigger(database, "evalComplete", {
+      text: `Evaluation ${result.evalRun.id} completed for dataset ${datasetId}. Composite score: ${(result.evalRun.metrics?.compositeScore ?? 0).toFixed(3)}.`,
+      runId: result.evalRun.id
+    });
+    printJson(result);
+    return;
+  }
+
+  if (subcommand === "show") {
+    const evalRunId = parts[1];
+    if (!evalRunId) {
+      throw new Error("Usage: npm run eval -- show <eval-run-id>");
+    }
+    const evalRun = store.getEvalRun(evalRunId);
+    if (!evalRun) {
+      throw new Error(`Eval run not found: ${evalRunId}`);
+    }
+    printJson({
+      evalRun,
+      taskResults: store.listTaskResults(evalRunId),
+      comparisons: store.listComparisonsForRun(evalRunId)
+    });
+    return;
+  }
+
+  if (subcommand === "compare") {
+    const baselineEvalRunId = parts[1];
+    const candidateEvalRunId = parts[2];
+    if (!baselineEvalRunId || !candidateEvalRunId) {
+      throw new Error("Usage: npm run eval -- compare <baselineEvalRunId> <candidateEvalRunId>");
+    }
+    const comparison = compareEvalRuns(database, baselineEvalRunId, candidateEvalRunId);
+    refreshTraceForSession(database, `session_${comparison.id}`);
+    printJson({ comparison });
+    return;
+  }
+
+  if (subcommand === "leaderboard") {
+    const datasetId = collectFlagValue(parts, "--dataset");
+    const domain = collectFlagValue(parts, "--domain");
+    printJson({ leaderboard: listLeaderboard(database, { datasetId, domain, limit: collectFlagNumber(parts, "--limit") ?? 50 }) });
+    return;
+  }
+
+  throw new Error("Usage: npm run eval -- datasets|run|show|compare|leaderboard");
+}
+
+async function handleEvolveCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  appDataDir: string,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "variants";
+  const variants = new SkillVariantStore(database);
+  const store = new EvalResultStore(database);
+  const skills = new SkillService(database, {
+    skillsRoot: path.join(appDataDir, "skills"),
+    sessionId: "session_cli_evolution_skills"
+  });
+  installDeveloperWorkflowSkills(skills);
+
+  if (subcommand === "propose") {
+    const skillRef = collectFlagValue(parts, "--skill");
+    if (!skillRef) {
+      throw new Error("Usage: npm run evolve -- propose --skill <skillId> [--from-reflection <id>|--from-gap <id>|--from-eval <id>]");
+    }
+    const proposer = new MutationProposer(database, { skillsRoot: path.join(appDataDir, "skills") });
+    const variant = proposer.propose({
+      skillId: resolveSkillReference(skills, skillRef) ?? skillRef,
+      fromReflection: collectFlagValue(parts, "--from-reflection"),
+      fromGap: collectFlagValue(parts, "--from-gap"),
+      fromEval: collectFlagValue(parts, "--from-eval"),
+      instruction: collectFlagValue(parts, "--instruction")
+    });
+    refreshTraceForSession(database, "session_evolution");
+    printJson({ variant });
+    return;
+  }
+
+  if (subcommand === "variants") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      const skillRef = collectFlagValue(parts, "--skill");
+      const skillId = skillRef ? (resolveSkillReference(skills, skillRef) ?? skillRef) : undefined;
+      printJson({ variants: skillId ? variants.listVariantsForSkill(skillId, parts.includes("--include-archived")) : variants.listVariants(collectFlagNumber(parts, "--limit") ?? 100) });
+      return;
+    }
+    if (action === "show") {
+      const variantId = parts[2];
+      if (!variantId) {
+        throw new Error("Usage: npm run evolve -- variants show <variant-id>");
+      }
+      const variant = variants.getVariant(variantId);
+      if (!variant) {
+        throw new Error(`Variant not found: ${variantId}`);
+      }
+      printJson({
+        variant,
+        staticCheck: store.latestStaticCheck(variant.id),
+        canary: store.getCanaryForVariant(variant.id)
+      });
+      return;
+    }
+    throw new Error("Usage: npm run evolve -- variants list|show");
+  }
+
+  if (subcommand === "check") {
+    const variant = requireVariant(variants, parts[1]);
+    const check = store.saveStaticCheck(variant.id, runStaticChecks(variant));
+    database.appendEvent({
+      id: createId("evt"),
+      timestamp: new Date().toISOString(),
+      sessionId: "session_evolution",
+      type: "evolve.staticCheck.completed",
+      data: {
+        runId: variant.id,
+        variantId: variant.id,
+        skillId: variant.skillId,
+        status: check.status,
+        checks: check.checks
+      }
+    });
+    refreshTraceForSession(database, "session_evolution");
+    printJson({ variant, check });
+    return;
+  }
+
+  if (subcommand === "test") {
+    const variant = requireVariant(variants, parts[1]);
+    const datasetId = collectFlagValue(parts, "--dataset");
+    if (!datasetId) {
+      throw new Error("Usage: npm run evolve -- test <variantId> --dataset <datasetId>");
+    }
+    const runner = new BenchmarkRunner(database, { skillsRoot: path.join(appDataDir, "skills") });
+    printJson(await runner.run({ datasetId, variantId: variant.id }));
+    return;
+  }
+
+  if (subcommand === "canary") {
+    const variantId = parts[1];
+    const datasetId = collectFlagValue(parts, "--dataset");
+    if (!variantId || !datasetId) {
+      throw new Error("Usage: npm run evolve -- canary <variantId> --dataset <datasetId>");
+    }
+    const canary = createCanaryForVariant(database, variantId, datasetId);
+    refreshTraceForSession(database, `session_${canary.id}`);
+    printJson({ canary });
+    return;
+  }
+
+  if (subcommand === "promote") {
+    const variantId = parts[1];
+    if (!variantId) {
+      throw new Error("Usage: npm run evolve -- promote <variantId>");
+    }
+    const result = promoteVariant(database, variantId, { skillsRoot: path.join(appDataDir, "skills") });
+    refreshTraceForSession(database, `session_${variantId}`);
+    printJson(result);
+    return;
+  }
+
+  if (subcommand === "rollback") {
+    const skillRef = parts[1];
+    const target = collectFlagValue(parts, "--to");
+    if (!skillRef || !target) {
+      throw new Error("Usage: npm run evolve -- rollback <skillId> --to <versionOrVariantId>");
+    }
+    const skillId = resolveSkillReference(skills, skillRef) ?? skillRef;
+    const result = rollbackEvolution(database, skillId, target, { skillsRoot: path.join(appDataDir, "skills") });
+    refreshTraceForSession(database, `session_${skillId}`);
+    printJson(result);
+    return;
+  }
+
+  throw new Error("Usage: npm run evolve -- propose|variants|check|test|canary|promote|rollback");
+}
+
+function createScheduler(database: ReturnType<typeof initializeDatabase>, appDataDir: string): Scheduler {
+  return new Scheduler(database, {
+    skillsRoot: path.join(appDataDir, "skills"),
+    workspacePath: database.getSetting<string>("workspacePath") ?? null
+  });
+}
+
+function requireJobId(jobId: string | undefined, command: string): string {
+  if (!jobId) {
+    throw new Error(`Usage: npm run job -- ${command} <job-id>`);
+  }
+  return jobId;
+}
+
+function requireTeamRunId(teamRunId: string | undefined, command: string): string {
+  if (!teamRunId) {
+    throw new Error(`Usage: npm run team -- ${command} <team-run-id>`);
+  }
+  return teamRunId;
+}
+
+function normalizeTeamId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^team_/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/^/, "team_");
+}
+
+function collectTeamRunTask(parts: string[]): string {
+  const skipNext = new Set<number>();
+  for (let index = 0; index < parts.length; index += 1) {
+    if (parts[index].startsWith("--")) {
+      skipNext.add(index);
+      if (parts[index + 1] && !parts[index + 1].startsWith("--")) {
+        skipNext.add(index + 1);
+      }
+    }
+  }
+  return parts
+    .slice(2)
+    .filter((_, index) => !skipNext.has(index + 2))
+    .join(" ")
+    .trim();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveSkillReference(service: SkillService, value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (service.getSkill(value)) {
+    return value;
+  }
+  const normalized = normalizeSkillId(value);
+  if (service.getSkill(normalized)) {
+    return normalized;
+  }
+  const compact = `skill_${value.replace(/^skill_/, "").replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+  if (service.getSkill(compact)) {
+    return compact;
+  }
+  return value;
+}
+
+function requireVariant(store: SkillVariantStore, variantId: string | undefined): ReturnType<SkillVariantStore["getVariant"]> & {} {
+  if (!variantId) {
+    throw new Error("Variant ID is required.");
+  }
+  const variant = store.getVariant(variantId);
+  if (!variant) {
+    throw new Error(`Variant not found: ${variantId}`);
+  }
+  return variant;
+}
+
+function validatePackageManifest(packagePath: string | null): { path: string | null; valid: boolean } {
+  if (!packagePath) {
+    return { path: null, valid: true };
+  }
+  const manifestPath = path.join(packagePath, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`Skill package manifest not found: ${manifestPath}`);
+  }
+  validateSkillManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+  return { path: manifestPath, valid: true };
+}
+
+function requireSandboxRecord(database: ReturnType<typeof initializeDatabase>, sandboxId: string | undefined): SandboxRecord {
+  if (!sandboxId) {
+    throw new Error("Sandbox ID is required.");
+  }
+  const record = database.getSandbox(sandboxId);
+  if (!record) {
+    throw new Error(`Sandbox not found: ${sandboxId}`);
+  }
+  return record;
+}
+
+function appendSandboxDiffEvents(database: ReturnType<typeof initializeDatabase>, record: SandboxRecord): void {
+  const changedFiles = [...record.diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]);
+  appendSandboxEvent(database, record, "sandbox.diff", {
+    sandboxId: record.id,
+    diffLength: record.diff.length,
+    fileCount: changedFiles.length,
+    changedFiles
+  });
+  appendSandboxEvent(database, record, "sandbox.approvalRequested", {
+    sandboxId: record.id,
+    diffLength: record.diff.length,
+    fileCount: changedFiles.length,
+    changedFiles,
+    approvalRequired: record.diff.trim().length > 0
+  });
+}
+
+function appendSandboxEvent(
+  database: ReturnType<typeof initializeDatabase>,
+  record: Pick<SandboxRecord, "id" | "sessionId" | "runId">,
+  type:
+    | "sandbox.created"
+    | "sandbox.command"
+    | "sandbox.diff"
+    | "sandbox.approvalRequested"
+    | "sandbox.promoted"
+    | "sandbox.destroyed"
+    | "sandbox.resourceLimitExceeded",
+  data: Record<string, unknown>
+): void {
+  const sessionId = record.sessionId ?? "session_cli_sandbox";
+  database.appendEvent({
+    id: createId("evt"),
+    timestamp: new Date().toISOString(),
+    sessionId,
+    type,
+    data: {
+      runId: record.runId ?? `run_${record.id}`,
+      ...data
+    }
+  });
+  refreshTraceForSession(database, sessionId);
+}
+
+function refreshTraceForSession(database: ReturnType<typeof initializeDatabase>, sessionId: string): void {
+  const events = database.listEvents(sessionId).map((event) => {
+    const data = JSON.parse(event.data) as JsonObject;
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      sessionId: event.session_id,
+      runId: typeof data.runId === "string" ? data.runId : `run_${sessionId}`,
+      type: event.type as AgentEvent["type"],
+      data
+    } satisfies AgentEvent;
+  });
+  if (events.length === 0) {
+    return;
+  }
+
+  const trace = buildTrace(events);
+  database.saveTrace({
+    id: trace.id,
+    sessionId,
+    events: trace,
+    createdAt: trace.createdAt
+  });
+}
+
+function readSandboxOptions(database: ReturnType<typeof initializeDatabase>): Parameters<SandboxManager["create"]>[1] {
+  return {
+    resourceLimits: {
+      cpu: normalizePositiveNumber(database.getSetting("sandbox.limits.cpu")) ?? 1,
+      memoryMb: normalizePositiveInteger(database.getSetting("sandbox.limits.memory")) ?? 512,
+      diskMb: normalizePositiveInteger(database.getSetting("sandbox.limits.disk")) ?? 512
+    },
+    networkPolicy: normalizeNetworkPolicy(database.getSetting("sandbox.network.policy"))
+  };
+}
+
+function normalizeSandboxResourceLimits(value: unknown): { cpu: number; memoryMb: number; diskMb: number } {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    cpu: normalizePositiveNumber(record.cpu) ?? 1,
+    memoryMb: normalizePositiveInteger(record.memoryMb) ?? 512,
+    diskMb: normalizePositiveInteger(record.diskMb) ?? 512
+  };
+}
+
+function normalizeNetworkPolicy(value: unknown): "allow" | "deny" | "custom" {
+  return value === "allow" || value === "custom" || value === "deny" ? value : "deny";
+}
+
+function handleMemoryGraphCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): void {
+  const store = new MemoryGraphStore(database);
+  const subcommand = parts[0] ?? "list";
+
+  if (subcommand === "list") {
+    const type = collectFlagValue(parts, "--type");
+    const nodes = store.listNodes({
+      type,
+      includeDeleted: parts.includes("--include-deleted"),
+      includeArchived: parts.includes("--include-archived"),
+      limit: collectFlagNumber(parts, "--limit") ?? 100
+    });
+    printJson({ nodes });
+    return;
+  }
+
+  if (subcommand === "show") {
+    const nodeId = parts[1];
+    if (!nodeId) {
+      throw new Error("Usage: npm run memory -- graph show <nodeId>");
+    }
+    const node = store.getNode(nodeId, { includeArchived: true });
+    if (!node) {
+      throw new Error(`Memory graph node not found: ${nodeId}`);
+    }
+    printJson({
+      node,
+      edges: store.listEdgesForNode(nodeId),
+      traversal: store.traverse(nodeId, collectFlagNumber(parts, "--depth") ?? 1)
+    });
+    return;
+  }
+
+  if (subcommand === "create") {
+    const type = parts[1];
+    const title = collectFlagValue(parts, "--title");
+    const body = collectFlagValue(parts, "--body");
+    if (!type || !title || !body) {
+      throw new Error('Usage: npm run memory -- graph create <type> --title "Title" --body "Body"');
+    }
+    printJson({
+      node: store.createNode({
+        type,
+        title,
+        body,
+        confidence: collectFlagFloat(parts, "--confidence") ?? 0.5,
+        importance: collectFlagFloat(parts, "--importance") ?? 0.5,
+        sensitivity: collectFlagValue(parts, "--sensitivity") ?? "public"
+      })
+    });
+    return;
+  }
+
+  if (subcommand === "link") {
+    const [fromNodeId, toNodeId, edgeType] = parts.slice(1);
+    if (!fromNodeId || !toNodeId || !edgeType) {
+      throw new Error("Usage: npm run memory -- graph link <fromId> <toId> <edgeType>");
+    }
+    printJson({ edge: store.createEdge({ fromNodeId, toNodeId, type: edgeType }) });
+    return;
+  }
+
+  if (subcommand === "search") {
+    const topK = collectFlagNumber(parts, "--top") ?? 5;
+    const fts = collectFlagValue(parts, "--fts");
+    const vector = collectFlagValue(parts, "--vector");
+    const hybrid = collectFlagValue(parts, "--hybrid");
+    if (fts) {
+      printJson({ results: store.searchFTS(fts, topK) });
+      return;
+    }
+    if (vector) {
+      printJson({ results: store.searchVector(vector, topK) });
+      return;
+    }
+    if (hybrid) {
+      printJson({ results: store.hybridSearch(hybrid, topK) });
+      return;
+    }
+    throw new Error('Usage: npm run memory -- graph search --hybrid "query" --top 5');
+  }
+
+  if (subcommand === "merge") {
+    const [targetNodeId, sourceNodeId] = parts.slice(1);
+    if (!targetNodeId || !sourceNodeId) {
+      throw new Error("Usage: npm run memory -- graph merge <targetNodeId> <sourceNodeId>");
+    }
+    printJson({ node: store.mergeNodes(targetNodeId, sourceNodeId) });
+    return;
+  }
+
+  if (subcommand === "archive") {
+    const nodeId = parts[1];
+    if (!nodeId) {
+      throw new Error("Usage: npm run memory -- graph archive <nodeId>");
+    }
+    printJson({ node: store.archiveNode(nodeId) });
+    return;
+  }
+
+  if (subcommand === "delete") {
+    const nodeId = parts[1];
+    if (!nodeId) {
+      throw new Error("Usage: npm run memory -- graph delete <nodeId>");
+    }
+    printJson({ node: store.deleteNode(nodeId) });
+    return;
+  }
+
+  throw new Error("Usage: npm run memory -- graph list|show|create|link|search|merge|archive|delete");
+}
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(redactValue(value).value, null, 2));
+}
+
+function collectFlagValue(parts: string[], flag: string): string | undefined {
+  const index = parts.indexOf(flag);
+  if (index < 0) {
+    return undefined;
+  }
+  const values: string[] = [];
+  for (let cursor = index + 1; cursor < parts.length; cursor += 1) {
+    if (parts[cursor].startsWith("--")) {
+      break;
+    }
+    values.push(parts[cursor]);
+  }
+  return values.join(" ").trim() || undefined;
+}
+
+function collectFlagNumber(parts: string[], flag: string): number | undefined {
+  const value = collectFlagValue(parts, flag);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : undefined;
+}
+
+function requireValue(value: string | undefined, message: string): string {
+  if (!value) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function collectKeyValueFlags(parts: string[]): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (!part.startsWith("--")) {
+      continue;
+    }
+    const key = normalizeFlagKey(part);
+    const collected: string[] = [];
+    for (let cursor = index + 1; cursor < parts.length; cursor += 1) {
+      if (parts[cursor].startsWith("--")) {
+        break;
+      }
+      collected.push(parts[cursor]);
+    }
+    if (collected.length > 0) {
+      values[key] = collected.join(" ");
+    }
+  }
+  return values;
+}
+
+function normalizeFlagKey(flag: string): string {
+  return flag
+    .replace(/^--/, "")
+    .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+function normalizeChannelType(value: string | undefined, platform: string): "dm" | "group" | "channel" | "thread" | "email" | "room" | "webchat" {
+  if (value === "dm" || value === "group" || value === "channel" || value === "thread" || value === "email" || value === "room" || value === "webchat") {
+    return value;
+  }
+  if (platform === "email") {
+    return "email";
+  }
+  if (platform === "matrix") {
+    return "room";
+  }
+  if (platform === "localWeb") {
+    return "webchat";
+  }
+  return "channel";
+}
+
+function normalizeRisk(value: string | undefined): "low" | "medium" | "high" {
+  return value === "medium" || value === "high" ? value : "low";
+}
+
+function loadFixturePayload(fixturePath: string): unknown {
+  const body = fs.readFileSync(fixturePath, "utf8");
+  if (fixturePath.endsWith(".eml")) {
+    return parseEmailFixture(body, path.basename(fixturePath));
+  }
+  return JSON.parse(body) as unknown;
+}
+
+function parseEmailFixture(body: string, fallbackId: string): Record<string, unknown> {
+  const [rawHeaders, ...bodyParts] = body.split(/\r?\n\r?\n/);
+  const headers: Record<string, string> = {};
+  for (const line of rawHeaders.split(/\r?\n/)) {
+    const [key, ...rest] = line.split(":");
+    if (key && rest.length > 0) {
+      headers[key.trim().toLowerCase()] = rest.join(":").trim();
+    }
+  }
+  return {
+    platform: "email",
+    messageId: headers["message-id"] ?? fallbackId,
+    from: headers.from,
+    to: headers.to,
+    subject: headers.subject,
+    text: bodyParts.join("\n\n").trim() || headers.subject,
+    mailbox: "fixture",
+    attachments: headers["x-attachment-filename"]
+      ? [
+          {
+            id: headers["x-attachment-id"] ?? headers["x-attachment-filename"],
+            filename: headers["x-attachment-filename"],
+            mimeType: headers["x-attachment-mime"],
+            sizeBytes: headers["x-attachment-size"] ? Number(headers["x-attachment-size"]) : undefined
+          }
+        ]
+      : undefined
+  };
+}
+
+function inferFixturePlatform(raw: unknown): MessagingPlatform {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const platform = typeof record.platform === "string" ? record.platform : "genericWebhook";
+  return platform as MessagingPlatform;
+}
+
+function maybeTrustFixture(store: MessagingStore, raw: unknown, normalized: { platform: string; externalUserId?: string; externalChannelId?: string }): void {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  if (record.fixtureAllow !== true) {
+    return;
+  }
+  if (normalized.externalUserId) {
+    store.upsertIdentity({
+      platform: normalized.platform,
+      externalUserId: normalized.externalUserId,
+      trustLevel: "trusted",
+      metadata: { fixtureAllow: true }
+    });
+    store.createAllowlistRule({
+      platform: normalized.platform,
+      externalUserId: normalized.externalUserId,
+      externalChannelId: normalized.externalChannelId ?? null,
+      ruleType: "allowUser",
+      riskLimit: "medium"
+    });
+  }
+  if (normalized.externalChannelId) {
+    store.createAllowlistRule({
+      platform: normalized.platform,
+      externalChannelId: normalized.externalChannelId,
+      ruleType: "allowChannel",
+      riskLimit: "medium"
+    });
+  }
+}
+
+function collectFlagFloat(parts: string[], flag: string): number | undefined {
+  const value = collectFlagValue(parts, flag);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function redactSettingValue(key: string, value: unknown): string {
+  if (/apikey|token|secret|password/i.test(key)) {
+    return typeof value === "string" && value ? "[set]" : "[empty]";
+  }
+
+  return JSON.stringify(value);
+}
+
+function parseSettingValue(key: string, value: string): unknown {
+  if (key === "model.provider") {
+    if (!["local", "api", "mock"].includes(value)) {
+      throw new Error("model.provider must be one of: local, api, mock");
+    }
+
+    return value;
+  }
+
+  if (key === "model.budget.api") {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error("model.budget.api must be a positive token count.");
+    }
+
+    return Math.floor(parsed);
+  }
+
+  return value;
+}
+
+function withDefaultModelSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  return {
+    "model.provider": settings["model.provider"] ?? "local",
+    "model.apiUrl": settings["model.apiUrl"] ?? "",
+    "model.apiKey": settings["model.apiKey"] ?? "",
+    "model.apiModel": settings["model.apiModel"] ?? "byok-openai-compatible",
+    "model.budget.api": settings["model.budget.api"] ?? "",
+    "github.apiKey": settings["github.apiKey"] ?? "",
+    "github.baseUrl": settings["github.baseUrl"] ?? "",
+    "gitlab.apiKey": settings["gitlab.apiKey"] ?? "",
+    "gitlab.baseUrl": settings["gitlab.baseUrl"] ?? "",
+    "gitlab.apiUrl": settings["gitlab.apiUrl"] ?? "",
+    "jira.apiKey": settings["jira.apiKey"] ?? "",
+    "jira.baseUrl": settings["jira.baseUrl"] ?? "",
+    "jira.apiUrl": settings["jira.apiUrl"] ?? "",
+    "jira.projectKey": settings["jira.projectKey"] ?? "",
+    "jenkins.apiKey": settings["jenkins.apiKey"] ?? "",
+    "jenkins.baseUrl": settings["jenkins.baseUrl"] ?? "",
+    ...settings
+  };
+}
+
+function readSettingWithDefault(database: ReturnType<typeof initializeDatabase>, key: string): unknown {
+  const settings = withDefaultModelSettings(database.getAllSettings());
+  return settings[key] ?? null;
+}
+
+function normalizeTokenBudget(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+  }
+
+  return null;
+}
+
+function normalizePositiveInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+  }
+
+  return null;
+}
+
+function normalizePositiveNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  return null;
+}
+
+function formatCost(value: number): string {
+  return `$${value.toFixed(6)}`;
+}

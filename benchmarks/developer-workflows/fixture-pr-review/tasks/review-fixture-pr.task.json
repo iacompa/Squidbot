@@ -1,0 +1,5 @@
+{
+  "id": "review-fixture-pr",
+  "name": "Review fixture PR",
+  "task": "Review fixture GitHub pull request and draft comments without posting them"
+}

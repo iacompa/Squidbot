@@ -1,0 +1,14 @@
+{
+  "platform": "slack",
+  "type": "file_upload",
+  "event_id": "slack_evt_dangerous_sh_002",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "file": {
+    "id": "F_DANGEROUS_SH",
+    "name": "run.sh",
+    "mimetype": "text/x-shellscript",
+    "size": 28,
+    "content": "echo should-not-run"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "platform": "genericWebhook",
+  "id": "generic_webhook_invalid_sig_001",
+  "channelId": "generic-fixture",
+  "userId": "generic-user",
+  "headers": {
+    "x-squidbot-signature": "invalid"
+  },
+  "text": "/squid run list files"
+}

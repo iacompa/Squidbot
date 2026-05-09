@@ -1,0 +1,18 @@
+{
+  "platform": "discord",
+  "fixtureAllow": true,
+  "id": "discord_evt_attachment_001",
+  "channel_id": "D_FIXTURE",
+  "user": {
+    "id": "DU_FIXTURE"
+  },
+  "content": "upload",
+  "attachments": [
+    {
+      "id": "att_001",
+      "filename": "danger.sh",
+      "mimeType": "text/x-shellscript",
+      "sizeBytes": 42
+    }
+  ]
+}

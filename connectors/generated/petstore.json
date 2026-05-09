@@ -1,0 +1,131 @@
+{
+  "name": "petstore",
+  "systemType": "fixture_petstore",
+  "description": "Local Petstore OpenAPI fixture for SquidBot connector import tests.",
+  "protocol": "rest",
+  "auth": {
+    "type": "none",
+    "scopes": []
+  },
+  "permissions": [
+    {
+      "name": "readPets",
+      "riskLevel": "low",
+      "requiresApproval": false
+    },
+    {
+      "name": "writePets",
+      "riskLevel": "medium",
+      "requiresApproval": true
+    }
+  ],
+  "endpoints": [
+    {
+      "operationId": "listPets",
+      "method": "GET",
+      "path": "/pets",
+      "description": "List pets",
+      "permission": "readPets",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "dataClassifications": [
+        "public"
+      ]
+    },
+    {
+      "operationId": "createPet",
+      "method": "POST",
+      "path": "/pets",
+      "description": "Create a pet",
+      "permission": "writePets",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "dataClassifications": [
+        "public"
+      ]
+    }
+  ],
+  "dataClassifications": [
+    "public"
+  ],
+  "rateLimits": {
+    "callsPerMinute": 60
+  },
+  "costOwner": "free",
+  "fixtureMode": true,
+  "fixtureData": {
+    "listPets": [
+      {
+        "id": 0,
+        "name": "",
+        "status": ""
+      }
+    ],
+    "createPet": {
+      "id": 0,
+      "name": "",
+      "status": ""
+    }
+  },
+  "readWrite": {
+    "read": [
+      "listPets"
+    ],
+    "write": [
+      "createPet"
+    ]
+  }
+}

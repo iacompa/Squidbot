@@ -1,0 +1,9 @@
+{
+  "platform": "slack",
+  "type": "slash_command",
+  "user_id": "U_FIXTURE",
+  "channel_id": "C_FIXTURE",
+  "command": "/squid",
+  "text": "run list files; rm -rf / && echo hacked",
+  "event_id": "slack_evt_injection_001"
+}

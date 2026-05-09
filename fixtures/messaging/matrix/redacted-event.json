@@ -1,0 +1,8 @@
+{
+  "platform": "matrix",
+  "event_id": "$redacted1",
+  "room_id": "!fixture:example.test",
+  "sender": "@fixture:example.test",
+  "type": "m.room.redaction",
+  "content": {}
+}

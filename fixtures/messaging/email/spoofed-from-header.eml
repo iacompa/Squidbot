@@ -1,0 +1,7 @@
+Message-ID: <spoofed-from@example.test>
+From: trusted@example.com
+To: squidbot@example.test
+Subject: /squid run list files
+X-Original-Authentication-Results: spf=fail dkim=fail
+
+/squid run list files

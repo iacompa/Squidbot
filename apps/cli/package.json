@@ -1,0 +1,43 @@
+{
+  "name": "@squidbot/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "init": "tsx src/index.ts init",
+    "chat": "tsx src/index.ts chat",
+    "run": "tsx src/index.ts run",
+    "traces": "tsx src/index.ts traces",
+    "reflections": "tsx src/index.ts reflections",
+    "gaps": "tsx src/index.ts gaps",
+    "sandbox": "tsx src/index.ts sandbox",
+    "skill": "tsx src/index.ts skill",
+    "skills": "tsx src/index.ts skill",
+    "job": "tsx src/index.ts job",
+    "jobs": "tsx src/index.ts job",
+    "team": "tsx src/index.ts team",
+    "teams": "tsx src/index.ts team",
+    "eval": "tsx src/index.ts eval",
+    "evolve": "tsx src/index.ts evolve",
+    "messaging": "tsx src/index.ts messaging",
+    "memory": "tsx src/index.ts memory",
+    "connectors": "tsx src/index.ts connectors",
+    "model": "tsx src/index.ts model",
+    "settings": "tsx src/index.ts settings",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@squidbot/connectors": "0.1.0",
+    "@squidbot/core": "0.1.0",
+    "@squidbot/db": "0.1.0",
+    "@squidbot/evals": "0.1.0",
+    "@squidbot/memory": "0.1.0",
+    "@squidbot/messaging": "0.1.0",
+    "@squidbot/sandbox": "0.1.0",
+    "@squidbot/scheduler": "0.1.0",
+    "@squidbot/skills": "0.1.0",
+    "@squidbot/team": "0.1.0"
+  }
+}

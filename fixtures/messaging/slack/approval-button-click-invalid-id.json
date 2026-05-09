@@ -1,0 +1,8 @@
+{
+  "platform": "slack",
+  "event_id": "slack_evt_approval_invalid_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "action": "approve",
+  "approvalId": "approval_does_not_exist"
+}

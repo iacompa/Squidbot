@@ -1,0 +1,9 @@
+Message-ID: <attachment-email-002@example.test>
+From: fixture@example.com
+To: squidbot@example.local
+Subject: Build log
+X-Attachment-Filename: build.log
+X-Attachment-Mime: text/plain
+X-Attachment-Size: 1280
+
+Attachment metadata fixture: build.log

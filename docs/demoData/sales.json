@@ -1,0 +1,22 @@
+{
+  "readSales": [
+    {
+      "id": "sale_001",
+      "customer": "Acme Tools",
+      "amount": 1299.5,
+      "status": "paid"
+    },
+    {
+      "id": "sale_002",
+      "customer": "Northwind Parts",
+      "amount": 842.25,
+      "status": "pending"
+    }
+  ],
+  "createSale": {
+    "id": "sale_fixture_created",
+    "customer": "Fixture Customer",
+    "amount": 100,
+    "status": "draft"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "id": "bad-whatsapp",
+  "name": "Bad WhatsApp",
+  "platform": "whatsapp",
+  "description": "Should fail because WhatsApp has no compliance notes.",
+  "transport": {
+    "mode": "fixture",
+    "inboundSupported": true,
+    "outboundSupported": true,
+    "interactiveSupported": true,
+    "realNetworkDefault": false
+  },
+  "auth": {
+    "type": "apiKey",
+    "settingKeys": ["whatsapp.apiKey"],
+    "requiresUserProvidedCredential": true
+  },
+  "capabilities": {
+    "text": true,
+    "markdown": false,
+    "threads": false,
+    "reactions": false,
+    "slashCommands": false,
+    "buttons": true,
+    "modals": false,
+    "files": true,
+    "images": true,
+    "audio": true,
+    "voiceTranscription": false,
+    "edits": false,
+    "deletes": false,
+    "readReceipts": true,
+    "ephemeralMessages": false,
+    "deliveryReceipts": true,
+    "webhooks": true,
+    "polling": false
+  },
+  "risk": {
+    "defaultReadRisk": "medium",
+    "defaultWriteRisk": "high",
+    "requiresAllowlist": true,
+    "requiresApprovalForCommands": true,
+    "maxDefaultActionRisk": "low"
+  },
+  "privacy": {
+    "storesMessageBodiesLocally": true,
+    "attachmentPolicy": "metadataOnly",
+    "redactionRequired": true
+  },
+  "fixtureMode": {
+    "supported": true
+  }
+}

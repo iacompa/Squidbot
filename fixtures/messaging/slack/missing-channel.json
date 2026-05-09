@@ -1,0 +1,6 @@
+{
+  "platform": "slack",
+  "event_id": "slack_evt_missing_channel_001",
+  "user": "U_FIXTURE",
+  "text": "/squid run list files"
+}

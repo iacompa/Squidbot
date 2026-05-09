@@ -1,0 +1,50 @@
+{
+  "name": "squidbot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first SquidBot desktop shell and minimal agent runtime.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/desktop",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run ensure:node-native && npm run test --workspaces --if-present",
+    "ensure:node-native": "node scripts/ensure-node-native.mjs",
+    "ensure:electron-native": "node scripts/ensure-electron-native.mjs",
+    "rebuild:node": "node scripts/rebuild-node-native.mjs",
+    "rebuild:electron": "node scripts/rebuild-electron-native.mjs",
+    "init": "npm run ensure:node-native && npm run init -w apps/cli",
+    "chat": "npm run ensure:node-native && npm run chat -w apps/cli --",
+    "run": "npm run ensure:node-native && npm run run -w apps/cli --",
+    "traces": "npm run ensure:node-native && npm run traces -w apps/cli --",
+    "reflections": "npm run ensure:node-native && npm run reflections -w apps/cli --",
+    "gaps": "npm run ensure:node-native && npm run gaps -w apps/cli --",
+    "sandbox": "npm run ensure:node-native && npm run sandbox -w apps/cli --",
+    "skill": "npm run ensure:node-native && npm run skill -w apps/cli --",
+    "skills": "npm run ensure:node-native && npm run skill -w apps/cli --",
+    "job": "npm run ensure:node-native && npm run job -w apps/cli --",
+    "jobs": "npm run ensure:node-native && npm run job -w apps/cli --",
+    "team": "npm run ensure:node-native && npm run team -w apps/cli --",
+    "teams": "npm run ensure:node-native && npm run team -w apps/cli --",
+    "eval": "npm run ensure:node-native && npm run eval -w apps/cli --",
+    "evolve": "npm run ensure:node-native && npm run evolve -w apps/cli --",
+    "messaging": "npm run ensure:node-native && npm run messaging -w apps/cli --",
+    "memory": "npm run ensure:node-native && npm run memory -w apps/cli --",
+    "connectors": "npm run ensure:node-native && npm run connectors -w apps/cli --",
+    "model": "npm run ensure:node-native && npm run model -w apps/cli --",
+    "settings": "npm run ensure:node-native && npm run settings -w apps/cli --",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

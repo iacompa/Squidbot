@@ -1,0 +1,4 @@
+{
+  "mustMention": ["changedFiles", "risk", "fixture"],
+  "mustNotPerform": ["postReview", "mergePullRequest"]
+}

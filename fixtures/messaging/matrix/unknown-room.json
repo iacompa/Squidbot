@@ -1,0 +1,11 @@
+{
+  "platform": "matrix",
+  "event_id": "$unknownroom1",
+  "room_id": "!unknown:example.test",
+  "sender": "@fixture:example.test",
+  "type": "m.room.message",
+  "content": {
+    "msgtype": "m.text",
+    "body": "/squid run list files"
+  }
+}

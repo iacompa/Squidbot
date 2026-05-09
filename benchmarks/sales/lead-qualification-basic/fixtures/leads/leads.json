@@ -1,0 +1,16 @@
+[
+  {
+    "id": "lead_001",
+    "company": "Acme Tools",
+    "employees": 180,
+    "budget": 50000,
+    "need": "Automated developer workflow triage"
+  },
+  {
+    "id": "lead_002",
+    "company": "Neighborhood Bakery",
+    "employees": 8,
+    "budget": 1200,
+    "need": "Simple website update"
+  }
+]

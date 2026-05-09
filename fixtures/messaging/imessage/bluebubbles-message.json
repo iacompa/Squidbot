@@ -1,0 +1,8 @@
+{
+  "platform": "imessage",
+  "fixtureAllow": true,
+  "id": "bb_evt_001",
+  "userId": "+15555550123",
+  "channelId": "imessage_fixture_chat",
+  "text": "Squid status"
+}

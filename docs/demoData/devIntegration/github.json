@@ -1,0 +1,132 @@
+{
+  "listBranches": [
+    { "name": "main", "sha": "abc123main" },
+    { "name": "feature/fix-add", "sha": "def456fix" }
+  ],
+  "fetchFile": {
+    "path": "calculator.py",
+    "content": "def add(a, b):\n    return a - b\n"
+  },
+  "searchCode": [
+    { "path": "calculator.py", "line": 1, "preview": "def add(a, b):" },
+    { "path": "test_calculator.py", "line": 4, "preview": "assert add(2, 3) == 5" }
+  ],
+  "readDiff": {
+    "pullRequest": 42,
+    "files": [
+      {
+        "path": "calculator.py",
+        "additions": 1,
+        "deletions": 1,
+        "patch": "--- a/calculator.py\n+++ b/calculator.py\n@@\n-    return a - b\n+    return a + b\n"
+      }
+    ]
+  },
+  "listIssues": [
+    {
+      "id": "GH-101",
+      "number": 101,
+      "title": "Calculator add subtracts",
+      "labels": ["bug", "priority:high"],
+      "state": "open",
+      "assignee": null
+    },
+    {
+      "id": "GH-102",
+      "number": 102,
+      "title": "Add release notes draft",
+      "labels": ["documentation"],
+      "state": "open",
+      "assignee": "dev-docs"
+    }
+  ],
+  "createIssue": {
+    "id": "GH-103",
+    "number": 103,
+    "title": "Fixture issue",
+    "state": "open"
+  },
+  "updateIssue": {
+    "id": "GH-101",
+    "number": 101,
+    "state": "open",
+    "labels": ["bug", "priority:high", "triaged"]
+  },
+  "closeIssue": {
+    "id": "GH-101",
+    "number": 101,
+    "state": "closed"
+  },
+  "addIssueComment": {
+    "id": "comment_gh_001",
+    "body": "Fixture triage comment added.",
+    "issue": "GH-101"
+  },
+  "addLabels": {
+    "id": "GH-101",
+    "labels": ["bug", "priority:high", "triaged"]
+  },
+  "openDraftPullRequest": {
+    "id": "PR-42",
+    "number": 42,
+    "title": "Fix calculator add",
+    "branch": "squidbot/fix-add",
+    "base": "main",
+    "draft": true,
+    "url": "https://example.invalid/github/acme/squidbot/pull/42"
+  },
+  "updatePullRequestDescription": {
+    "id": "PR-42",
+    "number": 42,
+    "body": "Updated fixture PR description."
+  },
+  "requestReviews": {
+    "id": "PR-42",
+    "requestedReviewers": ["dev-reviewer"]
+  },
+  "mergePullRequest": {
+    "id": "PR-42",
+    "merged": true,
+    "sha": "merge789"
+  },
+  "closePullRequest": {
+    "id": "PR-42",
+    "state": "closed"
+  },
+  "commentOnPullRequest": {
+    "id": "comment_pr_001",
+    "pullRequest": "PR-42",
+    "body": "Fixture PR review comment."
+  },
+  "createBranch": {
+    "name": "squidbot/fix-add",
+    "sha": "branch001"
+  },
+  "pushCommit": {
+    "sha": "commit001",
+    "branch": "squidbot/fix-add",
+    "message": "Fix calculator add"
+  },
+  "deleteBranch": {
+    "name": "squidbot/fix-add",
+    "deleted": true
+  },
+  "triggerWorkflow": {
+    "id": "gha_1001",
+    "workflow": "test.yml",
+    "status": "queued"
+  },
+  "getWorkflowRunStatus": {
+    "id": "gha_1001",
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "fetchWorkflowLogs": {
+    "id": "gha_1001",
+    "logs": "pytest: 2 passed"
+  },
+  "cancelWorkflowRun": {
+    "id": "gha_1001",
+    "status": "cancelled"
+  }
+}

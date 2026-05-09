@@ -1,0 +1,7 @@
+{
+  "platform": "slack",
+  "event_id": "slack_evt_high_risk_low_user_001",
+  "channel": "C_FIXTURE",
+  "user": "U_LOW_RISK",
+  "text": "/squid run fix calculator add and promote it to the real workspace immediately"
+}

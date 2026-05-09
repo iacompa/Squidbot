@@ -1,0 +1,14 @@
+{
+  "platform": "slack",
+  "type": "file_upload",
+  "event_id": "slack_evt_path_traversal_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "file": {
+    "id": "F_TRAVERSAL",
+    "name": "../../evil.txt",
+    "mimetype": "text/plain",
+    "size": 20,
+    "content": "hello"
+  }
+}

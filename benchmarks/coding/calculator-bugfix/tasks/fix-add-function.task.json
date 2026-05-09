@@ -1,0 +1,6 @@
+{
+  "id": "fix-add-function",
+  "name": "Fix add function",
+  "task": "Fix calculator add function",
+  "testCommand": "python3 -c \"from calculator import add; assert add(2, 3) == 5\""
+}

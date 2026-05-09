@@ -1,0 +1,21 @@
+{
+  "triggerBuild": {
+    "id": "jenkins_9001",
+    "job": "squidbot-tests",
+    "status": "queued"
+  },
+  "getBuildStatus": {
+    "id": "jenkins_9001",
+    "job": "squidbot-tests",
+    "status": "success",
+    "durationMs": 1250
+  },
+  "fetchBuildLogs": {
+    "id": "jenkins_9001",
+    "logs": "pytest: 2 passed"
+  },
+  "cancelBuild": {
+    "id": "jenkins_9001",
+    "status": "cancelled"
+  }
+}

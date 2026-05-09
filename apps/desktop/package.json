@@ -1,0 +1,43 @@
+{
+  "name": "@squidbot/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SquidBot local-first Electron desktop app.",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "node ../../scripts/ensure-electron-native.mjs && electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "rebuild:electron": "node ../../scripts/rebuild-electron-native.mjs",
+    "rebuild:native": "npm run rebuild:electron",
+    "preview": "node ../../scripts/ensure-electron-native.mjs && electron-vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@squidbot/connectors": "0.1.0",
+    "@squidbot/core": "0.1.0",
+    "@squidbot/db": "0.1.0",
+    "@squidbot/evals": "0.1.0",
+    "@squidbot/memory": "0.1.0",
+    "@squidbot/messaging": "0.1.0",
+    "@squidbot/sandbox": "0.1.0",
+    "@squidbot/scheduler": "0.1.0",
+    "@squidbot/skills": "0.1.0",
+    "@squidbot/team": "0.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "electron-vite": "^3.1.0",
+    "lucide-react": "^0.503.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "electron": "^39.8.9",
+    "jsdom": "^29.1.1",
+    "vite": "^6.3.4"
+  }
+}

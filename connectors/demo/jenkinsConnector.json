@@ -1,0 +1,25 @@
+{
+  "name": "jenkins",
+  "systemType": "ci_cd",
+  "description": "Jenkins CI connector with fixture-backed build status and approval-gated build actions.",
+  "protocol": "rest",
+  "auth": { "type": "bearer", "scopes": ["build:read", "build:write"] },
+  "permissions": [
+    { "name": "ciRead", "riskLevel": "low", "requiresApproval": false },
+    { "name": "ciWrite", "riskLevel": "medium", "requiresApproval": true }
+  ],
+  "endpoints": [
+    { "operationId": "triggerBuild", "method": "POST", "path": "/job/{jobName}/build", "description": "Trigger a Jenkins build.", "permission": "ciWrite", "inputSchema": { "type": "object", "properties": { "jobName": { "type": "string" }, "parameters": { "type": "object" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "getBuildStatus", "method": "GET", "path": "/job/{jobName}/{buildNumber}/api/json", "description": "Get Jenkins build status.", "permission": "ciRead", "inputSchema": { "type": "object", "properties": { "jobName": { "type": "string" }, "buildNumber": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "fetchBuildLogs", "method": "GET", "path": "/job/{jobName}/{buildNumber}/consoleText", "description": "Fetch Jenkins build logs.", "permission": "ciRead", "inputSchema": { "type": "object", "properties": { "jobName": { "type": "string" }, "buildNumber": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "cancelBuild", "method": "POST", "path": "/job/{jobName}/{buildNumber}/stop", "description": "Cancel a Jenkins build.", "permission": "ciWrite", "inputSchema": { "type": "object", "properties": { "jobName": { "type": "string" }, "buildNumber": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] }
+  ],
+  "dataClassifications": ["public"],
+  "costOwner": "free",
+  "fixtureMode": true,
+  "fixtureData": "../../docs/demoData/devIntegration/jenkins.json",
+  "readWrite": {
+    "read": ["getBuildStatus", "fetchBuildLogs"],
+    "write": ["triggerBuild", "cancelBuild"]
+  }
+}

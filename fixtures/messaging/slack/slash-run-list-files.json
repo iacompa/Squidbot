@@ -1,0 +1,9 @@
+{
+  "platform": "slack",
+  "type": "slash_command",
+  "event_id": "slack_evt_slash_run_001",
+  "channel_id": "C_FIXTURE",
+  "user_id": "U_FIXTURE",
+  "command": "/squid",
+  "text": "run list files"
+}

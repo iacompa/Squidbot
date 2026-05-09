@@ -1,0 +1,17 @@
+{
+  "platform": "telegram",
+  "update_id": 1005,
+  "callback_query": {
+    "id": "callback_invalid_approval",
+    "from": {
+      "id": 5001
+    },
+    "message": {
+      "chat": {
+        "id": 7001
+      }
+    },
+    "data": "approve"
+  },
+  "approvalId": "approval_does_not_exist"
+}

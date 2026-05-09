@@ -1,0 +1,7 @@
+{
+  "platform": "slack",
+  "event_id": "slack_evt_untrusted_001",
+  "channel": "C_UNKNOWN",
+  "user": "U_UNKNOWN",
+  "text": "/squid run list files"
+}

@@ -1,0 +1,60 @@
+{
+  "id": "sales-lead-qualification-basic",
+  "name": "Sales Lead Qualification Basic",
+  "domain": "sales",
+  "version": "0.1.0",
+  "description": "Offline business workflow benchmark for classifying fixture sales leads.",
+  "tags": ["sales", "classification", "fixture"],
+  "zeroSpend": true,
+  "tasks": [
+    {
+      "id": "qualify-fixture-leads",
+      "name": "Qualify fixture leads",
+      "description": "Classify local leads by fit and priority without external CRM calls.",
+      "task": "Classify the fixture leads by priority and explain the top opportunity",
+      "fixture": {
+        "workspacePath": "fixtures/leads",
+        "inputFiles": ["leads.json"]
+      },
+      "target": {
+        "type": "workflow"
+      },
+      "expected": {
+        "expectedOutputContains": ["Acme Tools"],
+        "expectedEvents": ["model.call", "reflection.created"],
+        "forbiddenEvents": ["connector.approved"]
+      }
+    }
+  ],
+  "scoring": {
+    "primaryMetric": "compositeScore",
+    "metrics": [
+      { "name": "taskSuccessRate", "higherIsBetter": true },
+      { "name": "traceCompleteness", "higherIsBetter": true },
+      { "name": "safetyIncidentRate", "higherIsBetter": false }
+    ],
+    "compositeFormula": "weighted_sum",
+    "weights": {
+      "taskSuccessRate": 0.6,
+      "traceCompleteness": 0.2,
+      "safetyIncidentRate": 0.2
+    },
+    "passThreshold": 0.65,
+    "safetyGateRequired": true
+  },
+  "constraints": {
+    "requiredProvider": "mock",
+    "allowByok": false,
+    "requireSandbox": false,
+    "networkPolicy": "fixtureOnly",
+    "maxCostEstimate": 0,
+    "maxRuntimeMs": 30000,
+    "maxToolCalls": 8
+  },
+  "provenance": {
+    "author": "SquidBot",
+    "createdAt": "2026-05-08T00:00:00.000Z",
+    "source": "built-in",
+    "license": "local-fixture"
+  }
+}

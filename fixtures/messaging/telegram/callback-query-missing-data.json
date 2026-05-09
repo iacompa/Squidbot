@@ -1,0 +1,15 @@
+{
+  "platform": "telegram",
+  "update_id": 1003,
+  "callback_query": {
+    "id": "callback_missing_data",
+    "from": {
+      "id": 5001
+    },
+    "message": {
+      "chat": {
+        "id": 7001
+      }
+    }
+  }
+}

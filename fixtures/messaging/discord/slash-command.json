@@ -1,0 +1,19 @@
+{
+  "platform": "discord",
+  "fixtureAllow": true,
+  "id": "discord_evt_slash_001",
+  "channel_id": "D_FIXTURE",
+  "user": {
+    "id": "DU_FIXTURE",
+    "username": "fixture-user"
+  },
+  "data": {
+    "name": "run",
+    "options": [
+      {
+        "name": "task",
+        "value": "list files"
+      }
+    ]
+  }
+}

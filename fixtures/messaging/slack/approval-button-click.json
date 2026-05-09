@@ -1,0 +1,10 @@
+{
+  "platform": "slack",
+  "fixtureAllow": true,
+  "event_id": "slack_evt_approval_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "action": "approve",
+  "approvalId": "approval_fixture_001",
+  "text": "approve approval_fixture_001"
+}

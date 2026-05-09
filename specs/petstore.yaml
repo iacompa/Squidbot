@@ -1,0 +1,60 @@
+openapi: 3.0.3
+info:
+  title: Fixture Petstore
+  version: 1.0.0
+  description: Local Petstore OpenAPI fixture for SquidBot connector import tests.
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags:
+        - pets
+      summary: List pets
+      responses:
+        "200":
+          description: A list of pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+                    status:
+                      type: string
+    post:
+      operationId: createPet
+      tags:
+        - pets
+      summary: Create a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                status:
+                  type: string
+              required:
+                - name
+      responses:
+        "201":
+          description: The created pet.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  status:
+                    type: string

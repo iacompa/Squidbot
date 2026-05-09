@@ -1,0 +1,8 @@
+{
+  "platform": "genericWebhook",
+  "fixtureAllow": true,
+  "id": "webhook_evt_001",
+  "userId": "webhook_user_fixture",
+  "channelId": "webhook_channel_fixture",
+  "text": "/squid run list files"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "badConnector",
+  "systemType": "http",
+  "description": "Invalid test connector",
+  "auth": { "type": "none", "scopes": [] },
+  "permissions": [],
+  "endpoints": [],
+  "dataClassifications": ["public"],
+  "costOwner": "free",
+  "fixtureMode": true,
+  "readWrite": { "read": [], "write": [] }
+}

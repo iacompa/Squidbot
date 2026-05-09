@@ -1,0 +1,9 @@
+{
+  "platform": "whatsapp",
+  "fixtureAllow": true,
+  "id": "wa_evt_approval_001",
+  "userId": "wa_user_fixture",
+  "channelId": "wa_business_fixture",
+  "text": "approve approval_fixture_001",
+  "approvalId": "approval_fixture_001"
+}

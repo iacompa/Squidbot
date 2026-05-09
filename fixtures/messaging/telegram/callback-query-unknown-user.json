@@ -1,0 +1,17 @@
+{
+  "platform": "telegram",
+  "update_id": 1004,
+  "callback_query": {
+    "id": "callback_unknown_user",
+    "from": {
+      "id": 9999
+    },
+    "message": {
+      "chat": {
+        "id": 7001
+      }
+    },
+    "data": "approve"
+  },
+  "approvalId": "approval_fixture_001"
+}

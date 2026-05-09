@@ -1,0 +1,38 @@
+{
+  "listIssues": [
+    {
+      "id": "JIRA-301",
+      "key": "SQUID-301",
+      "summary": "Calculator add subtracts",
+      "status": "To Do",
+      "priority": "High",
+      "labels": ["bug"]
+    }
+  ],
+  "createIssue": {
+    "id": "JIRA-302",
+    "key": "SQUID-302",
+    "summary": "Fixture Jira issue",
+    "status": "To Do"
+  },
+  "updateIssue": {
+    "id": "JIRA-301",
+    "key": "SQUID-301",
+    "labels": ["bug", "triaged"]
+  },
+  "transitionIssue": {
+    "id": "JIRA-301",
+    "key": "SQUID-301",
+    "status": "In Progress"
+  },
+  "closeIssue": {
+    "id": "JIRA-301",
+    "key": "SQUID-301",
+    "status": "Done"
+  },
+  "addComment": {
+    "id": "jira_comment_001",
+    "issue": "SQUID-301",
+    "body": "Fixture Jira comment."
+  }
+}

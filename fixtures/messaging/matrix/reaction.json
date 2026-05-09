@@ -1,0 +1,14 @@
+{
+  "platform": "matrix",
+  "fixtureAllow": true,
+  "event_id": "$matrix_reaction_001",
+  "room_id": "!fixture:localhost",
+  "sender": "@fixture:localhost",
+  "type": "m.reaction",
+  "content": {
+    "m.relates_to": {
+      "event_id": "$matrix_event_001",
+      "key": "✅"
+    }
+  }
+}

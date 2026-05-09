@@ -1,0 +1,9 @@
+{
+  "platform": "slack",
+  "type": "slash_command",
+  "user_id": "U_FIXTURE",
+  "channel_id": "C_FIXTURE",
+  "event_id": "slack_evt_run_skill_fix_add_002",
+  "command": "/squid",
+  "text": "skill run skill_fix_add_bug --workspace ./examples/buggy-python --test"
+}

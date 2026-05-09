@@ -1,0 +1,17 @@
+{
+  "platform": "matrix",
+  "fixtureAllow": true,
+  "event_id": "$matrix_file_001",
+  "room_id": "!fixture:localhost",
+  "sender": "@fixture:localhost",
+  "type": "m.room.message",
+  "content": {
+    "msgtype": "m.file",
+    "body": "report.txt",
+    "url": "mxc://fixture/report",
+    "info": {
+      "mimetype": "text/plain",
+      "size": 512
+    }
+  }
+}

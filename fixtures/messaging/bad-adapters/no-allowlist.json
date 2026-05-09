@@ -1,0 +1,53 @@
+{
+  "id": "bad-no-allowlist",
+  "name": "Bad No Allowlist",
+  "platform": "discord",
+  "description": "Should fail because inbound commands are allowed without allowlist.",
+  "transport": {
+    "mode": "fixture",
+    "inboundSupported": true,
+    "outboundSupported": true,
+    "interactiveSupported": true,
+    "realNetworkDefault": false
+  },
+  "auth": {
+    "type": "none",
+    "settingKeys": [],
+    "requiresUserProvidedCredential": false
+  },
+  "capabilities": {
+    "text": true,
+    "markdown": true,
+    "threads": true,
+    "reactions": true,
+    "slashCommands": true,
+    "buttons": true,
+    "modals": false,
+    "files": false,
+    "images": false,
+    "audio": false,
+    "voiceTranscription": false,
+    "edits": false,
+    "deletes": false,
+    "readReceipts": false,
+    "ephemeralMessages": false,
+    "deliveryReceipts": false,
+    "webhooks": false,
+    "polling": false
+  },
+  "risk": {
+    "defaultReadRisk": "low",
+    "defaultWriteRisk": "medium",
+    "requiresAllowlist": false,
+    "requiresApprovalForCommands": false,
+    "maxDefaultActionRisk": "medium"
+  },
+  "privacy": {
+    "storesMessageBodiesLocally": true,
+    "attachmentPolicy": "metadataOnly",
+    "redactionRequired": true
+  },
+  "fixtureMode": {
+    "supported": true
+  }
+}

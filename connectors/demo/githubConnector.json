@@ -1,0 +1,51 @@
+{
+  "name": "github",
+  "systemType": "version_control",
+  "description": "GitHub repository, issue, pull request, and Actions connector. Fixture mode is enabled by default.",
+  "protocol": "rest",
+  "auth": {
+    "type": "bearer",
+    "scopes": ["repo:read", "repo:write", "pull_request:write", "actions:write"]
+  },
+  "permissions": [
+    { "name": "repoRead", "riskLevel": "low", "requiresApproval": false },
+    { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true },
+    { "name": "pullRequestWrite", "riskLevel": "high", "requiresApproval": true },
+    { "name": "branchWrite", "riskLevel": "high", "requiresApproval": true },
+    { "name": "ciWrite", "riskLevel": "medium", "requiresApproval": true }
+  ],
+  "endpoints": [
+    { "operationId": "listBranches", "method": "GET", "path": "/repos/{owner}/{repo}/branches", "description": "List repository branches.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "fetchFile", "method": "GET", "path": "/repos/{owner}/{repo}/contents/{path}", "description": "Fetch a repository file.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "path": { "type": "string" }, "ref": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "searchCode", "method": "GET", "path": "/search/code", "description": "Search repository code.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "readDiff", "method": "GET", "path": "/repos/{owner}/{repo}/pulls/{pull_number}/files", "description": "Read a pull request diff.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pullNumber": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "listIssues", "method": "GET", "path": "/repos/{owner}/{repo}/issues", "description": "List repository issues.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "state": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "createIssue", "method": "POST", "path": "/repos/{owner}/{repo}/issues", "description": "Create a GitHub issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "title": { "type": "string" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "updateIssue", "method": "PATCH", "path": "/repos/{owner}/{repo}/issues/{issue_number}", "description": "Update a GitHub issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueNumber": { "type": "number" }, "title": { "type": "string" }, "body": { "type": "string" }, "state": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "closeIssue", "method": "PATCH", "path": "/repos/{owner}/{repo}/issues/{issue_number}", "description": "Close a GitHub issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueNumber": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "addIssueComment", "method": "POST", "path": "/repos/{owner}/{repo}/issues/{issue_number}/comments", "description": "Add a comment to a GitHub issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueNumber": { "type": "number" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "addLabels", "method": "POST", "path": "/repos/{owner}/{repo}/issues/{issue_number}/labels", "description": "Add labels to a GitHub issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueNumber": { "type": "number" }, "labels": { "type": "array", "items": { "type": "string" } } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "openDraftPullRequest", "method": "POST", "path": "/repos/{owner}/{repo}/pulls", "description": "Open a draft GitHub pull request.", "permission": "pullRequestWrite", "inputSchema": { "type": "object", "properties": { "title": { "type": "string" }, "head": { "type": "string" }, "base": { "type": "string" }, "body": { "type": "string" }, "draft": { "type": "boolean" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "updatePullRequestDescription", "method": "PATCH", "path": "/repos/{owner}/{repo}/pulls/{pull_number}", "description": "Update a pull request description.", "permission": "pullRequestWrite", "inputSchema": { "type": "object", "properties": { "pullNumber": { "type": "number" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "requestReviews", "method": "POST", "path": "/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", "description": "Request pull request reviews.", "permission": "pullRequestWrite", "inputSchema": { "type": "object", "properties": { "pullNumber": { "type": "number" }, "reviewers": { "type": "array", "items": { "type": "string" } } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "mergePullRequest", "method": "PUT", "path": "/repos/{owner}/{repo}/pulls/{pull_number}/merge", "description": "Merge a GitHub pull request.", "permission": "pullRequestWrite", "inputSchema": { "type": "object", "properties": { "pullNumber": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "closePullRequest", "method": "PATCH", "path": "/repos/{owner}/{repo}/pulls/{pull_number}", "description": "Close a GitHub pull request.", "permission": "pullRequestWrite", "inputSchema": { "type": "object", "properties": { "pullNumber": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "commentOnPullRequest", "method": "POST", "path": "/repos/{owner}/{repo}/issues/{pull_number}/comments", "description": "Comment on a GitHub pull request.", "permission": "pullRequestWrite", "inputSchema": { "type": "object", "properties": { "pullNumber": { "type": "number" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "createBranch", "method": "POST", "path": "/repos/{owner}/{repo}/git/refs", "description": "Create a Git branch.", "permission": "branchWrite", "inputSchema": { "type": "object", "properties": { "branch": { "type": "string" }, "sha": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "pushCommit", "method": "PUT", "path": "/repos/{owner}/{repo}/contents/{path}", "description": "Push a commit to a branch.", "permission": "branchWrite", "inputSchema": { "type": "object", "properties": { "branch": { "type": "string" }, "message": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "deleteBranch", "method": "DELETE", "path": "/repos/{owner}/{repo}/git/refs/heads/{branch}", "description": "Delete a branch.", "permission": "branchWrite", "inputSchema": { "type": "object", "properties": { "branch": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "triggerWorkflow", "method": "POST", "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", "description": "Trigger a GitHub Actions workflow.", "permission": "ciWrite", "inputSchema": { "type": "object", "properties": { "workflowId": { "type": "string" }, "ref": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "getWorkflowRunStatus", "method": "GET", "path": "/repos/{owner}/{repo}/actions/runs/{run_id}", "description": "Get GitHub Actions run status.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "runId": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "fetchWorkflowLogs", "method": "GET", "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/logs", "description": "Fetch GitHub Actions logs.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "runId": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "cancelWorkflowRun", "method": "POST", "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/cancel", "description": "Cancel a GitHub Actions run.", "permission": "ciWrite", "inputSchema": { "type": "object", "properties": { "runId": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] }
+  ],
+  "dataClassifications": ["public"],
+  "rateLimits": { "callsPerMinute": 60 },
+  "costOwner": "free",
+  "fixtureMode": true,
+  "fixtureData": "../../docs/demoData/devIntegration/github.json",
+  "readWrite": {
+    "read": ["listBranches", "fetchFile", "searchCode", "readDiff", "listIssues", "getWorkflowRunStatus", "fetchWorkflowLogs"],
+    "write": ["createIssue", "updateIssue", "closeIssue", "addIssueComment", "addLabels", "openDraftPullRequest", "updatePullRequestDescription", "requestReviews", "mergePullRequest", "closePullRequest", "commentOnPullRequest", "createBranch", "pushCommit", "deleteBranch", "triggerWorkflow", "cancelWorkflowRun"]
+  }
+}

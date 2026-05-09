@@ -1,0 +1,7 @@
+{
+  "platform": "slack",
+  "event_id": "slack_evt_allowed_low_risk_disabled_probe_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "text": "/squid status"
+}

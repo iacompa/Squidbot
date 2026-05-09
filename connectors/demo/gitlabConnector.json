@@ -1,0 +1,49 @@
+{
+  "name": "gitlab",
+  "systemType": "version_control",
+  "description": "GitLab repository, issue, merge request, and pipeline connector. Fixture mode is enabled by default.",
+  "protocol": "rest",
+  "auth": {
+    "type": "bearer",
+    "scopes": ["read_repository", "write_repository", "api"]
+  },
+  "permissions": [
+    { "name": "repoRead", "riskLevel": "low", "requiresApproval": false },
+    { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true },
+    { "name": "mergeRequestWrite", "riskLevel": "high", "requiresApproval": true },
+    { "name": "branchWrite", "riskLevel": "high", "requiresApproval": true },
+    { "name": "ciWrite", "riskLevel": "medium", "requiresApproval": true }
+  ],
+  "endpoints": [
+    { "operationId": "listBranches", "method": "GET", "path": "/projects/{projectId}/repository/branches", "description": "List GitLab branches.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "projectId": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "fetchFile", "method": "GET", "path": "/projects/{projectId}/repository/files/{path}", "description": "Fetch a GitLab file.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "projectId": { "type": "string" }, "path": { "type": "string" }, "ref": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "searchCode", "method": "GET", "path": "/projects/{projectId}/search", "description": "Search GitLab code.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "projectId": { "type": "string" }, "query": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "readDiff", "method": "GET", "path": "/projects/{projectId}/merge_requests/{iid}/changes", "description": "Read a GitLab merge request diff.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "projectId": { "type": "string" }, "iid": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "listIssues", "method": "GET", "path": "/projects/{projectId}/issues", "description": "List GitLab issues.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "projectId": { "type": "string" }, "state": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "createIssue", "method": "POST", "path": "/projects/{projectId}/issues", "description": "Create a GitLab issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "updateIssue", "method": "PUT", "path": "/projects/{projectId}/issues/{iid}", "description": "Update a GitLab issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" }, "labels": { "type": "array", "items": { "type": "string" } } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "closeIssue", "method": "PUT", "path": "/projects/{projectId}/issues/{iid}", "description": "Close a GitLab issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "addIssueComment", "method": "POST", "path": "/projects/{projectId}/issues/{iid}/notes", "description": "Add a GitLab issue comment.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "openMergeRequest", "method": "POST", "path": "/projects/{projectId}/merge_requests", "description": "Open a draft GitLab merge request.", "permission": "mergeRequestWrite", "inputSchema": { "type": "object", "properties": { "title": { "type": "string" }, "sourceBranch": { "type": "string" }, "targetBranch": { "type": "string" }, "description": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "updateMergeRequestDescription", "method": "PUT", "path": "/projects/{projectId}/merge_requests/{iid}", "description": "Update a GitLab merge request.", "permission": "mergeRequestWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" }, "description": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "mergeMergeRequest", "method": "PUT", "path": "/projects/{projectId}/merge_requests/{iid}/merge", "description": "Merge a GitLab merge request.", "permission": "mergeRequestWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "closeMergeRequest", "method": "PUT", "path": "/projects/{projectId}/merge_requests/{iid}", "description": "Close a GitLab merge request.", "permission": "mergeRequestWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "commentOnMergeRequest", "method": "POST", "path": "/projects/{projectId}/merge_requests/{iid}/notes", "description": "Comment on a GitLab merge request.", "permission": "mergeRequestWrite", "inputSchema": { "type": "object", "properties": { "iid": { "type": "number" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "createBranch", "method": "POST", "path": "/projects/{projectId}/repository/branches", "description": "Create a GitLab branch.", "permission": "branchWrite", "inputSchema": { "type": "object", "properties": { "branch": { "type": "string" }, "ref": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "pushCommit", "method": "POST", "path": "/projects/{projectId}/repository/commits", "description": "Push a GitLab commit.", "permission": "branchWrite", "inputSchema": { "type": "object", "properties": { "branch": { "type": "string" }, "commitMessage": { "type": "string" }, "actions": { "type": "array" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "deleteBranch", "method": "DELETE", "path": "/projects/{projectId}/repository/branches/{branch}", "description": "Delete a GitLab branch.", "permission": "branchWrite", "inputSchema": { "type": "object", "properties": { "branch": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "triggerPipeline", "method": "POST", "path": "/projects/{projectId}/pipeline", "description": "Trigger a GitLab pipeline.", "permission": "ciWrite", "inputSchema": { "type": "object", "properties": { "ref": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "getPipelineStatus", "method": "GET", "path": "/projects/{projectId}/pipelines/{pipelineId}", "description": "Get GitLab pipeline status.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "pipelineId": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "fetchPipelineLogs", "method": "GET", "path": "/projects/{projectId}/jobs/{jobId}/trace", "description": "Fetch GitLab pipeline logs.", "permission": "repoRead", "inputSchema": { "type": "object", "properties": { "jobId": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "cancelPipeline", "method": "POST", "path": "/projects/{projectId}/pipelines/{pipelineId}/cancel", "description": "Cancel a GitLab pipeline.", "permission": "ciWrite", "inputSchema": { "type": "object", "properties": { "pipelineId": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] }
+  ],
+  "dataClassifications": ["public"],
+  "rateLimits": { "callsPerMinute": 60 },
+  "costOwner": "free",
+  "fixtureMode": true,
+  "fixtureData": "../../docs/demoData/devIntegration/gitlab.json",
+  "readWrite": {
+    "read": ["listBranches", "fetchFile", "searchCode", "readDiff", "listIssues", "getPipelineStatus", "fetchPipelineLogs"],
+    "write": ["createIssue", "updateIssue", "closeIssue", "addIssueComment", "openMergeRequest", "updateMergeRequestDescription", "mergeMergeRequest", "closeMergeRequest", "commentOnMergeRequest", "createBranch", "pushCommit", "deleteBranch", "triggerPipeline", "cancelPipeline"]
+  }
+}

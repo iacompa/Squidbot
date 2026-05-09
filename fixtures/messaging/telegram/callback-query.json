@@ -1,0 +1,18 @@
+{
+  "platform": "telegram",
+  "fixtureAllow": true,
+  "update_id": 1002,
+  "callback_query": {
+    "id": "callback_001",
+    "from": {
+      "id": 5001
+    },
+    "message": {
+      "chat": {
+        "id": 7001
+      }
+    },
+    "data": "approve"
+  },
+  "approvalId": "approval_fixture_001"
+}

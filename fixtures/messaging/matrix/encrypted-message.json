@@ -1,0 +1,11 @@
+{
+  "platform": "matrix",
+  "event_id": "$encrypted1",
+  "room_id": "!fixture:example.test",
+  "sender": "@fixture:example.test",
+  "type": "m.room.encrypted",
+  "content": {
+    "algorithm": "m.megolm.v1.aes-sha2",
+    "ciphertext": "blocked-fixture-ciphertext"
+  }
+}

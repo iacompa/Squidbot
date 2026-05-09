@@ -1,0 +1,53 @@
+{
+  "id": "bad-real-default",
+  "name": "Bad Real Default",
+  "platform": "slack",
+  "description": "Should fail because real network is default.",
+  "transport": {
+    "mode": "webhook",
+    "inboundSupported": true,
+    "outboundSupported": true,
+    "interactiveSupported": true,
+    "realNetworkDefault": true
+  },
+  "auth": {
+    "type": "botToken",
+    "settingKeys": ["slack.botToken"],
+    "requiresUserProvidedCredential": true
+  },
+  "capabilities": {
+    "text": true,
+    "markdown": true,
+    "threads": true,
+    "reactions": true,
+    "slashCommands": true,
+    "buttons": true,
+    "modals": false,
+    "files": true,
+    "images": true,
+    "audio": false,
+    "voiceTranscription": false,
+    "edits": false,
+    "deletes": false,
+    "readReceipts": false,
+    "ephemeralMessages": true,
+    "deliveryReceipts": true,
+    "webhooks": true,
+    "polling": false
+  },
+  "risk": {
+    "defaultReadRisk": "low",
+    "defaultWriteRisk": "medium",
+    "requiresAllowlist": true,
+    "requiresApprovalForCommands": true,
+    "maxDefaultActionRisk": "medium"
+  },
+  "privacy": {
+    "storesMessageBodiesLocally": true,
+    "attachmentPolicy": "storeLocal",
+    "redactionRequired": true
+  },
+  "fixtureMode": {
+    "supported": true
+  }
+}

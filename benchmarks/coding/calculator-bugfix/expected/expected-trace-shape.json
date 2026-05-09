@@ -1,0 +1,13 @@
+{
+  "requiredEvents": [
+    "model.call",
+    "plan.generated",
+    "workspace.summary",
+    "tool.call",
+    "sandbox.created",
+    "sandbox.command",
+    "sandbox.approvalRequested",
+    "reflection.created"
+  ],
+  "forbiddenEvents": ["connector.approved", "sandbox.promoted"]
+}

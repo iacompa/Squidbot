@@ -1,0 +1,21 @@
+{
+  "name": "@squidbot/messaging",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fixture-first messaging gateway and channel adapters for SquidBot.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@squidbot/core": "0.1.0",
+    "@squidbot/db": "0.1.0"
+  }
+}

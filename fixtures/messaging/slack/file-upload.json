@@ -1,0 +1,17 @@
+{
+  "platform": "slack",
+  "fixtureAllow": true,
+  "event_id": "slack_evt_file_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "text": "Please inspect this log",
+  "files": [
+    {
+      "id": "file_001",
+      "name": "build.log",
+      "mimetype": "text/plain",
+      "size": 1280,
+      "url": "fixture://build.log"
+    }
+  ]
+}

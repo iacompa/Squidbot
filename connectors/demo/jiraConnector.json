@@ -1,0 +1,27 @@
+{
+  "name": "jira",
+  "systemType": "issue_tracker",
+  "description": "Jira issue tracker connector with fixture-backed issue reads and approval-gated writes.",
+  "protocol": "rest",
+  "auth": { "type": "bearer", "scopes": ["jira:read", "jira:write"] },
+  "permissions": [
+    { "name": "issueRead", "riskLevel": "low", "requiresApproval": false },
+    { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true }
+  ],
+  "endpoints": [
+    { "operationId": "listIssues", "method": "GET", "path": "/rest/api/3/search", "description": "List Jira issues.", "permission": "issueRead", "inputSchema": { "type": "object", "properties": { "jql": { "type": "string" } } }, "outputSchema": { "type": "array" }, "dataClassifications": ["public"] },
+    { "operationId": "createIssue", "method": "POST", "path": "/rest/api/3/issue", "description": "Create a Jira issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "projectKey": { "type": "string" }, "summary": { "type": "string" }, "description": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "updateIssue", "method": "PUT", "path": "/rest/api/3/issue/{issueIdOrKey}", "description": "Update a Jira issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueKey": { "type": "string" }, "fields": { "type": "object" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "transitionIssue", "method": "POST", "path": "/rest/api/3/issue/{issueIdOrKey}/transitions", "description": "Transition a Jira issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueKey": { "type": "string" }, "transition": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "closeIssue", "method": "POST", "path": "/rest/api/3/issue/{issueIdOrKey}/transitions", "description": "Close a Jira issue.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueKey": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] },
+    { "operationId": "addComment", "method": "POST", "path": "/rest/api/3/issue/{issueIdOrKey}/comment", "description": "Add a Jira issue comment.", "permission": "issueWrite", "inputSchema": { "type": "object", "properties": { "issueKey": { "type": "string" }, "body": { "type": "string" } } }, "outputSchema": { "type": "object" }, "dataClassifications": ["public"] }
+  ],
+  "dataClassifications": ["public"],
+  "costOwner": "free",
+  "fixtureMode": true,
+  "fixtureData": "../../docs/demoData/devIntegration/jira.json",
+  "readWrite": {
+    "read": ["listIssues"],
+    "write": ["createIssue", "updateIssue", "transitionIssue", "closeIssue", "addComment"]
+  }
+}

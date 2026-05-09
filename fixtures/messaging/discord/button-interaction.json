@@ -1,0 +1,13 @@
+{
+  "platform": "discord",
+  "fixtureAllow": true,
+  "id": "discord_evt_button_001",
+  "channel_id": "D_FIXTURE",
+  "user": {
+    "id": "DU_FIXTURE"
+  },
+  "data": {
+    "custom_id": "approve"
+  },
+  "approvalId": "approval_fixture_001"
+}

@@ -1,0 +1,17 @@
+{
+  "platform": "telegram",
+  "fixtureAllow": true,
+  "update_id": 1001,
+  "message": {
+    "message_id": 11,
+    "from": {
+      "id": 5001,
+      "username": "fixture_user"
+    },
+    "chat": {
+      "id": 7001,
+      "type": "private"
+    },
+    "text": "/squid run list files"
+  }
+}

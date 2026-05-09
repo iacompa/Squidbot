@@ -1,0 +1,10 @@
+{
+  "platform": "slack",
+  "fixtureAllow": true,
+  "event_id": "slack_evt_thread_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "text": "status please",
+  "thread_ts": "1710000000.000001",
+  "ts": "1710000001.000001"
+}

@@ -1,0 +1,10 @@
+{
+  "platform": "slack",
+  "fixtureAllow": true,
+  "event_id": "slack_evt_inbound_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "text": "/squid run list files",
+  "ts": "1710000000.000001",
+  "username": "Fixture User"
+}

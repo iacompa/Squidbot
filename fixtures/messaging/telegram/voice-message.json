@@ -1,0 +1,19 @@
+{
+  "platform": "telegram",
+  "fixtureAllow": true,
+  "update_id": 1003,
+  "message": {
+    "message_id": 12,
+    "from": {
+      "id": 5001
+    },
+    "chat": {
+      "id": 7001
+    },
+    "voice": {
+      "file_id": "voice_001",
+      "mimeType": "audio/ogg",
+      "size": 2048
+    }
+  }
+}

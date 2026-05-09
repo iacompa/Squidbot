@@ -1,0 +1,23 @@
+{
+  "name": "@squidbot/team",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Persistent multi-agent team coordinator for SquidBot.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@squidbot/core": "0.1.0",
+    "@squidbot/db": "0.1.0",
+    "@squidbot/memory": "0.1.0",
+    "@squidbot/sandbox": "0.1.0"
+  }
+}

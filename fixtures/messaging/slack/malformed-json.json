@@ -1,0 +1,6 @@
+{
+  "platform": "slack",
+  "event_id": "slack_evt_malformed_001",
+  "channel": "C_FIXTURE",
+  "user": "U_FIXTURE",
+  "text": "/squid run list files"

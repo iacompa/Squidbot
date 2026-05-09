@@ -1,0 +1,8 @@
+{
+  "id": "pr_101",
+  "title": "Fix calculator add bug",
+  "branch": "fix/add-function",
+  "base": "main",
+  "changedFiles": ["calculator.py", "test_calculator.py"],
+  "risk": "low"
+}

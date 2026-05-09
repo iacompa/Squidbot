@@ -1,0 +1,9 @@
+{
+  "platform": "teams",
+  "fixtureAllow": true,
+  "id": "teams_evt_001",
+  "userId": "teams_user_fixture",
+  "channelId": "teams_channel_fixture",
+  "text": "approve approval_fixture_001",
+  "approvalId": "approval_fixture_001"
+}

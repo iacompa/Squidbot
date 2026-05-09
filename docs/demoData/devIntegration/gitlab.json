@@ -1,0 +1,100 @@
+{
+  "listBranches": [
+    { "name": "main", "sha": "gl-main-001" },
+    { "name": "squidbot/fix-add", "sha": "gl-fix-001" }
+  ],
+  "fetchFile": {
+    "path": "calculator.py",
+    "content": "def add(a, b):\n    return a - b\n"
+  },
+  "searchCode": [
+    { "path": "calculator.py", "line": 1, "preview": "def add(a, b):" }
+  ],
+  "readDiff": {
+    "mergeRequest": 7,
+    "changes": [
+      {
+        "path": "calculator.py",
+        "patch": "--- a/calculator.py\n+++ b/calculator.py\n@@\n-    return a - b\n+    return a + b\n"
+      }
+    ]
+  },
+  "listIssues": [
+    { "id": "GL-22", "iid": 22, "title": "Fixture GitLab issue", "labels": ["bug"], "state": "opened" }
+  ],
+  "createIssue": {
+    "id": "GL-23",
+    "iid": 23,
+    "title": "Fixture GitLab issue",
+    "state": "opened"
+  },
+  "updateIssue": {
+    "id": "GL-22",
+    "iid": 22,
+    "labels": ["bug", "triaged"]
+  },
+  "closeIssue": {
+    "id": "GL-22",
+    "iid": 22,
+    "state": "closed"
+  },
+  "addIssueComment": {
+    "id": "gl_note_001",
+    "issue": "GL-22",
+    "body": "Fixture GitLab issue note."
+  },
+  "openMergeRequest": {
+    "id": "MR-7",
+    "iid": 7,
+    "title": "Fix calculator add",
+    "sourceBranch": "squidbot/fix-add",
+    "targetBranch": "main",
+    "draft": true
+  },
+  "updateMergeRequestDescription": {
+    "id": "MR-7",
+    "description": "Updated fixture MR description."
+  },
+  "mergeMergeRequest": {
+    "id": "MR-7",
+    "merged": true
+  },
+  "closeMergeRequest": {
+    "id": "MR-7",
+    "state": "closed"
+  },
+  "commentOnMergeRequest": {
+    "id": "gl_mr_note_001",
+    "mergeRequest": "MR-7",
+    "body": "Fixture MR comment."
+  },
+  "createBranch": {
+    "name": "squidbot/fix-add",
+    "sha": "gl-branch-001"
+  },
+  "pushCommit": {
+    "sha": "gl-commit-001",
+    "branch": "squidbot/fix-add",
+    "message": "Fix calculator add"
+  },
+  "deleteBranch": {
+    "name": "squidbot/fix-add",
+    "deleted": true
+  },
+  "triggerPipeline": {
+    "id": "pipeline_501",
+    "status": "pending"
+  },
+  "getPipelineStatus": {
+    "id": "pipeline_501",
+    "status": "success"
+  },
+  "fetchPipelineLogs": {
+    "id": "pipeline_501",
+    "logs": "pytest: 2 passed"
+  },
+  "cancelPipeline": {
+    "id": "pipeline_501",
+    "status": "canceled"
+  }
+}
