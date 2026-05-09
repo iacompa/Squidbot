@@ -549,6 +549,17 @@ function verifySecurity() {
 }
 
 function verifyRelease() {
+  const existingReportPath = path.join(outDir, "full-system-report.json");
+  if (releaseReport.steps.length === 0 && fs.existsSync(existingReportPath)) {
+    try {
+      const previous = JSON.parse(fs.readFileSync(existingReportPath, "utf8"));
+      if (Array.isArray(previous.steps) && previous.steps.length > 0) {
+        Object.assign(releaseReport, previous);
+      }
+    } catch {
+      // Fall through and generate a metadata-only report.
+    }
+  }
   collectGitStatus();
   createInventory();
   const criticalFailures = releaseReport.failures.filter((failure) => failure.status !== "allowed_failure");
