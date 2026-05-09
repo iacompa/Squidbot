@@ -1,0 +1,8 @@
+{
+  "integrationId": "n8n_integration_compliance_alerts",
+  "eventType": "audit.export.requested",
+  "action": "audit.request",
+  "idempotencyKey": "fixture-audit-export-001",
+  "riskLevel": "low",
+  "signature": "8ae93b45ccaa163def79686e33b444a5bb1e99c93037037763960c8beabf9792"
+}

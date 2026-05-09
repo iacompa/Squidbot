@@ -846,6 +846,298 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_messaging_delivery_rules_trigger
         ON messaging_delivery_rules (triggerType, enabled);
     `
+  },
+  {
+    id: 13,
+    name: "governance_core_schema",
+    up: `
+      CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active',
+        settingsJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        archivedAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        organizationId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        mode TEXT NOT NULL DEFAULT 'singleTenant',
+        status TEXT NOT NULL DEFAULT 'active',
+        settingsJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        archivedAt TEXT,
+        FOREIGN KEY (organizationId) REFERENCES organizations(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        email TEXT,
+        username TEXT NOT NULL,
+        displayName TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        authType TEXT NOT NULL DEFAULT 'local',
+        passwordHash TEXT,
+        mfaEnabled INTEGER NOT NULL DEFAULT 0,
+        attributesJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        disabledAt TEXT,
+        UNIQUE(tenantId, username),
+        FOREIGN KEY (tenantId) REFERENCES tenants(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS groups (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        archivedAt TEXT,
+        UNIQUE(tenantId, name),
+        FOREIGN KEY (tenantId) REFERENCES tenants(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS group_memberships (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        groupId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        UNIQUE(groupId, userId),
+        FOREIGN KEY (tenantId) REFERENCES tenants(id),
+        FOREIGN KEY (groupId) REFERENCES groups(id),
+        FOREIGN KEY (userId) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS governance_roles (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'tenant',
+        permissionsJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        archivedAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS role_assignments (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        principalType TEXT NOT NULL,
+        principalId TEXT NOT NULL,
+        roleId TEXT NOT NULL,
+        scopeType TEXT NOT NULL,
+        scopeId TEXT NOT NULL,
+        conditionsJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        expiresAt TEXT,
+        FOREIGN KEY (tenantId) REFERENCES tenants(id),
+        FOREIGN KEY (roleId) REFERENCES governance_roles(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS abac_policies (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        effect TEXT NOT NULL,
+        resourceType TEXT NOT NULL,
+        actionPattern TEXT NOT NULL,
+        conditionJson TEXT NOT NULL DEFAULT '{}',
+        priority INTEGER NOT NULL DEFAULT 100,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (tenantId) REFERENCES tenants(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS policy_decisions (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        actorType TEXT NOT NULL,
+        actorId TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resourceType TEXT NOT NULL,
+        resourceId TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        matchedPoliciesJson TEXT NOT NULL DEFAULT '[]',
+        contextJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS secret_references (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        path TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '1',
+        metadataJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        rotatedAt TEXT,
+        archivedAt TEXT,
+        UNIQUE(tenantId, name)
+      );
+
+      CREATE TABLE IF NOT EXISTS local_encrypted_secrets (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        secretReferenceId TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        authTag TEXT NOT NULL,
+        algorithm TEXT NOT NULL,
+        keyId TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (secretReferenceId) REFERENCES secret_references(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS audit_ledger (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        actorType TEXT NOT NULL,
+        actorId TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resourceType TEXT NOT NULL,
+        resourceId TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        eventId TEXT,
+        runId TEXT,
+        traceId TEXT,
+        policyDecisionId TEXT,
+        source TEXT NOT NULL,
+        dataClassification TEXT NOT NULL DEFAULT 'internal',
+        redactedDetailJson TEXT NOT NULL DEFAULT '{}',
+        previousHash TEXT,
+        entryHash TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        UNIQUE(tenantId, sequence)
+      );
+
+      CREATE TABLE IF NOT EXISTS retention_policies (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        resourceType TEXT NOT NULL,
+        dataClassification TEXT NOT NULL DEFAULT 'internal',
+        retentionDays INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        legalHoldOverride INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS legal_holds (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        resourceSelectorJson TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'active',
+        createdBy TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        releasedAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS data_lineage_edges (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        sourceType TEXT NOT NULL,
+        sourceId TEXT NOT NULL,
+        targetType TEXT NOT NULL,
+        targetId TEXT NOT NULL,
+        relationship TEXT NOT NULL,
+        dataClassification TEXT NOT NULL DEFAULT 'internal',
+        metadataJson TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS compliance_exports (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        exportType TEXT NOT NULL,
+        status TEXT NOT NULL,
+        requestedBy TEXT NOT NULL,
+        filterJson TEXT NOT NULL DEFAULT '{}',
+        outputPath TEXT,
+        checksum TEXT,
+        createdAt TEXT NOT NULL,
+        completedAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS n8n_webhook_integrations (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        webhookUrlSecretRef TEXT,
+        signingSecretRef TEXT,
+        authMode TEXT NOT NULL DEFAULT 'hmac',
+        allowedEventTypesJson TEXT NOT NULL DEFAULT '[]',
+        allowedActionsJson TEXT NOT NULL DEFAULT '[]',
+        enabled INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS governance_webhook_events (
+        id TEXT PRIMARY KEY,
+        tenantId TEXT NOT NULL,
+        integrationId TEXT,
+        direction TEXT NOT NULL,
+        eventType TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payloadJson TEXT NOT NULL DEFAULT '{}',
+        redactedPayloadJson TEXT NOT NULL DEFAULT '{}',
+        signatureValid INTEGER NOT NULL DEFAULT 0,
+        idempotencyKey TEXT,
+        createdAt TEXT NOT NULL,
+        processedAt TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_tenant_status
+        ON users (tenantId, status);
+
+      CREATE INDEX IF NOT EXISTS idx_role_assignments_principal
+        ON role_assignments (tenantId, principalType, principalId);
+
+      CREATE INDEX IF NOT EXISTS idx_policy_decisions_created
+        ON policy_decisions (tenantId, createdAt);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_local_encrypted_secrets_ref
+        ON local_encrypted_secrets (secretReferenceId);
+
+      CREATE INDEX IF NOT EXISTS idx_audit_ledger_tenant_sequence
+        ON audit_ledger (tenantId, sequence);
+
+      CREATE INDEX IF NOT EXISTS idx_retention_policies_tenant_resource
+        ON retention_policies (tenantId, resourceType, enabled);
+
+      CREATE INDEX IF NOT EXISTS idx_lineage_source
+        ON data_lineage_edges (tenantId, sourceType, sourceId);
+
+      CREATE INDEX IF NOT EXISTS idx_lineage_target
+        ON data_lineage_edges (tenantId, targetType, targetId);
+
+      CREATE INDEX IF NOT EXISTS idx_governance_webhooks_idempotency
+        ON governance_webhook_events (tenantId, integrationId, idempotencyKey);
+    `
   }
 ];
 

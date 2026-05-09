@@ -765,6 +765,105 @@ export type MemoryGraphDetailDto = {
   relatedNodes: MemoryGraphNodeDto[];
 };
 
+export type GovernanceStatusDto = {
+  tenantId: string;
+  users: number;
+  roles: number;
+  decisions: number;
+  auditEntries: number;
+  secrets: number;
+  retentionPolicies: number;
+  legalHolds: number;
+  n8nIntegrations: number;
+  policyPacks: number;
+};
+
+export type GovernanceUserDto = {
+  id: string;
+  tenantId: string;
+  email: string | null;
+  username: string;
+  displayName: string | null;
+  status: string;
+  authType: string;
+  createdAt: string;
+  updatedAt: string;
+  disabledAt: string | null;
+};
+
+export type GovernanceRoleDto = {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+};
+
+export type GovernancePolicyDecisionDto = {
+  id?: string;
+  tenantId: string;
+  decision: string;
+  reason: string;
+  matchedPolicies: string[];
+  obligations: string[];
+  actorId?: string;
+  action?: string;
+  resourceType?: string;
+  resourceId?: string;
+  createdAt?: string;
+};
+
+export type GovernanceAuditEntryDto = {
+  id: string;
+  tenantId: string;
+  sequence: number;
+  actorType: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  outcome: string;
+  source?: string;
+  dataClassification?: string;
+  redactedDetail?: unknown;
+  previousHash: string | null;
+  entryHash: string;
+  createdAt: string;
+};
+
+export type GovernanceSecretRefDto = {
+  id: string;
+  tenantId: string;
+  name: string;
+  provider: string;
+  path: string;
+  version: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  rotatedAt: string | null;
+  archivedAt: string | null;
+};
+
+export type GovernanceRetentionPolicyDto = {
+  id: string;
+  name: string;
+  resourceType: string;
+  dataClassification: string;
+  retentionDays: number;
+  action: string;
+  enabled: boolean;
+};
+
+export type GovernanceN8nIntegrationDto = {
+  id: string;
+  name: string;
+  direction: "inbound" | "outbound";
+  authMode: string;
+  allowedEventTypes: string[];
+  allowedActions: string[];
+  enabled: boolean;
+};
+
 export type SquidbotApi = {
   chooseWorkspace: () => Promise<string | null>;
   getSettings: () => Promise<SettingsDto>;
@@ -880,6 +979,16 @@ export type SquidbotApi = {
   listMessagingSessions: (platform?: string) => Promise<MessagingSessionDto[]>;
   listMessagingIdentities: (platform?: string) => Promise<MessagingIdentityDto[]>;
   sendLocalWebMessage: (text: string) => Promise<{ event: unknown; route: unknown }>;
+  bootstrapGovernance: () => Promise<{ organizationId: string; tenantId: string; adminUserId: string; rolesCreated: number }>;
+  getGovernanceStatus: () => Promise<GovernanceStatusDto>;
+  listGovernanceUsers: () => Promise<GovernanceUserDto[]>;
+  listGovernanceRoles: () => Promise<GovernanceRoleDto[]>;
+  simulateGovernancePolicy: (request: { userId: string; action: string; resource: string; riskLevel?: string }) => Promise<GovernancePolicyDecisionDto>;
+  listGovernancePolicyDecisions: () => Promise<GovernancePolicyDecisionDto[]>;
+  listGovernanceSecrets: () => Promise<GovernanceSecretRefDto[]>;
+  listGovernanceAudit: () => Promise<GovernanceAuditEntryDto[]>;
+  listGovernanceRetentionPolicies: () => Promise<GovernanceRetentionPolicyDto[]>;
+  listGovernanceN8nIntegrations: () => Promise<GovernanceN8nIntegrationDto[]>;
   listMemoryGraphNodes: () => Promise<MemoryGraphNodeDto[]>;
   searchMemoryGraph: (query: string, mode: "fts" | "vector" | "hybrid", topK?: number) => Promise<MemoryGraphSearchResultDto[]>;
   getMemoryGraphNode: (nodeId: string) => Promise<MemoryGraphDetailDto | null>;

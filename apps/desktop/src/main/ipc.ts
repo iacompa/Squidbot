@@ -2,6 +2,7 @@ import path from "node:path";
 import { dialog, ipcMain } from "electron";
 import { ConnectorRegistry, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
 import { EvalResultStore, SkillVariantStore } from "@squidbot/evals";
+import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEngine } from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
 import { DeliveryRouter, getPlatformMatrixEntry, listPlatformMatrix, MessagingAdapterRegistry, MessagingGateway, MessagingStore } from "@squidbot/messaging";
 import { SandboxManager, sandboxFromRecord } from "@squidbot/sandbox";
@@ -157,6 +158,10 @@ function createMessagingGateway(database: SquidDatabase, paths: DesktopAppPaths)
     workspacePath,
     createRuntime: (resolvedWorkspacePath, sessionId) => createRuntime(database, resolvedWorkspacePath, sessionId)
   });
+}
+
+function createGovernance(database: SquidDatabase): GovernanceEngine {
+  return new GovernanceEngine(database);
 }
 
 export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPaths): void {
@@ -725,6 +730,44 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     const route = await gateway.route(event);
     return { event, route };
   });
+
+  ipcMain.handle("squidbot:bootstrapGovernance", () => createGovernance(database).bootstrap());
+
+  ipcMain.handle("squidbot:getGovernanceStatus", () => {
+    const governance = createGovernance(database);
+    governance.identities.bootstrap();
+    return governance.status();
+  });
+
+  ipcMain.handle("squidbot:listGovernanceUsers", () => {
+    const governance = createGovernance(database);
+    governance.identities.bootstrap();
+    return governance.identities.listUsers();
+  });
+
+  ipcMain.handle("squidbot:listGovernanceRoles", () => {
+    const governance = createGovernance(database);
+    governance.identities.bootstrap();
+    return governance.identities.listRoles();
+  });
+
+  ipcMain.handle("squidbot:simulateGovernancePolicy", (_event, request: { userId: string; action: string; resource: string; riskLevel?: string }) => {
+    const governance = createGovernance(database);
+    governance.identities.bootstrap();
+    const [resourceType = "resource", resourceId = request.resource] = request.resource.split(":");
+    return governance.decide({
+      actor: { type: "user", id: request.userId || DEFAULT_ADMIN_USER_ID },
+      action: request.action,
+      resource: { type: resourceType, id: resourceId },
+      context: { source: "desktop", riskLevel: request.riskLevel ?? "low" }
+    });
+  });
+
+  ipcMain.handle("squidbot:listGovernancePolicyDecisions", () => createGovernance(database).policies.listDecisions(50));
+  ipcMain.handle("squidbot:listGovernanceSecrets", () => createGovernance(database).secrets.listSecrets(DEFAULT_TENANT_ID));
+  ipcMain.handle("squidbot:listGovernanceAudit", () => createGovernance(database).audit.latest(50, DEFAULT_TENANT_ID));
+  ipcMain.handle("squidbot:listGovernanceRetentionPolicies", () => createGovernance(database).retention.listPolicies(DEFAULT_TENANT_ID));
+  ipcMain.handle("squidbot:listGovernanceN8nIntegrations", () => createGovernance(database).n8n.listIntegrations(DEFAULT_TENANT_ID));
 
   ipcMain.handle("squidbot:listMemoryGraphNodes", () => new MemoryGraphStore(database).listNodes({ limit: 100 }));
 

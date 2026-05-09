@@ -1,0 +1,5 @@
+{
+  "name": "Retention Report Request",
+  "nodes": [],
+  "description": "Fixture n8n template for requesting retention dry-run reports."
+}

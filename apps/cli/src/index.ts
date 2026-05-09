@@ -1,5 +1,6 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
@@ -18,6 +19,13 @@ import {
   runStaticChecks,
   SkillVariantStore
 } from "@squidbot/evals";
+import {
+  AuditExporter,
+  DEFAULT_ADMIN_USER_ID,
+  DEFAULT_TENANT_ID,
+  GovernanceEngine,
+  policyPacks
+} from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
 import {
   DeliveryRouter,
@@ -192,6 +200,16 @@ async function main(): Promise<void> {
 
     if (args.command === "messaging") {
       await handleMessagingCommand(database, args, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "governance") {
+      await handleGovernanceCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "project:status") {
+      await handleProjectStatusCommand(database);
       return;
     }
 
@@ -858,6 +876,433 @@ async function handleMessagingCommand(database: ReturnType<typeof initializeData
   }
 
   throw new Error("Usage: npm run messaging -- adapters|matrix|configure|channels|allowlist|fixture|send|delivery|inbox|sessions|identities");
+}
+
+async function handleGovernanceCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): Promise<void> {
+  const governance = new GovernanceEngine(database);
+  const subcommand = parts[0] ?? "status";
+
+  if (subcommand === "bootstrap") {
+    const result = governance.bootstrap();
+    database.appendEvent({
+      id: createId("evt"),
+      timestamp: new Date().toISOString(),
+      sessionId: "session_governance",
+      type: "governance.bootstrap.completed",
+      data: { runId: "run_governance", ...result }
+    });
+    refreshTraceForSession(database, "session_governance");
+    printJson(result);
+    return;
+  }
+
+  if (subcommand === "status") {
+    governance.identities.bootstrap();
+    printJson(governance.status());
+    return;
+  }
+
+  if (subcommand === "user") {
+    const action = parts[1] ?? "list";
+    governance.identities.bootstrap();
+    if (action === "create") {
+      const user = governance.identities.createUser({
+        username: requireValue(collectFlagValue(parts, "--username"), "--username is required"),
+        email: collectFlagValue(parts, "--email") ?? null,
+        tenantId: collectFlagValue(parts, "--tenant") ?? DEFAULT_TENANT_ID,
+        displayName: collectFlagValue(parts, "--display-name") ?? null
+      });
+      governance.audit.append({
+        actorType: "user",
+        actorId: DEFAULT_ADMIN_USER_ID,
+        action: "governance.user.create",
+        resourceType: "user",
+        resourceId: user.id,
+        outcome: "created",
+        detail: { username: user.username, email: user.email }
+      });
+      printJson({ user });
+      return;
+    }
+    if (action === "show") {
+      printJson({ user: governance.identities.getUser(requireValue(parts[2], "User ID is required.")) });
+      return;
+    }
+    if (action === "disable") {
+      printJson({ user: governance.identities.disableUser(requireValue(parts[2], "User ID is required.")) });
+      return;
+    }
+    printJson({ users: governance.identities.listUsers(collectFlagValue(parts, "--tenant") ?? DEFAULT_TENANT_ID) });
+    return;
+  }
+
+  if (subcommand === "role") {
+    const action = parts[1] ?? "list";
+    governance.identities.bootstrap();
+    if (action === "show") {
+      printJson({ role: governance.identities.getRole(requireValue(parts[2], "Role name or ID is required.")) });
+      return;
+    }
+    if (action === "assign") {
+      const userId = requireValue(collectFlagValue(parts, "--user"), "--user is required");
+      const roleName = requireValue(collectFlagValue(parts, "--role"), "--role is required");
+      const scope = collectFlagValue(parts, "--scope") ?? `tenant:${DEFAULT_TENANT_ID}`;
+      const [scopeType = "tenant", scopeId = DEFAULT_TENANT_ID] = scope.split(":");
+      printJson({
+        assignment: governance.identities.assignRole({
+          principalType: "user",
+          principalId: userId,
+          roleName,
+          scopeType,
+          scopeId
+        })
+      });
+      return;
+    }
+    if (action === "assignments") {
+      const userId = requireValue(collectFlagValue(parts, "--user") ?? parts[2], "User ID is required.");
+      printJson({ assignments: governance.identities.listAssignmentsForPrincipal("user", userId) });
+      return;
+    }
+    printJson({ roles: governance.identities.listRoles() });
+    return;
+  }
+
+  if (subcommand === "policy") {
+    const action = parts[1] ?? "decisions";
+    governance.identities.bootstrap();
+    if (action === "simulate") {
+      const actorId = requireValue(collectFlagValue(parts, "--user") ?? collectFlagValue(parts, "--service-account") ?? DEFAULT_ADMIN_USER_ID, "--user is required");
+      const actorType: "serviceAccount" | "user" = collectFlagValue(parts, "--service-account") ? "serviceAccount" : "user";
+      const actionName = requireValue(collectFlagValue(parts, "--action"), "--action is required");
+      const resource = requireValue(collectFlagValue(parts, "--resource"), "--resource is required");
+      const [resourceType = "resource", resourceId = resource] = resource.split(":");
+      const decision = governance.decide({
+        actor: { type: actorType, id: actorId },
+        action: actionName,
+        resource: { type: resourceType, id: resourceId },
+        context: {
+          source: "cli",
+          riskLevel: collectFlagValue(parts, "--risk") ?? "low",
+          modelProvider: collectFlagValue(parts, "--model-provider"),
+          dataClassification: collectFlagValue(parts, "--classification")
+        }
+      });
+      printJson({ decision });
+      return;
+    }
+    if (action === "packs") {
+      printJson({ packs: policyPacks });
+      return;
+    }
+    if (action === "pack") {
+      const packAction = parts[2] ?? "list";
+      if (packAction === "show") {
+        const packId = requireValue(parts[3], "Policy pack ID is required.");
+        printJson({ pack: policyPacks.find((pack) => pack.id === packId) ?? null });
+        return;
+      }
+      if (packAction === "enable") {
+        const packId = requireValue(parts[3], "Policy pack ID is required.");
+        const pack = policyPacks.find((entry) => entry.id === packId);
+        if (!pack) {
+          throw new Error(`Policy pack not found: ${packId}`);
+        }
+        database.setSetting(`governance.policyPack.${packId}`, { enabled: true, tenantId: collectFlagValue(parts, "--tenant") ?? DEFAULT_TENANT_ID });
+        governance.audit.append({
+          actorType: "user",
+          actorId: DEFAULT_ADMIN_USER_ID,
+          action: "governance.policyPack.enable",
+          resourceType: "policyPack",
+          resourceId: packId,
+          outcome: "enabled",
+          detail: pack
+        });
+        printJson({ enabled: pack });
+        return;
+      }
+      printJson({ packs: policyPacks });
+      return;
+    }
+    printJson({ decisions: governance.policies.listDecisions(collectFlagNumber(parts, "--latest") ?? collectFlagNumber(parts, "--limit") ?? 20) });
+    return;
+  }
+
+  if (subcommand === "secrets") {
+    const action = parts[1] ?? "list";
+    governance.identities.bootstrap();
+    if (action === "providers") {
+      printJson({ providers: governance.secrets.providers() });
+      return;
+    }
+    if (action === "set") {
+      const name = requireValue(parts[3] ?? parts[2], "Usage: npm run governance -- secrets set local <name> --value <value>");
+      const value = requireValue(collectFlagValue(parts, "--value"), "--value is required");
+      const reference = governance.secrets.setSecret(name, value);
+      governance.audit.append({
+        actorType: "user",
+        actorId: DEFAULT_ADMIN_USER_ID,
+        action: "secret.set",
+        resourceType: "secret",
+        resourceId: reference.id,
+        outcome: "stored",
+        detail: { name, value }
+      });
+      printJson({ secret: reference });
+      return;
+    }
+    if (action === "get") {
+      const name = requireValue(parts[2], "Secret name is required.");
+      const reveal = parts.includes("--reveal");
+      const result = governance.secrets.getSecret(name, { reveal });
+      governance.auditSecretRead(name, reveal);
+      printJson(result);
+      return;
+    }
+    if (action === "rotate") {
+      const name = requireValue(parts[2], "Secret name is required.");
+      const value = requireValue(collectFlagValue(parts, "--value"), "--value is required");
+      printJson({ secret: governance.secrets.setSecret(name, value, { rotate: true }) });
+      return;
+    }
+    printJson({ secrets: governance.secrets.listSecrets() });
+    return;
+  }
+
+  if (subcommand === "audit") {
+    const action = parts[1] ?? "latest";
+    governance.identities.bootstrap();
+    if (action === "latest") {
+      printJson({ entries: governance.audit.latest(collectFlagNumber(parts, "--limit") ?? 20) });
+      return;
+    }
+    if (action === "export") {
+      const format = collectFlagValue(parts, "--format") === "csv" ? "csv" : "jsonl";
+      const out = resolveFromInvocationCwd(collectFlagValue(parts, "--out") ?? `out/audit.${format === "csv" ? "csv" : "jsonl"}`);
+      const exporter = new AuditExporter(governance.audit);
+      const result = format === "csv" ? exporter.exportCsv(out) : exporter.exportJsonl(out);
+      governance.audit.append({
+        actorType: "user",
+        actorId: DEFAULT_ADMIN_USER_ID,
+        action: "audit.export",
+        resourceType: "audit",
+        resourceId: result.path,
+        outcome: "exported",
+        detail: result
+      });
+      printJson(result);
+      return;
+    }
+    if (action === "verify") {
+      const file = resolveFromInvocationCwd(requireValue(parts[2], "Audit export path is required."));
+      printJson(new AuditExporter(governance.audit).verifyJsonl(file));
+      return;
+    }
+  }
+
+  if (subcommand === "retention") {
+    const action = parts[1] ?? "policies";
+    governance.identities.bootstrap();
+    if (action === "policies") {
+      printJson({ policies: governance.retention.listPolicies() });
+      return;
+    }
+    if (action === "policy" && parts[2] === "create") {
+      printJson({
+        policy: governance.retention.createPolicy({
+          name: requireValue(collectFlagValue(parts, "--name"), "--name is required"),
+          resourceType: requireValue(collectFlagValue(parts, "--resource"), "--resource is required"),
+          dataClassification: collectFlagValue(parts, "--classification") ?? "internal",
+          retentionDays: collectFlagNumber(parts, "--days") ?? 180,
+          action: (collectFlagValue(parts, "--action") as "keep" | "archive" | "anonymize" | "delete" | undefined) ?? "archive"
+        })
+      });
+      return;
+    }
+    if (action === "dry-run") {
+      printJson({ results: governance.retention.dryRun() });
+      return;
+    }
+    if (action === "apply") {
+      printJson(governance.retention.apply());
+      return;
+    }
+  }
+
+  if (subcommand === "legal-hold") {
+    const action = parts[1] ?? "list";
+    governance.identities.bootstrap();
+    if (action === "create") {
+      printJson({
+        hold: governance.retention.createLegalHold({
+          name: requireValue(collectFlagValue(parts, "--name"), "--name is required"),
+          description: collectFlagValue(parts, "--description"),
+          selector: collectFlagValue(parts, "--selector") ? JSON.parse(collectFlagValue(parts, "--selector")!) : {}
+        })
+      });
+      return;
+    }
+    if (action === "release") {
+      printJson({ hold: governance.retention.releaseLegalHold(requireValue(parts[2], "Legal hold ID is required.")) });
+      return;
+    }
+    printJson({ holds: governance.retention.listLegalHolds() });
+    return;
+  }
+
+  if (subcommand === "lineage") {
+    const action = parts[1] ?? "show";
+    governance.identities.bootstrap();
+    if (action === "show") {
+      const runId = requireValue(collectFlagValue(parts, "--run") ?? parts[2], "Run ID is required.");
+      if (governance.lineage.listForRun(runId).length === 0) {
+        governance.seedExampleLineage(runId);
+      }
+      printJson({ edges: governance.lineage.listForRun(runId) });
+      return;
+    }
+    if (action === "export") {
+      const runId = requireValue(collectFlagValue(parts, "--run"), "--run is required");
+      if (governance.lineage.listForRun(runId).length === 0) {
+        governance.seedExampleLineage(runId);
+      }
+      const outPath = resolveFromInvocationCwd(collectFlagValue(parts, "--out") ?? `out/lineage-${runId}.json`);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, `${JSON.stringify({ runId, edges: governance.lineage.listForRun(runId) }, null, 2)}\n`, "utf8");
+      printJson({ runId, path: outPath });
+      return;
+    }
+  }
+
+  if (subcommand === "n8n") {
+    await handleGovernanceN8nCommand(governance, parts.slice(1));
+    return;
+  }
+
+  if (subcommand === "highstakes") {
+    printJson({
+      tenantId: DEFAULT_TENANT_ID,
+      enabledPacks: policyPacks.filter((pack) => database.getSetting(`governance.policyPack.${pack.id}`)),
+      availablePacks: policyPacks
+    });
+    return;
+  }
+
+  if (subcommand === "rai") {
+    const suite = collectFlagValue(parts, "--suite") ?? "prompt-injection-basic";
+    const suites = [
+      "prompt-injection-basic",
+      "tool-injection-basic",
+      "connector-secret-leak-basic",
+      "messaging-approval-bypass-basic",
+      "n8n-approval-bypass-basic",
+      "memory-poisoning-basic",
+      "paid-provider-bypass-basic"
+    ];
+    if (parts[1] === "redteam" && parts[2] === "list") {
+      printJson({ suites });
+      return;
+    }
+    if (parts[1] === "redteam" && parts[2] === "run") {
+      const decision = governance.decide({
+        actor: { type: "serviceAccount", id: "service_redteam" },
+        action: suite.includes("paid-provider") ? "model.call" : "sandbox.promote",
+        resource: { type: "redteam", id: suite },
+        context: { source: "rai", riskLevel: "high", modelProvider: suite.includes("paid-provider") ? "api" : "mock" }
+      });
+      printJson({ suite, passed: decision.decision !== "allow", decision });
+      return;
+    }
+  }
+
+  throw new Error("Usage: npm run governance -- bootstrap|status|user|role|policy|secrets|audit|retention|legal-hold|lineage|n8n|highstakes|rai");
+}
+
+async function handleGovernanceN8nCommand(governance: GovernanceEngine, parts: string[]): Promise<void> {
+  const subcommand = parts[0] ?? "integrations";
+  if (subcommand === "integrations" || subcommand === "integration") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ integrations: governance.n8n.listIntegrations() });
+      return;
+    }
+    if (action === "create") {
+      printJson({
+        integration: governance.n8n.createIntegration({
+          name: requireValue(collectFlagValue(parts, "--name"), "--name is required"),
+          direction: (collectFlagValue(parts, "--direction") as "inbound" | "outbound" | undefined) ?? "outbound",
+          events: (collectFlagValue(parts, "--events") ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+          actions: (collectFlagValue(parts, "--actions") ?? "audit.request").split(",").map((value) => value.trim()).filter(Boolean)
+        })
+      });
+      return;
+    }
+    if (action === "enable") {
+      printJson({ integration: governance.n8n.enableIntegration(requireValue(parts[2], "Integration ID is required."), true) });
+      return;
+    }
+    if (action === "test") {
+      printJson(governance.n8n.testIntegration(requireValue(parts[2], "Integration ID is required.")));
+      return;
+    }
+  }
+  if (subcommand === "events") {
+    printJson({ events: governance.n8n.listEvents(collectFlagNumber(parts, "--latest") ?? 20) });
+    return;
+  }
+  if (subcommand === "templates") {
+    const action = parts[1] ?? "list";
+    if (action === "list") {
+      printJson({ templates: governance.n8n.templates() });
+      return;
+    }
+    if (action === "export") {
+      const name = requireValue(parts[2], "Template name is required.");
+      const outPath = resolveFromInvocationCwd(collectFlagValue(parts, "--out") ?? `out/${name}.json`);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, `${JSON.stringify({ name, nodes: [], note: "Fixture n8n template generated locally by SquidBot." }, null, 2)}\n`, "utf8");
+      printJson({ template: name, path: outPath });
+      return;
+    }
+  }
+  if (subcommand === "fixture" && parts[1] === "receive") {
+    printJson(governance.n8n.receiveFixture(resolveFromInvocationCwd(requireValue(parts[2], "Fixture path is required."))));
+    return;
+  }
+  throw new Error("Usage: npm run governance -- n8n integrations|integration|events|templates|fixture");
+}
+
+async function handleProjectStatusCommand(database: ReturnType<typeof initializeDatabase>): Promise<void> {
+  const git = runLocalCommand("git", ["status", "--short"]);
+  const branch = runLocalCommand("git", ["branch", "--show-current"]);
+  const migrationCount = (database.db.prepare("SELECT COUNT(*) as count FROM schema_migrations").get() as { count: number }).count;
+  const settings = withDefaultModelSettings(database.getAllSettings());
+  printJson({
+    git: {
+      isRepo: git.ok,
+      branch: branch.ok ? branch.stdout.trim() : null,
+      uncommittedFiles: git.ok ? git.stdout.split(/\r?\n/).filter(Boolean).length : null,
+      status: git.ok ? git.stdout.trim() : git.stderr.trim()
+    },
+    nativeModules: "checked by root ensure:node-native wrapper",
+    zeroSpend: {
+      modelProvider: settings["model.provider"] ?? "mock",
+      apiKey: redactSettingValue("model.apiKey", settings["model.apiKey"] ?? "")
+    },
+    database: {
+      path: database.filePath,
+      migrationsApplied: migrationCount
+    }
+  });
+}
+
+function runLocalCommand(command: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
+  try {
+    return { ok: true, stdout: execFileSync(command, args, { encoding: "utf8" }), stderr: "" };
+  } catch (error) {
+    const typed = error as { stdout?: string; stderr?: string; message?: string };
+    return { ok: false, stdout: typed.stdout ?? "", stderr: typed.stderr ?? typed.message ?? "" };
+  }
 }
 
 function resolveMessagingAdapter(store: MessagingStore, registry: MessagingAdapterRegistry, value: string) {

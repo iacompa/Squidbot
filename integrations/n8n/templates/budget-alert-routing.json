@@ -1,0 +1,5 @@
+{
+  "name": "Budget Alert Routing",
+  "nodes": [],
+  "description": "Fixture n8n template for routing model budget and zero-spend policy alerts."
+}

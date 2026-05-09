@@ -48,7 +48,15 @@ import type {
   MessagingEventDto,
   MessagingIdentityDto,
   MessagingSessionDto,
-  PlatformMatrixEntryDto
+  PlatformMatrixEntryDto,
+  GovernanceAuditEntryDto,
+  GovernanceN8nIntegrationDto,
+  GovernancePolicyDecisionDto,
+  GovernanceRetentionPolicyDto,
+  GovernanceRoleDto,
+  GovernanceSecretRefDto,
+  GovernanceStatusDto,
+  GovernanceUserDto
 } from "../../shared/api";
 
 export type PageId =
@@ -62,6 +70,7 @@ export type PageId =
   | "teams"
   | "evals"
   | "messaging"
+  | "governance"
   | "approvals"
   | "settings";
 
@@ -121,5 +130,13 @@ export type {
   MessagingEventDto,
   MessagingIdentityDto,
   MessagingSessionDto,
-  PlatformMatrixEntryDto
+  PlatformMatrixEntryDto,
+  GovernanceAuditEntryDto,
+  GovernanceN8nIntegrationDto,
+  GovernancePolicyDecisionDto,
+  GovernanceRetentionPolicyDto,
+  GovernanceRoleDto,
+  GovernanceSecretRefDto,
+  GovernanceStatusDto,
+  GovernanceUserDto
 };

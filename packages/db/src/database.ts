@@ -411,8 +411,9 @@ export class SquidDatabase {
   constructor(filePath: string) {
     this.filePath = filePath;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    this.db = new Database(filePath);
+    this.db = new Database(filePath, { timeout: 5_000 });
     this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 5000");
     this.db.pragma("foreign_keys = ON");
     runMigrations(this.db);
   }

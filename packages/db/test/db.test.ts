@@ -244,6 +244,40 @@ describe("SquidDatabase", () => {
     expect(database.listModelUsage()).toHaveLength(1);
   });
 
+  it("creates governance tables idempotently", () => {
+    database = initializeDatabase(tempDbPath());
+    const requiredTables = [
+      "organizations",
+      "tenants",
+      "users",
+      "groups",
+      "group_memberships",
+      "governance_roles",
+      "role_assignments",
+      "abac_policies",
+      "policy_decisions",
+      "secret_references",
+      "local_encrypted_secrets",
+      "audit_ledger",
+      "retention_policies",
+      "legal_holds",
+      "data_lineage_edges",
+      "compliance_exports",
+      "n8n_webhook_integrations",
+      "governance_webhook_events"
+    ];
+
+    for (const table of requiredTables) {
+      const row = database.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+      expect(row).toBeTruthy();
+    }
+
+    const dbPath = database.filePath;
+    database.close();
+    database = initializeDatabase(dbPath);
+    expect(database.db.prepare("SELECT COUNT(*) as count FROM schema_migrations WHERE id = 13").get()).toMatchObject({ count: 1 });
+  });
+
   it("creates structured memory graph tables", () => {
     database = initializeDatabase(tempDbPath());
 

@@ -1,0 +1,5 @@
+{
+  "name": "Compliance Alert Routing",
+  "nodes": [],
+  "description": "Fixture n8n template for routing SquidBot governance compliance alerts."
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Approval Request Routing",
+  "nodes": [],
+  "description": "Fixture n8n template for routing approval requests without bypassing SquidBot policy."
+}

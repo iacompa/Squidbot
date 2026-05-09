@@ -19,6 +19,7 @@
     "@squidbot/core": "0.1.0",
     "@squidbot/db": "0.1.0",
     "@squidbot/evals": "0.1.0",
+    "@squidbot/governance": "0.1.0",
     "@squidbot/memory": "0.1.0",
     "@squidbot/messaging": "0.1.0",
     "@squidbot/sandbox": "0.1.0",

@@ -13,6 +13,7 @@ import { TeamsPage } from "./pages/TeamsPage";
 import { JobsPage } from "./pages/JobsPage";
 import { EvaluationLabPage } from "./pages/EvaluationLabPage";
 import { MessagingPage } from "./pages/MessagingPage";
+import { GovernancePage } from "./pages/GovernancePage";
 import type { PageId, TraceDto } from "./types";
 import type { SettingsDto } from "../../shared/api";
 
@@ -27,6 +28,7 @@ const pages: Array<{ id: PageId; label: string; icon: typeof MessageSquare }> = 
   { id: "teams", label: "Teams", icon: UsersRound },
   { id: "evals", label: "Evals", icon: FlaskConical },
   { id: "messaging", label: "Messaging", icon: MessageCircle },
+  { id: "governance", label: "Governance", icon: ShieldCheck },
   { id: "approvals", label: "Approvals", icon: ShieldCheck },
   { id: "settings", label: "Settings", icon: Settings }
 ];
@@ -127,6 +129,10 @@ export function App() {
 
     if (activePage === "messaging") {
       return <MessagingPage />;
+    }
+
+    if (activePage === "governance") {
+      return <GovernancePage />;
     }
 
     if (activePage === "approvals") {
