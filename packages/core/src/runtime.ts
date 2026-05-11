@@ -2,6 +2,7 @@ import type { SquidDatabase } from "@squidbot/db";
 import { affordanceGapId, createAffordanceGap, detectAffordanceGaps } from "@squidbot/reflection";
 import { parseCommandLine, SandboxManager, type Sandbox, type SandboxCreateOptions, type SandboxRunResult } from "@squidbot/sandbox";
 import { EventLog } from "./eventLog.js";
+import { buildIdentityReport, buildSystemPrompt } from "./identity.js";
 import {
   buildMemoryBulletin,
   combineMemorySources,
@@ -87,6 +88,13 @@ export class AgentRuntime {
     }
   }
 
+  private buildMessagesForModel(): ChatMessage[] {
+    const report = buildIdentityReport(this.database, this.toolRegistry);
+    const systemPrompt = buildSystemPrompt(report);
+    const withoutSystem = this.messages.filter((message) => message.role !== "system");
+    return [{ role: "system", content: systemPrompt }, ...withoutSystem];
+  }
+
   async sendMessage(content: string): Promise<AgentResponse> {
     const runId = createId("run");
     const { runEvents, append } = this.createRunRecorder(runId);
@@ -98,7 +106,7 @@ export class AgentRuntime {
     const modelResponse = await this.modelRouter.generate({
       sessionId: this.sessionId,
       runId,
-      messages: this.messages,
+      messages: this.buildMessagesForModel(),
       tools: this.toolRegistry.list(),
       emitEvent: append
     });

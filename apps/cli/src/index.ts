@@ -21,10 +21,16 @@ import {
 } from "@squidbot/evals";
 import {
   AuditExporter,
+  buildCompliancePacket,
+  buildTrustReport,
   DEFAULT_ADMIN_USER_ID,
   DEFAULT_TENANT_ID,
+  digestTrustReport,
+  formatTrustReportMarkdown,
   GovernanceEngine,
-  policyPacks
+  policyPacks,
+  summarizeTrustReport,
+  type ComplianceFramework
 } from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
 import {
@@ -41,24 +47,30 @@ import { Scheduler, type CreateJobRequest } from "@squidbot/scheduler";
 import { evaluateSkill, installDeveloperWorkflowSkills, normalizeSkillId, SkillService, validateSkillManifest } from "@squidbot/skills";
 import { defaultTeamManifest, RoleRegistry, TeamCoordinator, TeamStore, validateTeamManifest } from "@squidbot/team";
 import {
+  activateProfile,
   AgentRuntime,
   approveMemoryCandidate,
+  buildIdentityReport,
   buildTrace,
   computeTraceMetrics,
   createId,
+  describeForWhoami,
   ensureLocalConfig,
   exportTraceMarkdown,
+  getActiveProfile,
   getTrace,
   getLatestTrace,
+  installSeedProfiles,
+  listProfiles,
   listRuns,
   redactValue,
-  searchEvents,
-  type AgentEvent,
-  type JsonObject,
   registerTerminalTools,
   registerTestTools,
   registerWorkspaceTools,
-  ToolRegistry
+  searchEvents,
+  ToolRegistry,
+  type AgentEvent,
+  type JsonObject
 } from "@squidbot/core";
 
 type ParsedArgs = {
@@ -498,6 +510,28 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (args.command === "whoami") {
+      const toolRegistry = createToolRegistryForReporting();
+      const report = buildIdentityReport(database, toolRegistry);
+      const parts = splitCommandParts(args.message);
+      if (parts.includes("--json")) {
+        printJson(report);
+      } else {
+        console.log(describeForWhoami(report));
+      }
+      return;
+    }
+
+    if (args.command === "trust") {
+      await handleTrustCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "profile" || args.command === "profiles") {
+      await handleProfileCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
     console.log("Usage:");
     console.log("  npm run init");
     console.log("  npm run chat -- --workspace ./examples/buggy-python \"list files\"");
@@ -524,6 +558,14 @@ async function main(): Promise<void> {
     console.log("  npm run memory -- graph search --hybrid \"calculator bug\" --top 5");
     console.log("  npm run connectors -- install ./connectors/demo/salesConnector.json");
     console.log("  npm run connectors -- import-openapi ./specs/petstore.yaml --name petstore");
+    console.log("  npm run whoami");
+    console.log("  npm run trust -- summary");
+    console.log("  npm run trust -- report");
+    console.log("  npm run trust -- digest");
+    console.log("  npm run trust -- packet --framework=soc2 --out trust/soc2.md");
+    console.log("  npm run profile -- list");
+    console.log("  npm run profile -- activate profile_seed_law_firm");
+    console.log("  npm run profile -- current");
     console.log("  npm run connectors -- list");
     console.log("  npm run settings -- set model.provider local");
     console.log("  npm run settings -- set model.apiKey abc123");
@@ -1270,6 +1312,162 @@ async function handleGovernanceN8nCommand(governance: GovernanceEngine, parts: s
     return;
   }
   throw new Error("Usage: npm run governance -- n8n integrations|integration|events|templates|fixture");
+}
+
+function createToolRegistryForReporting(): ToolRegistry {
+  const registry = new ToolRegistry();
+  registerWorkspaceTools(registry);
+  registerTerminalTools(registry);
+  registerTestTools(registry);
+  return registry;
+}
+
+async function handleTrustCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "summary";
+  const toolRegistry = createToolRegistryForReporting();
+  const identityReport = buildIdentityReport(database, toolRegistry);
+  const report = buildTrustReport({ database, identityReport });
+
+  if (subcommand === "summary") {
+    if (parts.includes("--json")) {
+      printJson({ summary: summarizeTrustReport(report) });
+    } else {
+      console.log(summarizeTrustReport(report));
+    }
+    return;
+  }
+
+  if (subcommand === "report") {
+    if (parts.includes("--json")) {
+      printJson(report);
+      return;
+    }
+    console.log(formatTrustReportMarkdown(report));
+    return;
+  }
+
+  if (subcommand === "digest") {
+    const digest = digestTrustReport(report);
+    if (parts.includes("--json")) {
+      printJson(digest);
+    } else {
+      console.log(`${digest.agentName} v${digest.agentVersion}`);
+      console.log(`Profile: ${digest.profile ?? "(none)"}`);
+      console.log(`Health: ${digest.healthLabel} (${digest.healthScore}/100)`);
+      console.log(`Audit chain valid: ${digest.auditChainValid ? "yes" : "NO"}`);
+      console.log(`Schema: ${digest.schemaVersion}`);
+      console.log(`Hash: ${digest.hash}`);
+      console.log(`Generated: ${digest.generatedAt}`);
+    }
+    return;
+  }
+
+  if (subcommand === "packet") {
+    const framework = (collectFlagValue(parts, "--framework") ?? "soc2") as ComplianceFramework;
+    if (framework !== "soc2" && framework !== "gdpr") {
+      throw new Error("--framework must be soc2 or gdpr");
+    }
+    const packet = buildCompliancePacket({ database, trustReport: report, framework });
+    const outputPath = collectFlagValue(parts, "--out");
+    if (outputPath) {
+      const resolved = resolveFromInvocationCwd(outputPath);
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, packet.markdown, "utf8");
+      console.log(`Wrote ${framework.toUpperCase()} compliance packet to ${resolved}`);
+      console.log(`Digest: ${packet.digest}`);
+      return;
+    }
+    if (parts.includes("--json")) {
+      printJson(packet);
+      return;
+    }
+    console.log(packet.markdown);
+    console.log(`\n---\nDigest: ${packet.digest}`);
+    return;
+  }
+
+  throw new Error(
+    "Usage: npm run trust -- summary | report | digest | packet --framework=soc2|gdpr [--out path] [--json]"
+  );
+}
+
+async function handleProfileCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  parts: string[]
+): Promise<void> {
+  const subcommand = parts[0] ?? "list";
+
+  if (subcommand === "seed") {
+    const installed = installSeedProfiles(database);
+    console.log(`Installed ${installed.length} seed profile(s):`);
+    for (const profile of installed) {
+      console.log(`- ${profile.id} ${profile.displayName} (${profile.industry}, sensitivity=${profile.sensitivity})`);
+    }
+    return;
+  }
+
+  if (subcommand === "list") {
+    installSeedProfiles(database);
+    const profiles = listProfiles(database);
+    if (parts.includes("--json")) {
+      printJson({ profiles });
+      return;
+    }
+    const active = getActiveProfile(database);
+    console.log("Enterprise profiles:");
+    for (const profile of profiles) {
+      const marker = profile.isActive ? "*" : " ";
+      console.log(
+        `${marker} ${profile.id}  ${profile.displayName}  (${profile.industry}, sensitivity=${profile.sensitivity}${profile.readOnlyByDefault ? ", read-only" : ""})`
+      );
+    }
+    if (active) {
+      console.log("");
+      console.log(`Active profile: ${active.displayName} (${active.id})`);
+    } else {
+      console.log("");
+      console.log("No active profile. Use: npm run profile -- activate <profile-id>");
+    }
+    return;
+  }
+
+  if (subcommand === "current") {
+    const active = getActiveProfile(database);
+    if (parts.includes("--json")) {
+      printJson({ profile: active });
+      return;
+    }
+    if (!active) {
+      console.log("No active enterprise profile. Run: npm run profile -- activate <profile-id>");
+      return;
+    }
+    console.log(`${active.displayName}  (${active.id})`);
+    console.log(`Industry: ${active.industry}`);
+    console.log(`Sensitivity: ${active.sensitivity}`);
+    console.log(`Read-only by default: ${active.readOnlyByDefault ? "yes" : "no"}`);
+    console.log(`Policy packs: ${active.policyPacks.join(", ") || "(none)"}`);
+    console.log(`Default skills: ${active.defaultSkills.join(", ") || "(none)"}`);
+    console.log(`Default connectors: ${active.defaultConnectors.join(", ") || "(none)"}`);
+    return;
+  }
+
+  if (subcommand === "activate") {
+    installSeedProfiles(database);
+    const profileId = parts[1];
+    if (!profileId) {
+      throw new Error("Usage: npm run profile -- activate <profile-id>");
+    }
+    const profile = activateProfile(database, profileId);
+    console.log(`Activated profile: ${profile.displayName} (${profile.id})`);
+    return;
+  }
+
+  throw new Error(
+    "Usage: npm run profile -- list | current | activate <profile-id> | seed [--json]"
+  );
 }
 
 async function handleProjectStatusCommand(database: ReturnType<typeof initializeDatabase>): Promise<void> {

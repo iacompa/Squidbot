@@ -26,6 +26,10 @@
     "connectors": "tsx src/index.ts connectors",
     "model": "tsx src/index.ts model",
     "settings": "tsx src/index.ts settings",
+    "whoami": "tsx src/index.ts whoami",
+    "trust": "tsx src/index.ts trust",
+    "profile": "tsx src/index.ts profile",
+    "profiles": "tsx src/index.ts profile",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit"

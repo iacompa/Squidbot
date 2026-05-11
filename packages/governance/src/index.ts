@@ -16,3 +16,5 @@ export * from "./lineage.js";
 export * from "./n8nBridge.js";
 export * from "./governanceEvents.js";
 export * from "./governanceEngine.js";
+export * from "./trustReport.js";
+export * from "./compliancePackets.js";

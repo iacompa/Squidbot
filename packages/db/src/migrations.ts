@@ -1138,6 +1138,50 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_governance_webhooks_idempotency
         ON governance_webhook_events (tenantId, integrationId, idempotencyKey);
     `
+  },
+  {
+    id: 14,
+    name: "identity_and_enterprise_profile",
+    up: `
+      CREATE TABLE IF NOT EXISTS identity_card (
+        id TEXT PRIMARY KEY DEFAULT 'singleton' CHECK(id = 'singleton'),
+        agentName TEXT NOT NULL DEFAULT 'SquidBot',
+        agentVersion TEXT NOT NULL DEFAULT '0.1.0',
+        mission TEXT NOT NULL,
+        installedAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS enterprise_profile (
+        id TEXT PRIMARY KEY,
+        industry TEXT NOT NULL,
+        displayName TEXT NOT NULL,
+        businessUnit TEXT,
+        role TEXT,
+        primarySystems TEXT NOT NULL DEFAULT '[]',
+        primaryChannels TEXT NOT NULL DEFAULT '[]',
+        sensitivity TEXT NOT NULL DEFAULT 'standard'
+          CHECK(sensitivity IN ('standard', 'sensitive', 'regulated', 'air-gapped')),
+        vocabulary TEXT NOT NULL DEFAULT '{}',
+        branding TEXT NOT NULL DEFAULT '{}',
+        policyPacks TEXT NOT NULL DEFAULT '[]',
+        defaultSkills TEXT NOT NULL DEFAULT '[]',
+        defaultConnectors TEXT NOT NULL DEFAULT '[]',
+        readOnlyByDefault INTEGER NOT NULL DEFAULT 0,
+        isActive INTEGER NOT NULL DEFAULT 0,
+        seeded INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_enterprise_profile_active_one
+        ON enterprise_profile (isActive)
+        WHERE isActive = 1;
+
+      CREATE INDEX IF NOT EXISTS idx_enterprise_profile_industry
+        ON enterprise_profile (industry);
+    `
   }
 ];
 

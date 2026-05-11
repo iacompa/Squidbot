@@ -5,6 +5,76 @@ function latestUserMessage(messages: ModelProviderRequest["messages"]): string {
   return [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 }
 
+function firstSystemMessage(messages: ModelProviderRequest["messages"]): string | null {
+  return messages.find((message) => message.role === "system")?.content ?? null;
+}
+
+function isIdentityIntent(message: string): boolean {
+  return (
+    /\bwho\s+are\s+you\b/i.test(message) ||
+    /\bwhat\s+(are|is)\s+you\b/i.test(message) ||
+    /\bwhat\s+can\s+you\s+do\b/i.test(message) ||
+    /\bintroduce\s+yourself\b/i.test(message) ||
+    /\btell\s+me\s+about\s+yourself\b/i.test(message) ||
+    /\bwhat\s+is\s+squidbot\b/i.test(message) ||
+    /\bwhoami\b/i.test(message) ||
+    /\b(squid\s*bot|squidbot)\s*\?/i.test(message)
+  );
+}
+
+function isCapabilityIntent(message: string): boolean {
+  return (
+    /\bwhat\s+can\s+you\s+(do|help)\b/i.test(message) ||
+    /\bwhat\s+(tools|features|capabilities)\s+do\s+you\s+have\b/i.test(message) ||
+    /\bhow\s+can\s+you\s+help\b/i.test(message) ||
+    /\bgetting\s+started\b/i.test(message)
+  );
+}
+
+function buildIdentityResponse(systemPrompt: string | null, message: string): string {
+  if (!systemPrompt) {
+    return "I'm SquidBot — an open-source, auditable, self-hosted AI agent platform. Run `squidbot whoami` for a structured summary, or run `squidbot onboarding` to pick an enterprise profile so I can adapt to your business.";
+  }
+  const capabilityRequest = isCapabilityIntent(message);
+  // Pull the section anchors from the assembled system prompt so the response stays in sync.
+  const lines = systemPrompt.split(/\n/);
+  const headerLine = lines.find((line) => line.startsWith("You are ")) ?? "I'm SquidBot.";
+  const missionLine = lines.find((line) => line.startsWith("Mission: "));
+  const profileLines = collectSection(lines, "Active enterprise profile:");
+  const noProfile = lines.find((line) => line.startsWith("No enterprise profile is active"));
+  const capabilityLines = collectSection(lines, "Currently registered tools");
+
+  const reply: string[] = [];
+  reply.push(headerLine);
+  if (missionLine) reply.push(missionLine);
+  if (profileLines.length > 0) {
+    reply.push("");
+    reply.push(...profileLines);
+  } else if (noProfile) {
+    reply.push("");
+    reply.push(noProfile);
+  }
+  if (capabilityRequest && capabilityLines.length > 0) {
+    reply.push("");
+    reply.push(...capabilityLines);
+  }
+  reply.push("");
+  reply.push("Use `squidbot whoami` for a structured summary, `squidbot trust` for the live security posture, or `squidbot onboarding` to pick a profile.");
+  return reply.join("\n");
+}
+
+function collectSection(lines: string[], header: string): string[] {
+  const start = lines.findIndex((line) => line.startsWith(header));
+  if (start === -1) return [];
+  const out: string[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    if (i > start && line.trim() === "") break;
+    out.push(line);
+  }
+  return out;
+}
+
 function extractPath(message: string): string | null {
   const match = message.match(/(?:read|open|show)\s+([^\s]+)$/i);
   return match?.[1] ?? null;
@@ -19,11 +89,30 @@ export function generateDeterministicResponse(options: {
   contentPrefix?: string;
   costPerToken?: number;
 }): ModelResponse {
-  const message = latestUserMessage(options.request.messages).toLowerCase();
+  const rawMessage = latestUserMessage(options.request.messages);
+  const message = rawMessage.toLowerCase();
+  const systemPrompt = firstSystemMessage(options.request.messages);
   const toolCalls: ToolCall[] = [];
   let content =
     options.contentPrefix ??
     "Deterministic provider is active. I can safely inspect a local workspace and return traceable tool calls.";
+
+  if (isIdentityIntent(rawMessage)) {
+    content = buildIdentityResponse(systemPrompt, rawMessage);
+    const promptTokens = estimateRequestTokens(options.request.messages, options.request.tools);
+    const tokenUsage = usageFromText(promptTokens, content);
+    return {
+      provider: options.provider,
+      modelName: options.modelName,
+      mode: options.mode,
+      costOwner: options.costOwner,
+      content,
+      toolCalls,
+      tokenUsage,
+      costEstimate: options.costPerToken ? tokenUsage.totalTokens * options.costPerToken : 0
+    };
+  }
+
   const connectorTool = pickConnectorTool(options.request.tools, message);
 
   if (connectorTool && isConnectorIntent(message)) {
