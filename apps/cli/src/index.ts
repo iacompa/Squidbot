@@ -2934,6 +2934,12 @@ function printJson(value: unknown): void {
 }
 
 function collectFlagValue(parts: string[], flag: string): string | undefined {
+  // Support --flag=value form (single token).
+  const inline = parts.find((part) => part.startsWith(`${flag}=`));
+  if (inline) {
+    return inline.slice(flag.length + 1).trim() || undefined;
+  }
+  // Fall back to --flag value form (allow multi-token values until the next flag).
   const index = parts.indexOf(flag);
   if (index < 0) {
     return undefined;
