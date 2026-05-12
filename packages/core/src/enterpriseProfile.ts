@@ -237,7 +237,46 @@ export function deactivateAllProfiles(database: SquidDatabase): void {
   database.db.prepare(`UPDATE enterprise_profile SET isActive = 0, updatedAt = ?`).run(now);
 }
 
+/**
+ * Profile ID of the always-available, industry-agnostic "Generic Business"
+ * profile. This is the default-active profile on first install. Vertical
+ * profiles (law / dealer / gov / engineering / healthcare-ops) are example
+ * alternatives the operator can switch to or fork from.
+ */
+export const GENERIC_BUSINESS_PROFILE_ID = "profile_seed_generic_business";
+
 export const SEED_PROFILES: EnterpriseProfileInput[] = [
+  {
+    id: GENERIC_BUSINESS_PROFILE_ID,
+    industry: "general_business",
+    displayName: "Generic Business",
+    businessUnit: null,
+    role: "operator",
+    primarySystems: [],
+    primaryChannels: [],
+    sensitivity: "standard",
+    vocabulary: {},
+    branding: {
+      productName: "SquidBot",
+      accentColor: "#0ea5e9",
+      supportEmail: "support@squidbot.dev"
+    },
+    policyPacks: ["developer-safe-default", "secrets-redaction"],
+    defaultSkills: [
+      "summary",
+      "research",
+      "doc-writing",
+      "data-extraction"
+    ],
+    defaultConnectors: [],
+    readOnlyByDefault: false,
+    metadata: {
+      genericNotes: [
+        "This is the default profile. Adapts to any business without industry-specific assumptions.",
+        "Run `npm run profile -- list` to switch to a vertical example, or `npm run profile -- create` to define your own."
+      ]
+    }
+  },
   {
     id: "profile_seed_law_firm",
     industry: "legal",
@@ -462,7 +501,38 @@ export function installSeedProfiles(database: SquidDatabase): EnterpriseProfile[
           now
         });
     }
+
+    // Auto-activate the Generic Business profile on first seed-install when
+    // nothing else is active yet. This is what makes SquidBot work for "any
+    // business" out of the box without forcing the operator to pick a vertical.
+    // We only activate if no profile is currently active to avoid overriding
+    // an explicit choice the operator already made.
+    const anyActive = database.db
+      .prepare(`SELECT id FROM enterprise_profile WHERE isActive = 1 LIMIT 1`)
+      .get() as { id: string } | undefined;
+    if (!anyActive) {
+      database.db
+        .prepare(`UPDATE enterprise_profile SET isActive = 1, updatedAt = ? WHERE id = ?`)
+        .run(now, GENERIC_BUSINESS_PROFILE_ID);
+    }
   });
   tx();
   return listProfiles(database).filter((profile) => profile.seeded);
+}
+
+/**
+ * Create a custom enterprise profile (not seeded). Useful for the `profile
+ * create` CLI command and for an AI-assisted onboarding flow that interviews
+ * the user about their business and writes the resulting profile.
+ */
+export function createCustomProfile(
+  database: SquidDatabase,
+  input: EnterpriseProfileInput & { activate?: boolean }
+): EnterpriseProfile {
+  const profile = upsertProfile(database, input);
+  if (input.activate) {
+    activateProfile(database, profile.id);
+    return getProfile(database, profile.id)!;
+  }
+  return profile;
 }

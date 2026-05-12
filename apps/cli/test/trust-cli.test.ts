@@ -21,18 +21,61 @@ function runRootNpm(args: string[], home: string): string {
 }
 
 describe("CLI trust command", () => {
-  it("whoami prints the SquidBot identity even with no active profile", () => {
+  it("whoami prints the SquidBot identity with Generic Business active by default", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "squidbot-trust-cli-"));
     const output = runRootNpm(["run", "--silent", "whoami"], home);
     expect(output).toContain("SquidBot");
     expect(output).toContain("Mission:");
+    // Generic Business is the default profile — no need to pick a vertical to start.
+    expect(output).toContain("Generic Business");
   });
 
-  it("profile list seeds and shows the law firm profile", () => {
+  it("profile list shows Generic Business as default-active and all vertical examples", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "squidbot-trust-cli-"));
     const output = runRootNpm(["run", "--silent", "profile", "--", "list"], home);
+    // Default-active
+    expect(output).toContain("profile_seed_generic_business");
+    expect(output).toContain("Generic Business");
+    // Vertical examples still available
     expect(output).toContain("profile_seed_law_firm");
-    expect(output).toContain("Law Firm");
+    expect(output).toContain("profile_seed_engineering_shop");
+    // Active profile line points at generic
+    expect(output).toContain("Active profile: Generic Business");
+  });
+
+  it("profile create --activate creates and activates a custom profile", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "squidbot-trust-cli-"));
+    const output = runRootNpm(
+      [
+        "run",
+        "--silent",
+        "profile",
+        "--",
+        "create",
+        "--name",
+        "Acme Corp",
+        "--industry",
+        "saas",
+        "--role",
+        "founder",
+        "--sensitivity",
+        "sensitive",
+        "--activate"
+      ],
+      home
+    );
+    expect(output).toContain("Created custom profile: Acme Corp");
+    expect(output).toContain("Status: ACTIVE");
+
+    // Confirm it took: whoami should now reflect Acme Corp.
+    const whoami = runRootNpm(["run", "--silent", "whoami"], home);
+    expect(whoami).toContain("Acme Corp");
+    expect(whoami).not.toContain("Active profile: Generic Business");
+  });
+
+  it("profile create requires --name", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "squidbot-trust-cli-"));
+    expect(() => runRootNpm(["run", "--silent", "profile", "--", "create"], home)).toThrow();
   });
 
   it("trust summary works end-to-end", () => {

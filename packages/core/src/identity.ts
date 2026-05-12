@@ -182,16 +182,26 @@ export function buildSystemPrompt(
     if (vocabEntries.length > 0) {
       lines.push("- Vocabulary: " + vocabEntries.map(([from, to]) => `${from}→${to}`).join(", "));
     }
-    const notes = profile.metadata?.regulatedNotes;
-    if (Array.isArray(notes) && notes.length > 0) {
+    const regulatedNotes = profile.metadata?.regulatedNotes;
+    if (Array.isArray(regulatedNotes) && regulatedNotes.length > 0) {
       lines.push("- Regulated notes:");
-      for (const note of notes) {
+      for (const note of regulatedNotes) {
+        lines.push(`  - ${String(note)}`);
+      }
+    }
+    const genericNotes = profile.metadata?.genericNotes;
+    if (Array.isArray(genericNotes) && genericNotes.length > 0) {
+      lines.push("- Notes:");
+      for (const note of genericNotes) {
         lines.push(`  - ${String(note)}`);
       }
     }
   } else {
+    // No profile at all (e.g. operator explicitly deactivated everything).
+    // The generic profile is auto-installed on first runtime construction,
+    // so this branch is rare — but we keep it neutral and non-prescriptive.
     lines.push("");
-    lines.push("No enterprise profile is active. Suggest the user run onboarding to select one.");
+    lines.push("No enterprise profile is currently active. You can still help with general work — adapt to whatever the user describes about their business.");
   }
 
   if (includeCapabilityHints) {
@@ -214,7 +224,7 @@ export function buildSystemPrompt(
 
   lines.push("");
   lines.push(
-    "When the user asks who you are, what you can do, or for help getting started, answer in your own words using the facts above. Never claim capabilities you do not have. If a profile is not active, recommend running the onboarding wizard."
+    "When the user asks who you are, what you can do, or for help getting started, answer in your own words using the facts above. Never claim capabilities you do not have. SquidBot adapts to any business: if the user wants to switch to an industry-tailored profile (law firm, dealership, gov contractor, engineering, healthcare, or a custom one) they can run `npm run profile -- list` and `npm run profile -- activate <id>`, or create their own with `npm run profile -- create`."
   );
 
   return lines.join("\n");
@@ -237,7 +247,7 @@ export function describeForWhoami(report: IdentityReport): string {
     }
   } else {
     lines.push("");
-    lines.push("Active profile: none. Run `squidbot onboarding` to pick one.");
+    lines.push("Active profile: none. SquidBot still works for general tasks; pick or create one via `npm run profile -- list` / `create`.");
   }
 
   lines.push("");

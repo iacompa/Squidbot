@@ -1,6 +1,7 @@
 import type { SquidDatabase } from "@squidbot/db";
 import { affordanceGapId, createAffordanceGap, detectAffordanceGaps } from "@squidbot/reflection";
 import { parseCommandLine, SandboxManager, type Sandbox, type SandboxCreateOptions, type SandboxRunResult } from "@squidbot/sandbox";
+import { installSeedProfiles } from "./enterpriseProfile.js";
 import { EventLog } from "./eventLog.js";
 import { buildIdentityReport, buildSystemPrompt } from "./identity.js";
 import {
@@ -86,6 +87,12 @@ export class AgentRuntime {
       registerTerminalTools(this.toolRegistry);
       registerTestTools(this.toolRegistry);
     }
+
+    // Lazy-install the seed profiles on first runtime construction. This makes
+    // the generic "any business" profile active out of the box without forcing
+    // the operator to run an explicit setup step. Idempotent — existing profiles
+    // are not overwritten and an already-active profile is not changed.
+    installSeedProfiles(this.database);
   }
 
   private buildMessagesForModel(): ChatMessage[] {

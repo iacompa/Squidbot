@@ -53,6 +53,7 @@ import {
   buildIdentityReport,
   buildTrace,
   computeTraceMetrics,
+  createCustomProfile,
   createId,
   describeForWhoami,
   ensureLocalConfig,
@@ -511,6 +512,7 @@ async function main(): Promise<void> {
     }
 
     if (args.command === "whoami") {
+      installSeedProfiles(database);
       const toolRegistry = createToolRegistryForReporting();
       const report = buildIdentityReport(database, toolRegistry);
       const parts = splitCommandParts(args.message);
@@ -563,9 +565,11 @@ async function main(): Promise<void> {
     console.log("  npm run trust -- report");
     console.log("  npm run trust -- digest");
     console.log("  npm run trust -- packet --framework=soc2 --out trust/soc2.md");
-    console.log("  npm run profile -- list");
-    console.log("  npm run profile -- activate profile_seed_law_firm");
+    console.log("  npm run profile -- list                                # shows the default Generic Business + vertical examples");
     console.log("  npm run profile -- current");
+    console.log("  npm run profile -- create --name \"Acme Corp\" --activate     # define a custom profile for your business");
+    console.log("  npm run profile -- create --name \"Acme Health\" --industry healthcare --sensitivity regulated --read-only --activate");
+    console.log("  npm run profile -- activate profile_seed_engineering_shop    # switch to a vertical example");
     console.log("  npm run connectors -- list");
     console.log("  npm run settings -- set model.provider local");
     console.log("  npm run settings -- set model.apiKey abc123");
@@ -1327,6 +1331,7 @@ async function handleTrustCommand(
   parts: string[]
 ): Promise<void> {
   const subcommand = parts[0] ?? "summary";
+  installSeedProfiles(database);
   const toolRegistry = createToolRegistryForReporting();
   const identityReport = buildIdentityReport(database, toolRegistry);
   const report = buildTrustReport({ database, identityReport });
@@ -1465,8 +1470,78 @@ async function handleProfileCommand(
     return;
   }
 
+  if (subcommand === "create") {
+    const name = collectFlagValue(parts, "--name");
+    if (!name) {
+      throw new Error(
+        "Usage: npm run profile -- create --name \"<display name>\" [--industry general_business] [--role operator] [--sensitivity standard|sensitive|regulated|air-gapped] [--read-only] [--activate] [--vocab from=to,from=to]"
+      );
+    }
+    const industry = collectFlagValue(parts, "--industry") ?? "general_business";
+    const role = collectFlagValue(parts, "--role") ?? null;
+    const sensitivityRaw = collectFlagValue(parts, "--sensitivity") ?? "standard";
+    const validSensitivities = ["standard", "sensitive", "regulated", "air-gapped"];
+    if (!validSensitivities.includes(sensitivityRaw)) {
+      throw new Error(`--sensitivity must be one of ${validSensitivities.join(", ")}`);
+    }
+    const readOnly = parts.includes("--read-only");
+    const activate = parts.includes("--activate");
+    const vocabRaw = collectFlagValue(parts, "--vocab");
+    const vocabulary: Record<string, string> = {};
+    if (vocabRaw) {
+      for (const pair of vocabRaw.split(",")) {
+        const [from, to] = pair.split("=").map((s) => s.trim());
+        if (from && to) vocabulary[from] = to;
+      }
+    }
+    const primarySystems = (collectFlagValue(parts, "--systems") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const primaryChannels = (collectFlagValue(parts, "--channels") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const profile = createCustomProfile(database, {
+      industry,
+      displayName: name,
+      businessUnit: null,
+      role,
+      primarySystems,
+      primaryChannels,
+      sensitivity: sensitivityRaw as "standard" | "sensitive" | "regulated" | "air-gapped",
+      vocabulary,
+      branding: { productName: `SquidBot for ${name}` },
+      policyPacks: ["developer-safe-default", "secrets-redaction"],
+      defaultSkills: [],
+      defaultConnectors: [],
+      readOnlyByDefault: readOnly,
+      metadata: {
+        customCreated: true,
+        createdVia: "cli"
+      },
+      activate
+    });
+
+    if (parts.includes("--json")) {
+      printJson({ profile });
+      return;
+    }
+    console.log(`Created custom profile: ${profile.displayName} (${profile.id})`);
+    console.log(`  Industry: ${profile.industry}`);
+    console.log(`  Sensitivity: ${profile.sensitivity}`);
+    console.log(`  Read-only by default: ${profile.readOnlyByDefault ? "yes" : "no"}`);
+    if (profile.isActive) {
+      console.log(`  Status: ACTIVE`);
+    } else {
+      console.log(`  Activate with: npm run profile -- activate ${profile.id}`);
+    }
+    return;
+  }
+
   throw new Error(
-    "Usage: npm run profile -- list | current | activate <profile-id> | seed [--json]"
+    "Usage: npm run profile -- list | current | activate <profile-id> | create --name \"<name>\" [flags] | seed [--json]"
   );
 }
 
