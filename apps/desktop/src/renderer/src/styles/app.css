@@ -2945,3 +2945,112 @@ pre {
     align-self: flex-start;
   }
 }
+
+/* ---- Settings → Docs & guides ----
+   Same paper-card aesthetic as other Settings cards. Uses native <details>
+   so it works without JavaScript state, is screen-reader accessible by
+   default, and remembers each topic's open state for the page lifetime. */
+.settings-docs {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 22px 8px;
+  margin: 0 0 22px;
+  box-shadow: 0 4px 14px rgba(31, 42, 38, 0.04);
+}
+
+.settings-docs__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.settings-docs__icon {
+  background: var(--surface-2);
+  color: var(--teal-strong);
+  border-radius: 10px;
+  padding: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-docs__header h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-docs__intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.settings-docs__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-docs__item {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.settings-docs__item summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  color: var(--ink);
+  padding: 4px 0;
+}
+
+.settings-docs__item summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-docs__item summary::before {
+  content: "▸";
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 11px;
+  color: var(--muted);
+  width: 11px;
+}
+
+.settings-docs__item[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.settings-docs__item summary:hover {
+  color: var(--teal-strong);
+}
+
+.settings-docs__body {
+  padding: 6px 0 4px 21px;
+}
+
+.settings-docs__body p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.settings-docs__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  margin-top: 4px;
+}

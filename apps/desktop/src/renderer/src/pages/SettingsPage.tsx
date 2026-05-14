@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, FolderOpen, KeyRound, Plug, Save, Wand2 } from "lucide-react";
+import { ArrowRight, BookOpen, FolderOpen, KeyRound, Plug, Save, Wand2 } from "lucide-react";
 import { squidbotApi } from "../lib/api";
 import type { SettingsDto } from "../../../shared/api";
 import type { EnterpriseProfileDto, PageId } from "../types";
@@ -15,6 +15,105 @@ type SettingsPageProps = {
 };
 
 const GENERIC_PROFILE_ID = "profile_seed_generic_business";
+
+/**
+ * In-app docs surface lives directly inside Settings — that's where a brand-new
+ * operator looks first, and putting the explanation right next to the controls
+ * means they never have to alt-tab to a website to learn what a knob does.
+ * Each topic optionally deep-links to the page it describes via `onNavigate`.
+ *
+ * Editing tip for future contributors: keep `body` to one short paragraph —
+ * one idea per topic. If a topic needs more, add a follow-up topic instead.
+ */
+type DocTopic = {
+  title: string;
+  body: string;
+  page?: PageId;
+  pageLabel?: string;
+};
+
+const DOC_TOPICS: DocTopic[] = [
+  {
+    title: "What SquidBot is",
+    body:
+      "SquidBot is a local-first AI agent that runs entirely on your machine. It connects to large language models through your own API keys (BYOK — bring your own key), so you keep ownership of every chat, trace, and memory. Nothing leaves the laptop unless you wire it up yourself."
+  },
+  {
+    title: "Getting started",
+    body:
+      "Run the onboarding wizard. Six short questions tune SquidBot's vocabulary, policy packs, default skills, and memories to your specific business. Every answer becomes a memory with provenance — SquidBot will cite it back to you in future runs.",
+    page: "onboarding",
+    pageLabel: "Open onboarding"
+  },
+  {
+    title: "Chat",
+    body:
+      "The default surface. Talk to SquidBot in natural language. It can read files in your workspace, call tools, ask for your approval before risky operations, and even switch model accounts mid-conversation when you ask (\"use my OpenAI account instead\").",
+    page: "chat",
+    pageLabel: "Open chat"
+  },
+  {
+    title: "Model accounts (BYOK)",
+    body:
+      "Save multiple model accounts — OpenRouter, OpenAI, Anthropic, Groq, Together, Ollama, or any OpenAI-compatible endpoint — and switch the active one any time. SquidBot can switch on its own when you ask it to in chat. Configure them below in this page, or from the CLI: `squidbot model accounts add`."
+  },
+  {
+    title: "Identity",
+    body:
+      "What SquidBot believes it is right now: which model account is active, its bonded skills, the policies it's enforcing, the memories that shape its answers. Open this when you want to understand why SquidBot just behaved the way it did.",
+    page: "identity",
+    pageLabel: "Open identity"
+  },
+  {
+    title: "Trust report",
+    body:
+      "A live audit surface for you — and, when you need it, for customers, auditors, or regulators. Shows real model spend, policy violations caught, audit-trail completeness, retention compliance, and provider-by-provider cost breakdowns.",
+    page: "trust",
+    pageLabel: "Open trust report"
+  },
+  {
+    title: "Enterprise profiles",
+    body:
+      "A profile is a pre-tuned bundle: vocabulary, sensitivity defaults, policy packs, default skills. Start with the Generic Business profile (the default) and let onboarding personalise it — or pick a vertical preset.",
+    page: "profiles",
+    pageLabel: "Open profiles"
+  },
+  {
+    title: "Memory",
+    body:
+      "Every memory has provenance — what created it, when, and the trace it came from. SquidBot retrieves relevant memories before each turn and can cite them in its answers. Curate, delete, or pin memories here.",
+    page: "memory",
+    pageLabel: "Open memory"
+  },
+  {
+    title: "Traces",
+    body:
+      "Every chat turn and every task run is recorded as a trace: which model, which tools, which approvals, which cost. Replay any of them. Search across all of them. Export them for compliance.",
+    page: "traces",
+    pageLabel: "Open traces"
+  },
+  {
+    title: "Skills, Jobs, and Teams",
+    body:
+      "Skills are reusable capabilities SquidBot can compose. Jobs are scheduled work. Teams are multi-agent collaborations with a shared blackboard. All optional — you can use SquidBot without any of them.",
+    page: "skills",
+    pageLabel: "Open skills"
+  },
+  {
+    title: "Governance & approvals",
+    body:
+      "Tools have risk levels. Risky tools require explicit human approval; low-risk ones run automatically. The Governance page shows the policy engine state — who can do what, what's allowed, what's been audited.",
+    page: "governance",
+    pageLabel: "Open governance"
+  },
+  {
+    title: "Sandboxes & evaluations",
+    body:
+      "Need to test a change without affecting your real data? Spin up a sandbox. Want to measure how well SquidBot does on a benchmark? Run an evaluation. Both keep the main runtime clean.",
+    page: "sandboxes",
+    pageLabel: "Open sandboxes"
+  }
+];
 
 type ConnectorDrafts = Record<string, { apiKey: string; baseUrl: string }>;
 type ModelDrafts = { apiKey: string; apiUrl: string; apiModel: string; apiBudgetTokens: string };
@@ -132,6 +231,41 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
           </button>
         </section>
       )}
+
+      <section className="settings-docs" aria-label="Docs and guides">
+        <header className="settings-docs__header">
+          <div className="settings-docs__icon" aria-hidden>
+            <BookOpen size={20} />
+          </div>
+          <div>
+            <h3>Docs &amp; guides</h3>
+            <p className="settings-docs__intro">
+              A short tour of SquidBot's surfaces. Expand any topic for a one-paragraph
+              explanation; the link inside jumps straight to the relevant page.
+            </p>
+          </div>
+        </header>
+        <div className="settings-docs__list">
+          {DOC_TOPICS.map((topic) => (
+            <details className="settings-docs__item" key={topic.title}>
+              <summary>{topic.title}</summary>
+              <div className="settings-docs__body">
+                <p>{topic.body}</p>
+                {topic.page && onNavigate && (
+                  <button
+                    type="button"
+                    className="secondary-button settings-docs__cta"
+                    onClick={() => onNavigate(topic.page!)}
+                  >
+                    <span>{topic.pageLabel ?? `Open ${topic.page}`}</span>
+                    <ArrowRight size={13} aria-hidden />
+                  </button>
+                )}
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
 
       <section className="settings-grid">
         <div className="settings-row">

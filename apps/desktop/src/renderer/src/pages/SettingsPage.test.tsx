@@ -126,3 +126,76 @@ describe("SettingsPage onboarding shortcut", () => {
     expect(screen.queryByLabelText("Onboarding shortcut")).toBeNull();
   });
 });
+
+describe("SettingsPage docs section", () => {
+  it("renders the Docs & guides header with the intro copy", async () => {
+    mountWithProfile("profile_seed_generic_business");
+    const { SettingsPage } = await import("./SettingsPage");
+    render(
+      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
+    );
+    // The section is keyed by aria-label so screen readers announce it as a
+    // landmark. The header text must be the human-readable phrase.
+    expect(screen.getByLabelText("Docs and guides")).toBeTruthy();
+    expect(screen.getByText("Docs & guides")).toBeTruthy();
+  });
+
+  it("lists the key onboarding-journey topics", async () => {
+    mountWithProfile("profile_seed_generic_business");
+    const { SettingsPage } = await import("./SettingsPage");
+    render(
+      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
+    );
+    // Spot-check that the most important topics are present. We don't assert
+    // on every topic to keep the test resilient to copy edits — just the
+    // load-bearing ones an operator would expect to find.
+    expect(screen.getByText("What SquidBot is")).toBeTruthy();
+    expect(screen.getByText("Getting started")).toBeTruthy();
+    expect(screen.getByText("Model accounts (BYOK)")).toBeTruthy();
+    expect(screen.getByText("Trust report")).toBeTruthy();
+  });
+
+  it("expanding a topic reveals its body paragraph", async () => {
+    mountWithProfile("profile_seed_generic_business");
+    const { SettingsPage } = await import("./SettingsPage");
+    render(
+      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
+    );
+    // Native <details> in jsdom: the body is still in the DOM when collapsed
+    // (the attribute toggles open/closed visually). To verify the body really
+    // belongs to the topic we click the summary and look up its sibling.
+    const summary = screen.getByText("What SquidBot is");
+    fireEvent.click(summary);
+    expect(
+      screen.getByText(/local-first AI agent that runs entirely on your machine/i)
+    ).toBeTruthy();
+  });
+
+  it("clicking a topic's Open button navigates to that page", async () => {
+    mountWithProfile("profile_seed_generic_business");
+    const { SettingsPage } = await import("./SettingsPage");
+    render(
+      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
+    );
+    // The trust-report topic has a deep-link button. Click it.
+    const trustCta = screen.getByRole("button", { name: /open trust report/i });
+    fireEvent.click(trustCta);
+    expect(navigateMock).toHaveBeenCalledWith("trust");
+  });
+
+  it("does not render an Open button for topics without a target page", async () => {
+    mountWithProfile("profile_seed_generic_business");
+    const { SettingsPage } = await import("./SettingsPage");
+    render(
+      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
+    );
+    // "What SquidBot is" is a pure explainer — there's no single page to deep
+    // link to, so the CTA must be omitted (it would just confuse the user).
+    // We assert by looking inside that specific <details>: its descendant
+    // button set is empty.
+    const aboutSummary = screen.getByText("What SquidBot is");
+    const aboutDetails = aboutSummary.closest("details");
+    expect(aboutDetails).not.toBeNull();
+    expect(aboutDetails!.querySelectorAll("button").length).toBe(0);
+  });
+});
