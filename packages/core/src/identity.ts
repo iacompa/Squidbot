@@ -137,6 +137,13 @@ export function buildIdentityReport(
 export type SystemPromptOptions = {
   includeCapabilityHints?: boolean;
   maxTools?: number;
+  /**
+   * Optional memory bulletin to render as a "Relevant memories" section so the
+   * agent can cite operator guardrails, founder notes, and other approved
+   * memories during chat. Pass the raw output of `buildMemoryBulletin(...)` —
+   * an empty / whitespace-only string skips the section entirely.
+   */
+  memoryBulletin?: string;
 };
 
 export function buildSystemPrompt(
@@ -222,9 +229,29 @@ export function buildSystemPrompt(
     }
   }
 
+  // Memory bulletin rendered as a "Relevant memories" section. Includes the
+  // operator's guardrails, founder notes from onboarding, and any other
+  // approved memories surfaced by hybrid retrieval. We render this AFTER the
+  // capability list so the agent has full context before being told what to
+  // cite back.
+  const trimmedBulletin = (options.memoryBulletin ?? "").trim();
+  if (trimmedBulletin.length > 0 && !/^Memory Bulletin\s*[\r\n]+- No approved memories/i.test(trimmedBulletin)) {
+    lines.push("");
+    lines.push("Relevant memories (sourced, importance-ranked — cite these when they apply):");
+    // Bulletin already includes its own "Memory Bulletin" header — drop our
+    // own header and just inline the entries so the model sees a single
+    // block instead of two stacked headings.
+    const bodyLines = trimmedBulletin
+      .split(/\r?\n/)
+      .filter((line) => !/^Memory Bulletin\s*$/i.test(line.trim()));
+    for (const line of bodyLines) {
+      lines.push(line);
+    }
+  }
+
   lines.push("");
   lines.push(
-    "When the user asks who you are, what you can do, or for help getting started, answer in your own words using the facts above. Never claim capabilities you do not have. SquidBot adapts to any business: if the user wants to switch to an industry-tailored profile (law firm, dealership, gov contractor, engineering, healthcare, or a custom one) they can run `npm run profile -- list` and `npm run profile -- activate <id>`, or create their own with `npm run profile -- create`."
+    "When the user asks who you are, what you can do, or for help getting started, answer in your own words using the facts above. Never claim capabilities you do not have. SquidBot adapts to any business: if the user wants to switch to an industry-tailored profile (law firm, dealership, gov contractor, engineering, healthcare, or a custom one) they can run `npm run profile -- list` and `npm run profile -- activate <id>`, or create their own with `npm run profile -- create`. When the user's question relates to a memory above (guardrail, founder note, system inventory, ...), cite it explicitly so they can see SquidBot is acting on what they told it."
   );
 
   return lines.join("\n");

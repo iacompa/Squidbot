@@ -126,6 +126,37 @@ describe("identity report and system prompt", () => {
     expect(prompt).toContain("adapt to whatever the user describes");
   });
 
+  it("renders an optional memoryBulletin section when one is supplied", () => {
+    database = freshDatabase();
+    const report = buildIdentityReport(database, new ToolRegistry());
+    const bulletin = [
+      "Memory Bulletin",
+      "- [guardrail] Permanent guardrail: Never share matter info externally.",
+      "- [founder_note] Top time-waster: Reviewing contracts manually."
+    ].join("\n");
+    const prompt = buildSystemPrompt(report, { memoryBulletin: bulletin });
+    expect(prompt).toContain("Relevant memories");
+    expect(prompt).toContain("Permanent guardrail: Never share matter info externally.");
+    expect(prompt).toContain("Top time-waster: Reviewing contracts manually.");
+    // We strip the redundant "Memory Bulletin" header so there is exactly
+    // one section heading instead of two stacked ones.
+    expect((prompt.match(/Memory Bulletin/g) ?? []).length).toBe(0);
+    // The closing instruction asks the model to cite memories explicitly.
+    expect(prompt).toContain("cite it explicitly");
+  });
+
+  it("skips the memory section when the bulletin is empty or 'no memories'", () => {
+    database = freshDatabase();
+    const report = buildIdentityReport(database, new ToolRegistry());
+    const empty = buildSystemPrompt(report, { memoryBulletin: "" });
+    expect(empty).not.toContain("Relevant memories");
+
+    const noneFound = buildSystemPrompt(report, {
+      memoryBulletin: "Memory Bulletin\n- No approved memories found for this run."
+    });
+    expect(noneFound).not.toContain("Relevant memories");
+  });
+
   it("includes profile metadata in the system prompt when a profile is active", () => {
     database = freshDatabase();
     installSeedProfiles(database);

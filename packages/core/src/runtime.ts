@@ -95,9 +95,9 @@ export class AgentRuntime {
     installSeedProfiles(this.database);
   }
 
-  private buildMessagesForModel(): ChatMessage[] {
+  private buildMessagesForModel(memoryBulletin?: string): ChatMessage[] {
     const report = buildIdentityReport(this.database, this.toolRegistry);
-    const systemPrompt = buildSystemPrompt(report);
+    const systemPrompt = buildSystemPrompt(report, { memoryBulletin });
     const withoutSystem = this.messages.filter((message) => message.role !== "system");
     return [{ role: "system", content: systemPrompt }, ...withoutSystem];
   }
@@ -110,10 +110,27 @@ export class AgentRuntime {
     append("user.message", { content });
     this.messages.push({ role: "user", content });
 
+    // Retrieve approved memories so the chat path can cite operator guardrails,
+    // founder notes from onboarding, and other importance-ranked context the
+    // task path was already pulling. `combineMemorySources` sorts by
+    // importance DESC, so guardrails (0.95) + founder notes (0.9) naturally
+    // float above lower-importance entries even as the user generates more
+    // memories over time.
+    const retrievedMemories = combineMemorySources(
+      getRelevantGraphMemories(this.database, content, 6),
+      getRecentApprovedMemories(this.database, 12)
+    );
+    const memoryBulletin = buildMemoryBulletin(retrievedMemories);
+    append("memory.retrieved", {
+      count: retrievedMemories.length,
+      memories: retrievedMemories,
+      bulletin: memoryBulletin
+    });
+
     const modelResponse = await this.modelRouter.generate({
       sessionId: this.sessionId,
       runId,
-      messages: this.buildMessagesForModel(),
+      messages: this.buildMessagesForModel(retrievedMemories.length > 0 ? memoryBulletin : undefined),
       tools: this.toolRegistry.list(),
       emitEvent: append
     });

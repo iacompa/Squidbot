@@ -164,4 +164,128 @@ describe("AgentRuntime", () => {
     expect(memoryRetrievedEvent?.data).toContain("Calculator bug: add subtracts");
     expect(getLatestTrace(database)?.steps.map((step) => step.type)).toContain("memory.retrieved");
   });
+
+  it("chat path retrieves approved memories and renders them in the system prompt", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+
+    // Simulate the four memories an onboarding run typically writes, in
+    // varied importance order. The runtime's combineMemorySources should
+    // sort them by importance DESC, so the guardrail (0.95) lands first.
+    const baseTime = new Date().toISOString();
+    database.insertMemory({
+      id: "memory_seed_business",
+      type: "business_summary",
+      title: "Business summary — Acme",
+      body: "Acme is a small SaaS that helps online retailers detect fulfillment errors.",
+      sourceRunId: "run_onboarding_test_1",
+      sourceReflectionId: null,
+      sourceEventId: null,
+      confidence: 0.95,
+      importance: 0.8,
+      createdAt: baseTime,
+      approvedAt: baseTime,
+      archivedAt: null
+    });
+    database.insertMemory({
+      id: "memory_seed_founder",
+      type: "founder_note",
+      title: "Top time-waster (founder note)",
+      body: "Triage of customer support tickets across Slack, email, and Intercom.",
+      sourceRunId: "run_onboarding_test_1",
+      sourceReflectionId: null,
+      sourceEventId: null,
+      confidence: 0.95,
+      importance: 0.9,
+      createdAt: baseTime,
+      approvedAt: baseTime,
+      archivedAt: null
+    });
+    database.insertMemory({
+      id: "memory_seed_guardrail",
+      type: "guardrail",
+      title: "Permanent guardrail (operator policy)",
+      body: "Never message a customer directly without my explicit approval.",
+      sourceRunId: "run_onboarding_test_1",
+      sourceReflectionId: null,
+      sourceEventId: null,
+      confidence: 0.95,
+      importance: 0.95,
+      createdAt: baseTime,
+      approvedAt: baseTime,
+      archivedAt: null
+    });
+    database.insertMemory({
+      id: "memory_seed_inventory",
+      type: "system_inventory",
+      title: "Systems inventory",
+      body: "Primary systems: github, linear, stripe, shopify",
+      sourceRunId: "run_onboarding_test_1",
+      sourceReflectionId: null,
+      sourceEventId: null,
+      confidence: 0.9,
+      importance: 0.7,
+      createdAt: baseTime,
+      approvedAt: baseTime,
+      archivedAt: null
+    });
+
+    const runtime = new AgentRuntime({ database, workspacePath: fixture.workspacePath });
+    const result = await runtime.sendMessage("what should I focus on today?");
+
+    const memoryRetrieved = database.listEvents(result.sessionId).find((event) => event.type === "memory.retrieved");
+    expect(memoryRetrieved).toBeDefined();
+
+    const detail = JSON.parse(memoryRetrieved!.data) as {
+      count: number;
+      memories: Array<{ title: string; importance: number; type: string }>;
+      bulletin: string;
+    };
+
+    // All four onboarding memories should come back (count >= 4).
+    expect(detail.count).toBeGreaterThanOrEqual(4);
+    // Sorted by importance DESC, so the guardrail lands first.
+    expect(detail.memories[0].type).toBe("guardrail");
+    expect(detail.memories[0].importance).toBeCloseTo(0.95, 6);
+    // Bulletin is non-empty and includes the guardrail body.
+    expect(detail.bulletin).toContain("Never message a customer directly");
+    // The bulletin must also surface the founder note so future chat turns
+    // can cite the operator's top time-waster.
+    expect(detail.bulletin).toContain("Triage of customer support tickets");
+
+    // The system prompt sent into the model must include the new
+    // "Relevant memories" section (with the guardrail body), proving the
+    // bulletin reached the LLM and isn't only persisted to the trace.
+    const modelCallEvent = database.listEvents(result.sessionId).find((event) => event.type === "model.call");
+    expect(modelCallEvent).toBeDefined();
+    const modelCallDetail = JSON.parse(modelCallEvent!.data) as {
+      promptSnapshot?: { messages: Array<{ role: string; content: string }> };
+    };
+    const systemMessage = modelCallDetail.promptSnapshot?.messages.find((message) => message.role === "system");
+    expect(systemMessage).toBeDefined();
+    expect(systemMessage!.content).toContain("Relevant memories");
+    expect(systemMessage!.content).toContain("Never message a customer directly");
+  });
+
+  it("chat path emits memory.retrieved with count=0 and omits the memory section when no memories exist", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+
+    const runtime = new AgentRuntime({ database, workspacePath: fixture.workspacePath });
+    const result = await runtime.sendMessage("hello");
+
+    const memoryRetrieved = database.listEvents(result.sessionId).find((event) => event.type === "memory.retrieved");
+    expect(memoryRetrieved).toBeDefined();
+    const detail = JSON.parse(memoryRetrieved!.data) as { count: number };
+    expect(detail.count).toBe(0);
+
+    // System prompt must NOT include the "Relevant memories" header when
+    // there's nothing to cite — keep the prompt clean.
+    const modelCallEvent = database.listEvents(result.sessionId).find((event) => event.type === "model.call");
+    const modelCallDetail = JSON.parse(modelCallEvent!.data) as {
+      promptSnapshot?: { messages: Array<{ role: string; content: string }> };
+    };
+    const systemMessage = modelCallDetail.promptSnapshot?.messages.find((message) => message.role === "system");
+    expect(systemMessage!.content).not.toContain("Relevant memories");
+  });
 });
