@@ -163,7 +163,7 @@ export function App() {
       return <ApprovalsPage />;
     }
 
-    return <SettingsPage settings={settings} onSettingsChange={setSettings} />;
+    return <SettingsPage settings={settings} onSettingsChange={setSettings} onNavigate={setActivePage} />;
   };
 
   return (

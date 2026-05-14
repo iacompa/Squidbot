@@ -2847,3 +2847,70 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Settings → Onboarding shortcut banner ---- */
+.settings-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(135deg, var(--teal) 0%, var(--teal-strong) 100%);
+  color: #fff;
+  padding: 18px 22px;
+  border-radius: 12px;
+  margin: 0 0 22px;
+  box-shadow: 0 14px 32px rgba(13, 95, 87, 0.18);
+}
+
+.settings-shortcut__icon {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-shortcut__copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-shortcut__copy h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.settings-shortcut__copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #d6efea;
+}
+
+.settings-shortcut__cta {
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #fff;
+  color: var(--teal-strong);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-shortcut__cta:hover:not(:disabled) {
+  background: #f0f8f7;
+  border-color: #f0f8f7;
+}
+
+@media (max-width: 700px) {
+  .settings-shortcut {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .settings-shortcut__cta {
+    align-self: flex-start;
+  }
+}
