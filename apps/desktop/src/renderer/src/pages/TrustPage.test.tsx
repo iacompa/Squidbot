@@ -49,6 +49,20 @@ beforeEach(() => {
         sandbox: { activeCount: 0, promotedCount: 0, rejectedCount: 0 },
         connectors: { registeredCount: 0, readOnlyDefault: false, fixtureMode: true },
         capabilities: { toolCount: 7, permissionScopes: ["filesystem.read"] },
+        modelCost: {
+          totalCost: 0.000209,
+          totalTokens: 6890,
+          totalRows: 2,
+          byProvider: [
+            {
+              provider: "api",
+              totalCost: 0.000209,
+              totalTokens: 6890,
+              callCount: 2,
+              lastUsedAt: "2026-05-14"
+            }
+          ]
+        },
         zeroSpendDefault: true,
         redactionEnabled: true,
         healthScore: 95,
@@ -97,5 +111,13 @@ describe("TrustPage", () => {
     expect(screen.getByText(/deadbeef/)).toBeTruthy();
     // Compliance generator surface
     expect(screen.getByLabelText("Compliance framework")).toBeTruthy();
+    // Model spend card with real (sub-cent) cost rendered via formatUsd.
+    expect(screen.getByText("Model spend (BYOK)")).toBeTruthy();
+    // 0.000209 formatted with our adaptive sub-cent formatter — appears in
+    // both the "Total spend" tile and the per-provider row, so we expect
+    // at least one occurrence rather than exactly one.
+    expect(screen.getAllByText("$0.000209").length).toBeGreaterThan(0);
+    // Per-provider row labelled `api`.
+    expect(screen.getByText("api")).toBeTruthy();
   });
 });

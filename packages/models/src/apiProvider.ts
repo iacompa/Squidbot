@@ -82,7 +82,22 @@ export class ApiModelProvider implements ModelProvider {
 
     const parsed = (await response.json()) as {
       choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      // OpenRouter (and a growing number of compatible providers) include the
+      // real upstream-billed amount on `usage.cost` (and a granular breakdown
+      // under `usage.cost_details`). When present, we prefer the reported
+      // value over our local per-token heuristic — our heuristic over-
+      // estimates by ~200x for cheap models like Gemini 2.0 Flash.
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        cost?: number;
+        cost_details?: {
+          upstream_inference_cost?: number;
+          upstream_inference_prompt_cost?: number;
+          upstream_inference_completions_cost?: number;
+        };
+      };
     };
     const firstMessage = parsed.choices?.[0]?.message;
     const content = firstMessage?.content ?? "";
@@ -99,6 +114,11 @@ export class ApiModelProvider implements ModelProvider {
       totalTokens: parsed.usage?.total_tokens ?? promptTokens + usageFromText(promptTokens, content).completionTokens
     };
 
+    const reportedCost = typeof parsed.usage?.cost === "number" && Number.isFinite(parsed.usage.cost)
+      ? parsed.usage.cost
+      : null;
+    const costEstimate = reportedCost ?? tokenUsage.totalTokens * this.costPerToken;
+
     return {
       provider: this.name,
       modelName: this.modelName,
@@ -107,7 +127,7 @@ export class ApiModelProvider implements ModelProvider {
       content,
       toolCalls,
       tokenUsage,
-      costEstimate: tokenUsage.totalTokens * this.costPerToken
+      costEstimate
     };
   }
 }

@@ -39,7 +39,44 @@ describe("trust report", () => {
     expect(report.vault.encryptedAtRest).toBe(true);
     expect(report.zeroSpendDefault).toBe(true);
     expect(report.profile.active).toBe(false);
+    // Empty model spend: no calls recorded yet.
+    expect(report.modelCost.totalCost).toBe(0);
+    expect(report.modelCost.totalTokens).toBe(0);
+    expect(report.modelCost.byProvider).toEqual([]);
     expect(["excellent", "strong", "fair", "needs_attention"]).toContain(report.healthLabel);
+  });
+
+  it("aggregates real model spend from the model_usage table by provider", () => {
+    database = tempDb();
+    // Simulate two real OpenRouter calls (Gemini Flash) + one local/free call.
+    database.addModelUsage("api", "2026-05-14", 4500, 0.000209);
+    database.addModelUsage("api", "2026-05-13", 2390, 0.000080);
+    database.addModelUsage("mock", "2026-05-14", 1200, 0);
+
+    const identityReport = buildIdentityReport(database, new ToolRegistry());
+    const report = buildTrustReport({ database, identityReport });
+
+    expect(report.modelCost.totalCost).toBeCloseTo(0.000289, 6);
+    expect(report.modelCost.totalTokens).toBe(4500 + 2390 + 1200);
+    expect(report.modelCost.byProvider).toHaveLength(2);
+
+    // Highest-cost provider sorts first.
+    const apiSpend = report.modelCost.byProvider.find((entry) => entry.provider === "api");
+    expect(apiSpend).toBeDefined();
+    expect(apiSpend?.totalCost).toBeCloseTo(0.000289, 6);
+    expect(apiSpend?.totalTokens).toBe(6890);
+    expect(apiSpend?.callCount).toBe(2);
+    expect(apiSpend?.lastUsedAt).toBe("2026-05-14");
+
+    const mockSpend = report.modelCost.byProvider.find((entry) => entry.provider === "mock");
+    expect(mockSpend?.totalCost).toBe(0);
+
+    // Markdown formatter mentions the model spend section.
+    const markdown = formatTrustReportMarkdown(report);
+    expect(markdown).toContain("## Model spend (BYOK)");
+    expect(markdown).toContain("api");
+    // formatUsd should print "$0.000289" (no trailing zeros) for sub-cent totals.
+    expect(markdown).toContain("$0.000289");
   });
 
   it("reflects active enterprise profile in the report and markdown", () => {

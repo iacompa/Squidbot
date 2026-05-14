@@ -1167,6 +1167,21 @@ export type TrustConnectorStatsDto = {
   fixtureMode: boolean;
 };
 
+export type TrustModelProviderSpendDto = {
+  provider: string;
+  totalCost: number;
+  totalTokens: number;
+  callCount: number;
+  lastUsedAt: string | null;
+};
+
+export type TrustModelCostStatsDto = {
+  totalCost: number;
+  totalTokens: number;
+  totalRows: number;
+  byProvider: TrustModelProviderSpendDto[];
+};
+
 export type TrustHealthLabelDto = "excellent" | "strong" | "fair" | "needs_attention";
 
 export type TrustReportDto = {
@@ -1192,6 +1207,7 @@ export type TrustReportDto = {
     toolCount: number;
     permissionScopes: string[];
   };
+  modelCost: TrustModelCostStatsDto;
   zeroSpendDefault: boolean;
   redactionEnabled: boolean;
   healthScore: number;

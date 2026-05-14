@@ -6,6 +6,18 @@ import { TerminalSnippet } from "../components/TerminalSnippet";
 import type { CompliancePacketDto, TrustDigestDto, TrustReportDto } from "../types";
 
 /**
+ * Adaptive USD formatter so tiny sub-cent costs (typical of cheap models like
+ * Gemini 2.0 Flash) still render as readable numbers, while normal-dollar
+ * totals look like dollars. Mirrors `formatUsd` in @squidbot/governance.
+ */
+function formatUsd(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "$0.00";
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
+/**
  * "Trust & Security" page — the GUI counterpart to `npm run trust`.
  * Surfaces the live security posture (audit chain, policy packs, vault,
  * retention, affordance gaps, sandboxes, connectors) and lets the operator
@@ -190,6 +202,62 @@ export function TrustPage() {
                 </strong>
               </li>
             </ul>
+          </section>
+
+          <section className="trust-card trust-card--full" aria-label="Model spend">
+            <h3>Model spend (BYOK)</h3>
+            <p className="muted">
+              Real cost reported by the upstream provider (e.g. OpenRouter's <code>usage.cost</code>) when available, with the
+              local per-token heuristic as a fallback. Aggregated from the <code>model_usage</code> table by provider.
+            </p>
+            {report.modelCost.byProvider.length === 0 ? (
+              <div className="muted">No paid model calls recorded yet — you've been on local/mock so far.</div>
+            ) : (
+              <>
+                <ul className="trust-stats">
+                  <li>
+                    <span>Total spend</span>
+                    <strong>{formatUsd(report.modelCost.totalCost)}</strong>
+                  </li>
+                  <li>
+                    <span>Total tokens</span>
+                    <strong>{report.modelCost.totalTokens.toLocaleString()}</strong>
+                  </li>
+                  <li>
+                    <span>Usage rows</span>
+                    <strong>{report.modelCost.totalRows}</strong>
+                  </li>
+                  <li>
+                    <span>Providers</span>
+                    <strong>{report.modelCost.byProvider.length}</strong>
+                  </li>
+                </ul>
+                <table className="spend-table" aria-label="Per-provider spend">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Cost</th>
+                      <th>Tokens</th>
+                      <th>Calls</th>
+                      <th>Last used</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.modelCost.byProvider.map((entry) => (
+                      <tr key={entry.provider}>
+                        <td>
+                          <code>{entry.provider}</code>
+                        </td>
+                        <td>{formatUsd(entry.totalCost)}</td>
+                        <td>{entry.totalTokens.toLocaleString()}</td>
+                        <td>{entry.callCount}</td>
+                        <td className="muted">{entry.lastUsedAt ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
           </section>
 
           {digest && (

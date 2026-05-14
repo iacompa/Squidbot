@@ -171,6 +171,8 @@ export type {
   TrustConnectorStatsDto,
   TrustDigestDto,
   TrustHealthLabelDto,
+  TrustModelCostStatsDto,
+  TrustModelProviderSpendDto,
   TrustPolicyPackSummaryDto,
   TrustPolicyStatsDto,
   TrustReportDto,

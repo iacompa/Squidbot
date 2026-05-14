@@ -1,8 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiModelProvider } from "../src/apiProvider.js";
 
+type ResponseShape = {
+  choices?: Array<{ message?: { content?: string; tool_calls?: unknown[] } }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+    cost_details?: Record<string, number>;
+  };
+};
+
 describe("ApiModelProvider — schema sanitiser for strict providers (Gemini, etc.)", () => {
-  function captureRequestBody(): {
+  function captureRequestBody(responseOverride?: ResponseShape): {
     provider: ApiModelProvider;
     body: () => Record<string, unknown> | null;
     restore: () => void;
@@ -11,10 +22,11 @@ describe("ApiModelProvider — schema sanitiser for strict providers (Gemini, et
     const original = globalThis.fetch;
     globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      const payload = {
-        choices: [{ message: { content: "ok", tool_calls: [] } }],
-        usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 }
-      };
+      const payload =
+        responseOverride ?? {
+          choices: [{ message: { content: "ok", tool_calls: [] } }],
+          usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 }
+        };
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { "content-type": "application/json" }
@@ -180,5 +192,103 @@ describe("ApiModelProvider — schema sanitiser for strict providers (Gemini, et
     expect(tools[0].function.parameters.properties.grid.items.properties.cells.items).toEqual({
       type: "string"
     });
+  });
+});
+
+describe("ApiModelProvider — cost reporting", () => {
+  function withFakeFetch(payload: ResponseShape): { restore: () => void } {
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    ) as typeof fetch;
+    return {
+      restore: () => {
+        globalThis.fetch = original;
+      }
+    };
+  }
+
+  it("uses upstream-reported `usage.cost` (OpenRouter, etc.) instead of the local heuristic", async () => {
+    // OpenRouter charges $0.0000046 for a 25-token Gemini Flash call — our
+    // local heuristic with the default costPerToken (1e-5) would compute
+    // 25 * 1e-5 = $0.00025, an over-estimate of ~54x. The provider's
+    // reported cost must win.
+    const { restore } = withFakeFetch({
+      choices: [{ message: { content: "hi", tool_calls: [] } }],
+      usage: { prompt_tokens: 18, completion_tokens: 7, total_tokens: 25, cost: 0.0000046 }
+    });
+    try {
+      const provider = new ApiModelProvider({
+        apiKey: "test",
+        apiUrl: "https://openrouter.ai/api/v1/chat/completions",
+        modelName: "google/gemini-2.0-flash-001"
+      });
+      const response = await provider.generate({
+        sessionId: "s",
+        runId: "r",
+        messages: [{ role: "user", content: "hi" }],
+        tools: []
+      });
+      expect(response.costEstimate).toBe(0.0000046);
+      expect(response.tokenUsage?.totalTokens).toBe(25);
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to the local token-heuristic when the upstream does NOT report cost", async () => {
+    const { restore } = withFakeFetch({
+      choices: [{ message: { content: "hi", tool_calls: [] } }],
+      usage: { prompt_tokens: 18, completion_tokens: 7, total_tokens: 25 }
+    });
+    try {
+      const provider = new ApiModelProvider({
+        apiKey: "test",
+        apiUrl: "https://provider-without-cost.example/api/v1/chat/completions",
+        modelName: "fallback-model",
+        costPerToken: 0.00001
+      });
+      const response = await provider.generate({
+        sessionId: "s",
+        runId: "r",
+        messages: [{ role: "user", content: "hi" }],
+        tools: []
+      });
+      // 25 tokens * $0.00001 = $0.00025 — the heuristic, exactly.
+      expect(response.costEstimate).toBe(25 * 0.00001);
+    } finally {
+      restore();
+    }
+  });
+
+  it("guards against an invalid cost field (NaN, missing, non-number)", async () => {
+    // Some providers send `cost: null` or a string by mistake. We should not
+    // propagate a NaN cost into the trace / model_usage table.
+    const { restore } = withFakeFetch({
+      choices: [{ message: { content: "hi", tool_calls: [] } }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: NaN } as any
+    });
+    try {
+      const provider = new ApiModelProvider({
+        apiKey: "test",
+        apiUrl: "https://buggy-provider.example/api/v1/chat/completions",
+        modelName: "buggy",
+        costPerToken: 0.00001
+      });
+      const response = await provider.generate({
+        sessionId: "s",
+        runId: "r",
+        messages: [{ role: "user", content: "hi" }],
+        tools: []
+      });
+      expect(Number.isFinite(response.costEstimate)).toBe(true);
+      expect(response.costEstimate).toBe(15 * 0.00001);
+    } finally {
+      restore();
+    }
   });
 });

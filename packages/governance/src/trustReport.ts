@@ -62,6 +62,30 @@ export type TrustConnectorStats = {
   fixtureMode: boolean;
 };
 
+export type TrustModelProviderSpend = {
+  provider: string;
+  totalCost: number;
+  totalTokens: number;
+  callCount: number;
+  /** Most recent usage_date (YYYY-MM-DD) recorded for this provider. */
+  lastUsedAt: string | null;
+};
+
+export type TrustModelCostStats = {
+  /**
+   * Sum of cost across every (provider, day) row in the model_usage table.
+   * Values reflect upstream-reported cost when the provider gave us one
+   * (e.g. OpenRouter's `usage.cost`); otherwise they come from the local
+   * per-token heuristic. The trust digest is keyed off this number, so it
+   * stays stable across reads.
+   */
+  totalCost: number;
+  totalTokens: number;
+  /** Number of distinct provider/day rows that have ever been recorded. */
+  totalRows: number;
+  byProvider: TrustModelProviderSpend[];
+};
+
 export type TrustReport = {
   schemaVersion: string;
   generatedAt: string;
@@ -85,6 +109,7 @@ export type TrustReport = {
     toolCount: number;
     permissionScopes: string[];
   };
+  modelCost: TrustModelCostStats;
   zeroSpendDefault: boolean;
   redactionEnabled: boolean;
   // High-level scoring helpers
@@ -250,6 +275,53 @@ function buildRetentionStats(database: SquidDatabase, tenantId: string): TrustRe
   };
 }
 
+type ModelUsageAggregateRow = {
+  provider: string;
+  totalCost: number;
+  totalTokens: number;
+  callCount: number;
+  lastUsedAt: string | null;
+};
+
+function buildModelCostStats(database: SquidDatabase): TrustModelCostStats {
+  if (!tableExists(database, "model_usage")) {
+    return { totalCost: 0, totalTokens: 0, totalRows: 0, byProvider: [] };
+  }
+
+  // Aggregate per-provider over all recorded daily rows. We use SUM/MAX so the
+  // numbers stay accurate even if the table has years of data — no need to
+  // pull every row into memory.
+  const rows = database.db
+    .prepare(
+      `SELECT provider,
+              COALESCE(SUM(cost), 0) AS totalCost,
+              COALESCE(SUM(tokens), 0) AS totalTokens,
+              COUNT(*) AS callCount,
+              MAX(usage_date) AS lastUsedAt
+       FROM model_usage
+       GROUP BY provider
+       ORDER BY totalCost DESC, provider ASC`
+    )
+    .all() as ModelUsageAggregateRow[];
+
+  const totalCost = rows.reduce((sum, row) => sum + (Number.isFinite(row.totalCost) ? row.totalCost : 0), 0);
+  const totalTokens = rows.reduce((sum, row) => sum + (Number.isFinite(row.totalTokens) ? row.totalTokens : 0), 0);
+  const totalRows = rows.reduce((sum, row) => sum + (Number.isFinite(row.callCount) ? row.callCount : 0), 0);
+
+  return {
+    totalCost,
+    totalTokens,
+    totalRows,
+    byProvider: rows.map((row) => ({
+      provider: row.provider,
+      totalCost: Number.isFinite(row.totalCost) ? row.totalCost : 0,
+      totalTokens: Number.isFinite(row.totalTokens) ? row.totalTokens : 0,
+      callCount: Number.isFinite(row.callCount) ? row.callCount : 0,
+      lastUsedAt: row.lastUsedAt ?? null
+    }))
+  };
+}
+
 function buildAffordanceStats(database: SquidDatabase): TrustAffordanceStats {
   if (!tableExists(database, "affordance_gaps")) {
     return { openCount: 0, resolvedCount: 0, wontfixCount: 0, highSeverityOpenCount: 0 };
@@ -345,6 +417,7 @@ export function buildTrustReport(options: BuildTrustReportOptions): TrustReport 
   const affordanceGaps = buildAffordanceStats(options.database);
   const sandbox = buildSandboxStats(options.database);
   const connectors = buildConnectorStats(options.database, profile?.readOnlyByDefault === true);
+  const modelCost = buildModelCostStats(options.database);
   const { score, warnings } = computeHealthScore({ audit, policy, vault, retention, affordanceGaps });
 
   return {
@@ -370,6 +443,7 @@ export function buildTrustReport(options: BuildTrustReportOptions): TrustReport 
       toolCount: options.identityReport.capabilities.toolCount,
       permissionScopes: options.identityReport.capabilities.permissionScopes
     },
+    modelCost,
     zeroSpendDefault: true,
     redactionEnabled: true,
     healthScore: score,
@@ -400,6 +474,11 @@ export function digestTrustReport(report: TrustReport): TrustDigest {
     retention: report.retention,
     affordanceGaps: report.affordanceGaps,
     capabilities: report.capabilities,
+    modelCost: {
+      totalCost: report.modelCost.totalCost,
+      totalTokens: report.modelCost.totalTokens,
+      providerCount: report.modelCost.byProvider.length
+    },
     zeroSpendDefault: report.zeroSpendDefault,
     redactionEnabled: report.redactionEnabled,
     healthScore: report.healthScore,
@@ -499,6 +578,20 @@ export function formatTrustReportMarkdown(report: TrustReport): string {
   lines.push(`- Fixture mode available: ${report.connectors.fixtureMode ? "yes" : "no"}`);
   lines.push("");
 
+  lines.push("## Model spend (BYOK)");
+  if (report.modelCost.byProvider.length === 0) {
+    lines.push("- No paid model calls recorded yet.");
+  } else {
+    lines.push(`- Total spend: ${formatUsd(report.modelCost.totalCost)} across ${report.modelCost.totalTokens.toLocaleString()} tokens`);
+    for (const entry of report.modelCost.byProvider) {
+      const provider = entry.provider === "api" ? "BYOK API (api)" : entry.provider;
+      lines.push(
+        `  - ${provider}: ${formatUsd(entry.totalCost)} · ${entry.totalTokens.toLocaleString()} tokens · ${entry.callCount} usage row${entry.callCount === 1 ? "" : "s"}${entry.lastUsedAt ? ` · last used ${entry.lastUsedAt}` : ""}`
+      );
+    }
+  }
+  lines.push("");
+
   lines.push("## Capabilities");
   lines.push(`- Registered tools: ${report.capabilities.toolCount}`);
   lines.push(`- Permission scopes: ${report.capabilities.permissionScopes.join(", ") || "(none)"}`);
@@ -509,9 +602,27 @@ export function formatTrustReportMarkdown(report: TrustReport): string {
   return lines.join("\n");
 }
 
+/**
+ * Format a USD amount with adaptive precision so tiny fractions of a cent
+ * (typical of Gemini / cheap models) still read as a real number, while
+ * larger totals look like normal dollars.
+ *
+ *   0           → "$0.00"
+ *   0.00000046  → "$0.00000046"
+ *   0.0046      → "$0.0046"
+ *   12.5        → "$12.50"
+ */
+export function formatUsd(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "$0.00";
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
 export function summarizeTrustReport(report: TrustReport): string {
   const profileBit = report.profile.active ? ` profile=${report.profile.displayName}` : "";
-  return `${report.agentName} v${report.agentVersion}${profileBit} — health ${report.healthLabel} (${report.healthScore}/100), audit ${report.audit.entryCount} entries chain=${report.audit.chainValid ? "ok" : "BROKEN"}, ${report.policy.policyPackCount} policy packs, ${report.vault.secretReferenceCount} secrets, ${report.affordanceGaps.openCount} open gaps.`;
+  const spendBit = report.modelCost.totalCost > 0 ? `, spent ${formatUsd(report.modelCost.totalCost)}` : "";
+  return `${report.agentName} v${report.agentVersion}${profileBit} — health ${report.healthLabel} (${report.healthScore}/100), audit ${report.audit.entryCount} entries chain=${report.audit.chainValid ? "ok" : "BROKEN"}, ${report.policy.policyPackCount} policy packs, ${report.vault.secretReferenceCount} secrets, ${report.affordanceGaps.openCount} open gaps${spendBit}.`;
 }
 
 export function recentAuditEntries(database: SquidDatabase, limit = 10, tenantId = DEFAULT_TENANT_ID): AuditEntryRecord[] {
