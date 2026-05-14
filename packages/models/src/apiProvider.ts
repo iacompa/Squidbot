@@ -62,10 +62,17 @@ export class ApiModelProvider implements ModelProvider {
   }
 
   private async generateViaHttp(request: ModelProviderRequest): Promise<ModelResponse> {
+    // OpenAI's tool-name spec is `^[a-zA-Z0-9_-]+$` — no dots. OpenRouter,
+    // Google Gemini, and most gateways silently swap dots → underscores
+    // when echoing tool calls back, which breaks our dotted registry
+    // names (e.g. `model.useAccount` → returned as `model_useAccount`).
+    // We sanitise on the way out and reverse on the way in using a
+    // per-request map so the rest of the runtime keeps using dotted names.
+    const { sanitizedTools, reverseToolNameMap } = sanitizeToolNamesForOpenAi(request.tools);
     const body = {
       model: this.modelName,
       messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
-      tools: toOpenAiTools(request.tools)
+      tools: sanitizedTools
     };
     const response = await fetch(this.apiUrl!, {
       method: "POST",
@@ -102,11 +109,18 @@ export class ApiModelProvider implements ModelProvider {
     const firstMessage = parsed.choices?.[0]?.message;
     const content = firstMessage?.content ?? "";
     const toolCalls =
-      firstMessage?.tool_calls?.map((call, index) => ({
-        id: call.id ?? `call_api_${index}`,
-        name: call.function?.name ?? "unknown",
-        args: parseToolArgs(call.function?.arguments)
-      })) ?? [];
+      firstMessage?.tool_calls?.map((call, index) => {
+        const returnedName = call.function?.name ?? "unknown";
+        // Reverse the dot→underscore mapping we applied on the way out.
+        // If the model invented a name we didn't send, leave it as-is so
+        // the dispatcher can report "unknown tool" with the real string.
+        const resolvedName = reverseToolNameMap.get(returnedName) ?? returnedName;
+        return {
+          id: call.id ?? `call_api_${index}`,
+          name: resolvedName,
+          args: parseToolArgs(call.function?.arguments)
+        };
+      }) ?? [];
     const promptTokens = parsed.usage?.prompt_tokens ?? estimateRequestTokens(request.messages, request.tools);
     const tokenUsage = {
       promptTokens,
@@ -132,15 +146,45 @@ export class ApiModelProvider implements ModelProvider {
   }
 }
 
-function toOpenAiTools(tools: ToolSchema[]): unknown[] {
-  return tools.map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: sanitizeJsonSchemaForStrictProviders(tool.inputSchema)
+/**
+ * Convert SquidBot's dotted tool names (`model.useAccount`) into the
+ * underscored form that OpenAI's tool-call spec requires (`model_useAccount`),
+ * while returning a reverse-lookup map so the response parser can swap back
+ * to the dotted name. Collisions are impossible in practice because we
+ * always replace `.` with `_` deterministically and tools don't already
+ * contain pre-existing underscore-only forms; if one ever did, the dotted
+ * form wins in the reverse map.
+ */
+function sanitizeToolNamesForOpenAi(tools: ToolSchema[]): {
+  sanitizedTools: unknown[];
+  reverseToolNameMap: Map<string, string>;
+} {
+  const reverseToolNameMap = new Map<string, string>();
+  const sanitizedTools = tools.map((tool) => {
+    const sanitizedName = sanitizeToolName(tool.name);
+    if (!reverseToolNameMap.has(sanitizedName)) {
+      reverseToolNameMap.set(sanitizedName, tool.name);
     }
-  }));
+    // Also map the original (un-sanitized) name to itself so we tolerate
+    // providers that echo the original dotted name unchanged.
+    reverseToolNameMap.set(tool.name, tool.name);
+    return {
+      type: "function",
+      function: {
+        name: sanitizedName,
+        description: tool.description,
+        parameters: sanitizeJsonSchemaForStrictProviders(tool.inputSchema)
+      }
+    };
+  });
+  return { sanitizedTools, reverseToolNameMap };
+}
+
+function sanitizeToolName(name: string): string {
+  // OpenAI spec: `^[a-zA-Z0-9_-]{1,64}$`. Replace anything outside that
+  // class with `_` and clip to 64 chars. We don't expect anything other
+  // than `.` in practice but the guard is cheap.
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 }
 
 /**

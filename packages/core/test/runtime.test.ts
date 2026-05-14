@@ -267,6 +267,86 @@ describe("AgentRuntime", () => {
     expect(systemMessage!.content).toContain("Never message a customer directly");
   });
 
+  it("chat-driven account switch: mock detects 'switch to X' intent, calls model.useAccount, runtime refreshes router", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+
+    // Pre-configure two saved accounts; first one is active.
+    const a = (await import("../src/index.js")).upsertModelAccount(database, {
+      name: "OR Gemini",
+      providerKind: "openrouter",
+      apiKey: "k1",
+      apiModel: "google/gemini-2.0-flash-001",
+      activate: true
+    });
+    const b = (await import("../src/index.js")).upsertModelAccount(database, {
+      name: "OR Llama",
+      providerKind: "openrouter",
+      apiKey: "k2",
+      apiModel: "meta-llama/llama-3.3-70b-instruct"
+    });
+    expect((await import("../src/index.js")).getActiveModelAccount(database)?.id).toBe(a.id);
+
+    const runtime = new AgentRuntime({ database, workspacePath: fixture.workspacePath });
+    // The mock provider should detect "use my OR Llama account" as a switch
+    // intent and emit a model.useAccount tool call.
+    const result = await runtime.sendMessage("Switch to my OR Llama account please.");
+
+    // Tool call routed through the registered model.useAccount tool.
+    expect(result.toolCalls.map((call) => call.name)).toContain("model.useAccount");
+    // Tool result reports success.
+    const switchResult = result.toolResults.find((entry) => entry.toolName === "model.useAccount");
+    expect(switchResult?.ok).toBe(true);
+    expect(switchResult?.output).toMatchObject({
+      switched: true,
+      previousAccount: "OR Gemini"
+    });
+    // Active account flipped in the DB.
+    expect((await import("../src/index.js")).getActiveModelAccount(database)?.id).toBe(b.id);
+
+    // model.fallback audit event was emitted by the tool handler so the trace
+    // shows the agent-initiated switch alongside any router-side fallbacks.
+    const eventTypes = database.listEvents(result.sessionId).map((event) => event.type);
+    expect(eventTypes).toContain("model.fallback");
+
+    // Subsequent message rebuilds the router against the new active account.
+    // We filter model.call events by runId because the session has TWO
+    // messages and listEvents returns them in timestamp order; the first
+    // model.call is from the switch message itself.
+    const followUp = await runtime.sendMessage("Now say hi.");
+    const followUpModelCall = database
+      .listEvents(followUp.sessionId)
+      .filter((event) => event.type === "model.call")
+      .map((event) => JSON.parse(event.data) as { runId?: string; modelName?: string })
+      .find((event) => event.runId === followUp.runId);
+    expect(followUpModelCall?.modelName).toBe("meta-llama/llama-3.3-70b-instruct");
+  });
+
+  it("model.listAccounts is read-only and returns redacted accounts", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+    const accountModule = await import("../src/index.js");
+    accountModule.upsertModelAccount(database, {
+      name: "OR Gemini",
+      providerKind: "openrouter",
+      apiKey: "supersecret",
+      apiModel: "google/gemini-2.0-flash-001",
+      activate: true
+    });
+    const runtime = new AgentRuntime({ database, workspacePath: fixture.workspacePath });
+    const result = await runtime.sendMessage("what models / providers do I have available?");
+    expect(result.toolCalls.map((call) => call.name)).toContain("model.listAccounts");
+    const listResult = result.toolResults.find((entry) => entry.toolName === "model.listAccounts");
+    expect(listResult?.ok).toBe(true);
+    const output = listResult!.output as { active: string | null; accounts: Array<{ apiKeyConfigured: boolean; apiKey?: unknown }> };
+    expect(output.active).toBe("OR Gemini");
+    // No bare apiKey field ever surfaces from the tool — only the boolean.
+    for (const entry of output.accounts) {
+      expect("apiKey" in entry).toBe(false);
+      expect(entry.apiKeyConfigured).toBe(true);
+    }
+  });
+
   it("chat path emits memory.retrieved with count=0 and omits the memory section when no memories exist", async () => {
     const fixture = createWorkspace();
     database = initializeDatabase(fixture.dbPath);

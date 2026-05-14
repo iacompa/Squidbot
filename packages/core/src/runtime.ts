@@ -4,6 +4,8 @@ import { parseCommandLine, SandboxManager, type Sandbox, type SandboxCreateOptio
 import { installSeedProfiles } from "./enterpriseProfile.js";
 import { EventLog } from "./eventLog.js";
 import { buildIdentityReport, buildSystemPrompt } from "./identity.js";
+import { ensureLegacyAccountMigrated, getActiveModelAccount } from "./modelAccounts.js";
+import { registerModelAccountTools } from "./modelAccountTools.js";
 import {
   buildMemoryBulletin,
   combineMemorySources,
@@ -68,10 +70,25 @@ export class AgentRuntime {
   readonly workspacePath: string;
   private readonly database: SquidDatabase;
   private readonly eventLog: EventLog;
-  private readonly modelRouter: ModelRouter;
+  // Not `readonly` — `refreshModelRouterIfAccountChanged` rebuilds it when
+  // the active model account changes between turns.
+  private modelRouter: ModelRouter;
   private readonly toolRegistry: ToolRegistry;
   private readonly policyEngine: PolicyEngine;
   private readonly messages: ChatMessage[] = [];
+  /**
+   * The id of the active model_account the current `modelRouter` was built
+   * against. When the agent (or the operator) switches accounts mid-session
+   * via `model.useAccount`, the next chat turn rebuilds the router so it
+   * picks up the new credentials + URL + model id. `null` means there is
+   * no active account and the router was built from legacy flat settings.
+   */
+  private modelRouterAccountId: string | null;
+  /**
+   * Whether the router was injected by the caller (typically a test). Injected
+   * routers are not auto-refreshed on account changes.
+   */
+  private readonly modelRouterIsInjected: boolean;
 
   constructor(options: AgentRuntimeOptions) {
     this.database = options.database;
@@ -79,6 +96,8 @@ export class AgentRuntime {
     this.sessionId = options.sessionId ?? createSession(options.workspacePath).id;
     this.eventLog = new EventLog(options.database);
     this.modelRouter = options.modelRouter ?? createModelRouterFromSettings(options.database);
+    this.modelRouterIsInjected = options.modelRouter !== undefined;
+    this.modelRouterAccountId = getActiveModelAccount(options.database)?.id ?? null;
     this.toolRegistry = options.toolRegistry ?? new ToolRegistry();
     this.policyEngine = options.policyEngine ?? new PolicyEngine();
 
@@ -86,6 +105,10 @@ export class AgentRuntime {
       registerWorkspaceTools(this.toolRegistry);
       registerTerminalTools(this.toolRegistry);
       registerTestTools(this.toolRegistry);
+      // Model-account management tools: list saved accounts + switch the
+      // active one. The agent can invoke these in response to "switch to
+      // my GPT-4o-mini account" / "what models are available?" prompts.
+      registerModelAccountTools(this.toolRegistry, this.database);
     }
 
     // Lazy-install the seed profiles on first runtime construction. This makes
@@ -93,6 +116,20 @@ export class AgentRuntime {
     // the operator to run an explicit setup step. Idempotent — existing profiles
     // are not overwritten and an already-active profile is not changed.
     installSeedProfiles(this.database);
+  }
+
+  /**
+   * Rebuild `this.modelRouter` if the operator (or the agent via
+   * `model.useAccount`) has switched the active account since the last
+   * call. No-op for caller-injected routers (test fixtures).
+   */
+  private refreshModelRouterIfAccountChanged(): void {
+    if (this.modelRouterIsInjected) return;
+    const activeId = getActiveModelAccount(this.database)?.id ?? null;
+    if (activeId !== this.modelRouterAccountId) {
+      this.modelRouter = createModelRouterFromSettings(this.database);
+      this.modelRouterAccountId = activeId;
+    }
   }
 
   private buildMessagesForModel(memoryBulletin?: string): ChatMessage[] {
@@ -103,6 +140,10 @@ export class AgentRuntime {
   }
 
   async sendMessage(content: string): Promise<AgentResponse> {
+    // If the operator or a tool call has switched the active model account
+    // between turns, swap the router before we make the next call.
+    this.refreshModelRouterIfAccountChanged();
+
     const runId = createId("run");
     const { runEvents, append } = this.createRunRecorder(runId);
 
@@ -170,6 +211,7 @@ export class AgentRuntime {
   }
 
   async runTask(task: string, options: RunTaskOptions = {}): Promise<RepoTaskResult> {
+    this.refreshModelRouterIfAccountChanged();
     const runId = createId("run");
     const { runEvents, append } = this.createRunRecorder(runId);
 
@@ -702,14 +744,34 @@ export function getLatestTrace(database: SquidDatabase): Trace | null {
 }
 
 function createModelRouterFromSettings(database: SquidDatabase): ModelRouter {
-  const settings: ModelRouterSettings = {
-    provider: database.getSetting<string>("model.provider") ?? undefined,
-    apiKey: database.getSetting<string>("model.apiKey"),
-    apiUrl: database.getSetting<string>("model.apiUrl"),
-    apiModel: database.getSetting<string>("model.apiModel"),
-    apiBudgetTokens: readPositiveIntegerSetting(database, "model.budget.api"),
-    localModel: database.getSetting<string>("model.localModel")
-  };
+  // The model_accounts table is the new source of truth for BYOK config.
+  // We hydrate any legacy flat model.* settings into a "Legacy BYOK" account
+  // on first read (idempotent), then use the active account if one exists.
+  // Operators who never touched model.* still get the existing fallback
+  // (provider = "local" or "mock" via the legacy settings).
+  ensureLegacyAccountMigrated(database);
+  const activeAccount = getActiveModelAccount(database);
+
+  const settings: ModelRouterSettings = activeAccount
+    ? {
+        // Force the API provider whenever an account is active. The legacy
+        // model.provider setting is ignored — the account itself is the
+        // routing decision.
+        provider: "api",
+        apiKey: activeAccount.apiKey,
+        apiUrl: activeAccount.apiUrl,
+        apiModel: activeAccount.apiModel,
+        apiBudgetTokens: activeAccount.dailyBudgetTokens ?? readPositiveIntegerSetting(database, "model.budget.api"),
+        localModel: database.getSetting<string>("model.localModel")
+      }
+    : {
+        provider: database.getSetting<string>("model.provider") ?? undefined,
+        apiKey: database.getSetting<string>("model.apiKey"),
+        apiUrl: database.getSetting<string>("model.apiUrl"),
+        apiModel: database.getSetting<string>("model.apiModel"),
+        apiBudgetTokens: readPositiveIntegerSetting(database, "model.budget.api"),
+        localModel: database.getSetting<string>("model.localModel")
+      };
 
   return new ModelRouter({ settings, budgetStore: database });
 }

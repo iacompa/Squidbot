@@ -264,6 +264,68 @@ describe("ApiModelProvider — cost reporting", () => {
     }
   });
 
+  it("sanitises dotted tool names to underscore form on the way out, restores them on the way in", async () => {
+    // OpenRouter / Gemini coerce dot-named tools into underscores when
+    // echoing tool_calls back. We need to send the underscored form *and*
+    // map the reply back to the original name so the dispatcher finds it.
+    let captured: Record<string, unknown> | null = null;
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      // Reply with the underscored form to mimic Gemini's behaviour.
+      const payload = {
+        choices: [{
+          message: {
+            content: "calling tool",
+            tool_calls: [{
+              id: "call_test_1",
+              function: { name: "model_useAccount", arguments: JSON.stringify({ name: "OR Llama" }) }
+            }]
+          }
+        }],
+        usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 }
+      };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }) as typeof fetch;
+
+    try {
+      const provider = new ApiModelProvider({
+        apiKey: "test",
+        apiUrl: "https://gateway.example/api/v1/chat/completions",
+        modelName: "test"
+      });
+      const response = await provider.generate({
+        sessionId: "s",
+        runId: "r",
+        messages: [{ role: "user", content: "switch" }],
+        tools: [
+          {
+            name: "model.useAccount",
+            description: "Switch the active model account.",
+            inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" } } },
+            permissionScopes: [],
+            riskLevel: "medium"
+          }
+        ]
+      });
+
+      // The tool we serialised was renamed to underscores.
+      const sentTools = (captured as unknown as { tools?: Array<{ function: { name: string } }> })?.tools ?? [];
+      expect(sentTools[0].function.name).toBe("model_useAccount");
+
+      // The tool_call returned with the underscored name is mapped back
+      // to the original dotted name before reaching the dispatcher.
+      expect(response.toolCalls).toHaveLength(1);
+      expect(response.toolCalls[0].name).toBe("model.useAccount");
+      expect(response.toolCalls[0].args).toEqual({ name: "OR Llama" });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("guards against an invalid cost field (NaN, missing, non-number)", async () => {
     // Some providers send `cost: null` or a string by mistake. We should not
     // propagate a NaN cost into the trace / model_usage table.

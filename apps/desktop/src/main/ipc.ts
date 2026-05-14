@@ -31,6 +31,7 @@ import {
   listRuns,
   parseStoredTrace,
   redactTrace,
+  registerModelAccountTools,
   registerTerminalTools,
   registerTestTools,
   registerWorkspaceTools,
@@ -138,6 +139,9 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
   registerWorkspaceTools(toolRegistry);
   registerTerminalTools(toolRegistry);
   registerTestTools(toolRegistry);
+  // Model-account management tools must be registered here too — passing a
+  // toolRegistry into AgentRuntime suppresses its built-in registration.
+  registerModelAccountTools(toolRegistry, database);
   const connectorRegistry = new ConnectorRegistry(database);
   installDeveloperWorkflowConnectors(connectorRegistry);
   registerConnectorTools(toolRegistry, connectorRegistry);

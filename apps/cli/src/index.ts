@@ -47,6 +47,7 @@ import { Scheduler, type CreateJobRequest } from "@squidbot/scheduler";
 import { evaluateSkill, installDeveloperWorkflowSkills, normalizeSkillId, SkillService, validateSkillManifest } from "@squidbot/skills";
 import { defaultTeamManifest, RoleRegistry, TeamCoordinator, TeamStore, validateTeamManifest } from "@squidbot/team";
 import {
+  activateModelAccount,
   activateProfile,
   AgentRuntime,
   approveMemoryCandidate,
@@ -56,29 +57,41 @@ import {
   computeTraceMetrics,
   createCustomProfile,
   createId,
+  deleteModelAccount,
   describeForWhoami,
+  ensureLegacyAccountMigrated,
   ensureLocalConfig,
   exportTraceMarkdown,
   formatNextActions,
   formatOnboardingSummary,
+  getActiveModelAccount,
   getActiveProfile,
+  getModelAccountByName,
+  getProviderPreset,
   getTrace,
   getLatestTrace,
   inferOnboardingProfile,
   installSeedProfiles,
+  listModelAccounts,
   listProfiles,
   listRuns,
+  PROVIDER_PRESETS,
+  redactAccount,
   redactValue,
+  registerModelAccountTools,
   registerTerminalTools,
   registerTestTools,
   registerWorkspaceTools,
   searchEvents,
   STANDARD_QUESTIONS,
   ToolRegistry,
+  upsertModelAccount,
   type AgentEvent,
   type JsonObject,
+  type ModelAccountInput,
   type OnboardingAnswer,
-  type OnboardingQuestion
+  type OnboardingQuestion,
+  type ProviderKind
 } from "@squidbot/core";
 
 type ParsedArgs = {
@@ -431,7 +444,28 @@ async function main(): Promise<void> {
         return;
       }
 
-      throw new Error("Usage: npm run model -- budget");
+      if (subcommand === "accounts" || subcommand === "account") {
+        await handleModelAccountsCommand(database, parts.slice(1));
+        return;
+      }
+
+      if (subcommand === "presets") {
+        if (parts.includes("--json")) {
+          printJson({ presets: PROVIDER_PRESETS });
+          return;
+        }
+        console.log("Provider presets:");
+        for (const preset of PROVIDER_PRESETS) {
+          console.log(`- ${preset.kind}  ${preset.displayName}`);
+          console.log(`    URL: ${preset.defaultApiUrl || "(set per-account)"}`);
+          if (preset.commonModels.length > 0) {
+            console.log(`    Common models: ${preset.commonModels.slice(0, 4).map((model) => model.id).join(", ")}${preset.commonModels.length > 4 ? ", ..." : ""}`);
+          }
+        }
+        return;
+      }
+
+      throw new Error("Usage: npm run model -- budget | accounts <subcommand> | presets [--json]");
     }
 
     if (args.command === "chat") {
@@ -620,6 +654,12 @@ function createRuntime(options: { database: ReturnType<typeof initializeDatabase
   registerWorkspaceTools(toolRegistry);
   registerTerminalTools(toolRegistry);
   registerTestTools(toolRegistry);
+  // Model-account management tools (model.listAccounts + model.useAccount)
+  // must be registered HERE because we pass `toolRegistry` into AgentRuntime,
+  // which suppresses its built-in registration block. Without these the
+  // agent has no way to switch accounts via chat — only the CLI / Settings
+  // UI paths work.
+  registerModelAccountTools(toolRegistry, options.database);
   const connectorRegistry = new ConnectorRegistry(options.database);
   installDeveloperWorkflowConnectors(connectorRegistry);
   registerConnectorTools(toolRegistry, connectorRegistry);
@@ -1743,6 +1783,221 @@ async function promptYesNo(prompt: string, defaultYes: boolean): Promise<boolean
   } finally {
     rl.close();
   }
+}
+
+/**
+ * Manage the model_accounts table from the CLI. Mirrors the same primitives
+ * the desktop Settings UI and the in-chat tools use.
+ *
+ *   list                              — print every saved account (key redacted)
+ *   add --name "..." [--preset ...]   — create + optionally activate
+ *      [--url ...] [--model ...] [--key ...] [--budget-tokens ...]
+ *      [--activate]
+ *   use <name>                        — set active account
+ *   remove <name>                     — delete
+ *   test <name>                       — send a 1-token ping through the account
+ *                                       and report success + cost
+ *   presets                           — print provider presets (also at `model -- presets`)
+ */
+async function handleModelAccountsCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  parts: string[]
+): Promise<void> {
+  // Always honour legacy settings on first use so operators who upgrade
+  // don't suddenly see an empty list.
+  ensureLegacyAccountMigrated(database);
+
+  const subcommand = parts[0] ?? "list";
+
+  if (subcommand === "list" || subcommand === "ls") {
+    const accounts = listModelAccounts(database).map((account) => redactAccount(account));
+    if (parts.includes("--json")) {
+      printJson({ accounts });
+      return;
+    }
+    if (accounts.length === 0) {
+      console.log("No model accounts saved. Use: npm run model -- accounts add --name \"OR Gemini\" --preset openrouter --key sk-... --model google/gemini-2.0-flash-001 --activate");
+      return;
+    }
+    console.log("Model accounts:");
+    for (const account of accounts) {
+      const marker = account.isActive ? "*" : " ";
+      const key = account.apiKeyConfigured ? "key set" : "no key";
+      console.log(`${marker} ${account.name}  (${account.providerKind}, ${account.apiModel}, ${key})`);
+      console.log(`    url: ${account.apiUrl}`);
+      if (account.description) console.log(`    note: ${account.description}`);
+    }
+    return;
+  }
+
+  if (subcommand === "presets") {
+    if (parts.includes("--json")) {
+      printJson({ presets: PROVIDER_PRESETS });
+      return;
+    }
+    console.log("Provider presets:");
+    for (const preset of PROVIDER_PRESETS) {
+      console.log(`- ${preset.kind}  ${preset.displayName}`);
+      console.log(`    URL: ${preset.defaultApiUrl || "(set per-account)"}`);
+      if (preset.commonModels.length > 0) {
+        console.log(`    Common models: ${preset.commonModels.slice(0, 4).map((model) => model.id).join(", ")}${preset.commonModels.length > 4 ? ", ..." : ""}`);
+      }
+    }
+    return;
+  }
+
+  if (subcommand === "current" || subcommand === "active") {
+    const active = getActiveModelAccount(database);
+    if (parts.includes("--json")) {
+      printJson({ account: active ? redactAccount(active) : null });
+      return;
+    }
+    if (!active) {
+      console.log("No active model account. Use: npm run model -- accounts use <name>");
+      return;
+    }
+    const redacted = redactAccount(active);
+    console.log(`${redacted.name}  (${redacted.providerKind})`);
+    console.log(`  URL: ${redacted.apiUrl}`);
+    console.log(`  Model: ${redacted.apiModel}`);
+    console.log(`  API key: ${redacted.apiKeyConfigured ? "set" : "(none)"}`);
+    if (redacted.description) console.log(`  Note: ${redacted.description}`);
+    return;
+  }
+
+  if (subcommand === "add" || subcommand === "create") {
+    const name = collectFlagValue(parts, "--name");
+    if (!name) {
+      throw new Error(
+        `Usage: npm run model -- accounts add --name "<name>" --preset <openrouter|openai|groq|together|ollama|custom> [--url URL] [--model MODEL_ID] [--key KEY] [--budget-tokens N] [--description "..."] [--activate]`
+      );
+    }
+    const presetSlug = (collectFlagValue(parts, "--preset") ?? "custom") as ProviderKind;
+    if (!PROVIDER_PRESETS.some((entry) => entry.kind === presetSlug)) {
+      throw new Error(`Unknown preset "${presetSlug}". Run: npm run model -- presets`);
+    }
+    const preset = getProviderPreset(presetSlug);
+    const apiUrl = collectFlagValue(parts, "--url") ?? preset.defaultApiUrl;
+    const apiKey = collectFlagValue(parts, "--key") ?? null;
+    const apiModel = collectFlagValue(parts, "--model") ?? preset.commonModels[0]?.id ?? "";
+    const budgetRaw = collectFlagValue(parts, "--budget-tokens");
+    const dailyBudgetTokens = budgetRaw ? Number(budgetRaw) : undefined;
+    const description = collectFlagValue(parts, "--description") ?? null;
+    const activate = parts.includes("--activate");
+
+    const input: ModelAccountInput = {
+      name,
+      providerKind: presetSlug,
+      apiUrl,
+      apiKey,
+      apiModel,
+      dailyBudgetTokens: dailyBudgetTokens === undefined ? undefined : (Number.isFinite(dailyBudgetTokens) ? dailyBudgetTokens : null),
+      description,
+      activate
+    };
+
+    const account = upsertModelAccount(database, input);
+    const redacted = redactAccount(account);
+    if (parts.includes("--json")) {
+      printJson({ account: redacted });
+      return;
+    }
+    console.log(`Saved model account: ${redacted.name} (${redacted.providerKind})`);
+    console.log(`  Model: ${redacted.apiModel}`);
+    console.log(`  URL: ${redacted.apiUrl}`);
+    console.log(`  API key: ${redacted.apiKeyConfigured ? "set" : "(none — required for paid providers)"}`);
+    console.log(`  Status: ${redacted.isActive ? "ACTIVE" : "saved (not active)"}`);
+    if (!redacted.isActive) {
+      console.log(`  Activate with: npm run model -- accounts use ${redacted.name}`);
+    }
+    return;
+  }
+
+  // Account names commonly contain spaces ("OR Gemini") — join every trailing
+  // positional arg into the name so the operator doesn't have to quote them
+  // through both their shell AND the npm pass-through layer.
+  const positionalName = parts
+    .slice(1)
+    .filter((part) => !part.startsWith("--"))
+    .join(" ")
+    .trim();
+
+  if (subcommand === "use" || subcommand === "activate") {
+    if (!positionalName) throw new Error("Usage: npm run model -- accounts use <name>");
+    const account = activateModelAccount(database, positionalName);
+    console.log(`Activated model account: ${account.name} (${account.providerKind}, ${account.apiModel})`);
+    return;
+  }
+
+  if (subcommand === "remove" || subcommand === "delete" || subcommand === "rm") {
+    if (!positionalName) throw new Error("Usage: npm run model -- accounts remove <name>");
+    const target = getModelAccountByName(database, positionalName);
+    const removed = deleteModelAccount(database, positionalName);
+    if (!removed) throw new Error(`Model account "${positionalName}" not found.`);
+    console.log(`Removed model account: ${target?.name ?? positionalName}`);
+    return;
+  }
+
+  if (subcommand === "test") {
+    const name = positionalName;
+    if (!name) throw new Error("Usage: npm run model -- accounts test <name>");
+    const account = getModelAccountByName(database, name);
+    if (!account) throw new Error(`Model account "${name}" not found.`);
+    if (!account.apiKey && getProviderPreset(account.providerKind).requiresApiKey) {
+      throw new Error(`Model account "${name}" has no API key set.`);
+    }
+    if (!/^https?:\/\//i.test(account.apiUrl)) {
+      throw new Error(`Model account "${name}" has no valid HTTP URL.`);
+    }
+    const startedAt = Date.now();
+    let response: Response;
+    try {
+      response = await fetch(account.apiUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(account.apiKey ? { authorization: `Bearer ${account.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: account.apiModel,
+          messages: [
+            { role: "system", content: "Reply with the single word PONG. Output nothing else." },
+            { role: "user", content: "ping" }
+          ],
+          max_tokens: 8
+        })
+      });
+    } catch (error) {
+      console.log(`✗ Network error reaching ${account.apiUrl}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    const elapsedMs = Date.now() - startedAt;
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.log(`✗ HTTP ${response.status} from ${account.providerKind} after ${elapsedMs}ms`);
+      console.log(`  ${errorBody.slice(0, 400)}`);
+      return;
+    }
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number };
+    };
+    const content = payload.choices?.[0]?.message?.content ?? "(no content)";
+    const usage = payload.usage ?? {};
+    console.log(`✓ ${account.name} reachable in ${elapsedMs}ms`);
+    console.log(`  reply: ${content.trim()}`);
+    console.log(
+      `  tokens: ${usage.prompt_tokens ?? "?"} prompt + ${usage.completion_tokens ?? "?"} completion = ${usage.total_tokens ?? "?"} total`
+    );
+    if (typeof usage.cost === "number" && Number.isFinite(usage.cost)) {
+      console.log(`  upstream-reported cost: $${usage.cost.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`);
+    }
+    return;
+  }
+
+  throw new Error(
+    "Usage: npm run model -- accounts list | add --name \"...\" --preset ... | use <name> | remove <name> | test <name> | presets [--json]"
+  );
 }
 
 async function handleProjectStatusCommand(database: ReturnType<typeof initializeDatabase>): Promise<void> {

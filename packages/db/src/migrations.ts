@@ -1182,6 +1182,37 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_enterprise_profile_industry
         ON enterprise_profile (industry);
     `
+  },
+  {
+    id: 15,
+    name: "model_accounts",
+    up: `
+      CREATE TABLE IF NOT EXISTS model_accounts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        providerKind TEXT NOT NULL DEFAULT 'custom'
+          CHECK(providerKind IN ('openrouter','openai','anthropic','groq','together','ollama','custom')),
+        apiUrl TEXT NOT NULL,
+        apiKey TEXT,
+        apiModel TEXT NOT NULL,
+        costPerToken REAL NOT NULL DEFAULT 0,
+        dailyBudgetTokens INTEGER,
+        description TEXT,
+        isActive INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      -- One active account at a time. The partial unique index is the
+      -- canonical enforcement; activate() flips the previously-active row
+      -- to isActive=0 inside the same transaction.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_model_accounts_active_one
+        ON model_accounts (isActive)
+        WHERE isActive = 1;
+
+      CREATE INDEX IF NOT EXISTS idx_model_accounts_provider_kind
+        ON model_accounts (providerKind);
+    `
   }
 ];
 

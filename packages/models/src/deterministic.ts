@@ -31,6 +31,59 @@ function isCapabilityIntent(message: string): boolean {
   );
 }
 
+/**
+ * Detect "list my saved model accounts / providers" intents. Used by the
+ * deterministic mock to emit a `model.listAccounts` tool call so the
+ * end-to-end flow works without a real LLM.
+ */
+function isListAccountsIntent(message: string): boolean {
+  return (
+    /\b(list|show|which|what)\s+(my\s+)?(model\s+)?(account|provider|api|key|model)s?\b/i.test(message) ||
+    /\bwhat\s+(model|provider|api)s?\s+(do\s+i|can\s+i|are)\s+/i.test(message) ||
+    /\bavailable\s+(model|provider|api|account)s?\b/i.test(message)
+  );
+}
+
+/**
+ * Detect "switch to / use the X account/model" intents. Pulls a target
+ * name out of the message so we can pass it to `model.useAccount`.
+ *
+ * Returns the parsed account name, or null if no switch intent. The regex
+ * deliberately accepts only 1-3 word identifier-shaped tokens (e.g.
+ * "OR Llama", "gpt-4o-mini", "openrouter") to avoid swallowing trailing
+ * sentence words like "please" / "now" / "instead".
+ */
+function parseSwitchAccountIntent(message: string): string | null {
+  // 1. Quoted name wins: 'switch to "OR Llama"' / "use 'gpt-4o-mini'".
+  const quoted = message.match(/(?:switch\s+to|use|change\s+to|activate)\s+(?:the\s+|my\s+)?["'`]([^"'`]+)["'`]/i);
+  if (quoted) return quoted[1].trim();
+
+  // 2. "switch (to | model to | account to | provider to) (the/my)? NAME [account|model|provider|api]"
+  //    Required trailing noun catches "OR Llama account please" → "OR Llama"
+  //    (1-3 identifier-shaped tokens before the trailing noun).
+  const switchWithSuffix = message.match(
+    /(?:switch\s+(?:to|model\s+to|account\s+to|provider\s+to))\s+(?:the\s+|my\s+)?([A-Za-z0-9_.\-:/]+(?:\s+[A-Za-z0-9_.\-:/]+){0,2})\s+(?:account|model|provider|api)\b/i
+  );
+  if (switchWithSuffix) return switchWithSuffix[1].trim();
+
+  // 3. Bare single-token after "switch to" (no trailing noun) for ids like
+  //    "switch to gpt-4o-mini" / "switch to openrouter".
+  const switchSingle = message.match(
+    /(?:switch\s+(?:to|model\s+to|account\s+to|provider\s+to))\s+(?:the\s+|my\s+)?([A-Za-z0-9_.\-:/]+)\b/i
+  );
+  if (switchSingle) return switchSingle[1].trim();
+
+  // 4. "use/activate (the/my)? NAME (account|model|provider|api)" — only
+  //    accepted when the trailing noun is present, since bare "use X"
+  //    is too ambiguous.
+  const useWithSuffix = message.match(
+    /(?:use|activate)\s+(?:the\s+|my\s+)?([A-Za-z0-9_.\-:/]+(?:\s+[A-Za-z0-9_.\-:/]+){0,2})\s+(?:account|model|provider|api)\b/i
+  );
+  if (useWithSuffix) return useWithSuffix[1].trim();
+
+  return null;
+}
+
 function buildIdentityResponse(systemPrompt: string | null, message: string): string {
   if (!systemPrompt) {
     return "I'm SquidBot — an open-source, auditable, self-hosted AI agent platform. Run `squidbot whoami` for a structured summary, or run `squidbot onboarding` to pick an enterprise profile so I can adapt to your business.";
@@ -99,6 +152,56 @@ export function generateDeterministicResponse(options: {
 
   if (isIdentityIntent(rawMessage)) {
     content = buildIdentityResponse(systemPrompt, rawMessage);
+    const promptTokens = estimateRequestTokens(options.request.messages, options.request.tools);
+    const tokenUsage = usageFromText(promptTokens, content);
+    return {
+      provider: options.provider,
+      modelName: options.modelName,
+      mode: options.mode,
+      costOwner: options.costOwner,
+      content,
+      toolCalls,
+      tokenUsage,
+      costEstimate: options.costPerToken ? tokenUsage.totalTokens * options.costPerToken : 0
+    };
+  }
+
+  // Model-account intents — recognised so the mock provider's
+  // "zero-spend demo" path can drive the same agent-tools the real LLMs
+  // use. Switch intents are checked BEFORE list intents because "switch
+  // to my OpenRouter account" mentions "OpenRouter" which would also
+  // partially match the list intent regex.
+  const switchTarget = parseSwitchAccountIntent(rawMessage);
+  const useAccountTool = options.request.tools.find((tool) => tool.name === "model.useAccount");
+  if (switchTarget && useAccountTool) {
+    toolCalls.push({
+      id: "call_model_switch",
+      name: useAccountTool.name,
+      args: { name: switchTarget } satisfies JsonObject
+    });
+    content = `Switching the active model account to "${switchTarget}". Subsequent messages will route through that account.`;
+    const promptTokens = estimateRequestTokens(options.request.messages, options.request.tools);
+    const tokenUsage = usageFromText(promptTokens, content);
+    return {
+      provider: options.provider,
+      modelName: options.modelName,
+      mode: options.mode,
+      costOwner: options.costOwner,
+      content,
+      toolCalls,
+      tokenUsage,
+      costEstimate: options.costPerToken ? tokenUsage.totalTokens * options.costPerToken : 0
+    };
+  }
+
+  const listAccountsTool = options.request.tools.find((tool) => tool.name === "model.listAccounts");
+  if (isListAccountsIntent(rawMessage) && listAccountsTool) {
+    toolCalls.push({
+      id: "call_model_list",
+      name: listAccountsTool.name,
+      args: {} satisfies JsonObject
+    });
+    content = "Listing every configured model account and marking the active one.";
     const promptTokens = estimateRequestTokens(options.request.messages, options.request.tools);
     const tokenUsage = usageFromText(promptTokens, content);
     return {

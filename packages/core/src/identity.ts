@@ -1,6 +1,8 @@
 import type { SquidDatabase } from "@squidbot/db";
 import type { EnterpriseProfile } from "./enterpriseProfile.js";
 import { getActiveProfile } from "./enterpriseProfile.js";
+import type { ModelAccount } from "./modelAccounts.js";
+import { getActiveModelAccount, listModelAccounts, redactAccount } from "./modelAccounts.js";
 import type { ToolRegistry } from "./toolRegistry.js";
 
 export const SQUIDBOT_AGENT_NAME = "SquidBot";
@@ -30,10 +32,29 @@ export type CapabilitySnapshot = {
   permissionScopes: string[];
 };
 
+/**
+ * Compact snapshot of saved model accounts for the system prompt. We don't
+ * include API keys or URLs — just the names + which one is active — so the
+ * model can recognise switch intents and call `model.useAccount` with the
+ * right identifier.
+ */
+export type ModelAccountsSnapshot = {
+  count: number;
+  activeName: string | null;
+  /** Up to 12 saved accounts, ordered active-first then alphabetical. */
+  accounts: Array<{
+    name: string;
+    providerKind: string;
+    apiModel: string;
+    isActive: boolean;
+  }>;
+};
+
 export type IdentityReport = {
   card: IdentityCard;
   profile: EnterpriseProfile | null;
   capabilities: CapabilitySnapshot;
+  modelAccounts: ModelAccountsSnapshot;
 };
 
 export function ensureIdentityCard(database: SquidDatabase): IdentityCard {
@@ -130,9 +151,44 @@ export function buildIdentityReport(
   return {
     card: ensureIdentityCard(database),
     profile: getActiveProfile(database),
-    capabilities: snapshotCapabilities(toolRegistry)
+    capabilities: snapshotCapabilities(toolRegistry),
+    modelAccounts: snapshotModelAccounts(database)
   };
 }
+
+function snapshotModelAccounts(database: SquidDatabase): ModelAccountsSnapshot {
+  // Failures here would block every chat call, so we swallow them and
+  // return an empty snapshot. The model_accounts table may not yet exist
+  // in test fixtures that hand-craft a stripped database.
+  let accounts: ModelAccount[];
+  try {
+    accounts = listModelAccounts(database);
+  } catch {
+    return { count: 0, activeName: null, accounts: [] };
+  }
+  const active = accounts.find((account) => account.isActive) ?? getActiveModelAccount(database);
+  const ordered = [...accounts]
+    .sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 12);
+  return {
+    count: accounts.length,
+    activeName: active?.name ?? null,
+    accounts: ordered.map((account) => ({
+      name: account.name,
+      providerKind: account.providerKind,
+      apiModel: account.apiModel,
+      isActive: account.isActive
+    }))
+  };
+}
+
+// Re-export so callers that already imported `redactAccount` via the identity
+// barrel don't need to chase another file. Keeps the contract that the
+// identity module is the one-stop shop for "describe SquidBot to itself."
+export { redactAccount as redactModelAccountForDisplay };
 
 export type SystemPromptOptions = {
   includeCapabilityHints?: boolean;
@@ -227,6 +283,26 @@ export function buildSystemPrompt(
         lines.push(`- … and ${caps.tools.length - maxTools} more (use a discover-tools call to inspect all).`);
       }
     }
+  }
+
+  // Saved model accounts — printed *before* memories so the model sees a
+  // strong, explicit pairing of account names with the model.useAccount tool.
+  // The list shows up to 12 accounts (active marked with [active]). If the
+  // user mentions any of these names and asks to switch, the model is
+  // expected to call model.useAccount with the matching name.
+  if (report.modelAccounts.count > 0) {
+    lines.push("");
+    lines.push("Saved model accounts (use the `model.useAccount` tool to switch active):");
+    for (const account of report.modelAccounts.accounts) {
+      const marker = account.isActive ? "[active] " : "";
+      lines.push(`- ${marker}${account.name}  (${account.providerKind}, ${account.apiModel})`);
+    }
+    if (report.modelAccounts.count > report.modelAccounts.accounts.length) {
+      lines.push(`- … and ${report.modelAccounts.count - report.modelAccounts.accounts.length} more (call model.listAccounts to see them all).`);
+    }
+    lines.push(
+      "If — and only if — the user explicitly asks to change the active LLM/account (\"switch to <name>\", \"use my <name> account\", \"change the model to <name>\"), call the `model.useAccount` tool with the matching name. Do not call it for unrelated requests, even if a name is mentioned in passing. This is different from enterprise *profiles* (industry settings) — those have their own commands."
+    );
   }
 
   // Memory bulletin rendered as a "Relevant memories" section. Includes the
