@@ -118,9 +118,72 @@ function toOpenAiTools(tools: ToolSchema[]): unknown[] {
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: tool.inputSchema
+      parameters: sanitizeJsonSchemaForStrictProviders(tool.inputSchema)
     }
   }));
+}
+
+/**
+ * Make a JSON Schema safe for strict providers like Google Gemini.
+ *
+ * Gemini (unlike OpenAI's chat-completions endpoint) validates tool parameter
+ * schemas strictly and rejects requests where:
+ *
+ *   • An `array`-typed property is missing the required `items` declaration.
+ *   • A property declared as `"type": ["string", "null"]` (JSON Schema array
+ *     form) instead of a single string.
+ *
+ * Rather than hand-audit every connector, skill, and tool schema in the
+ * registry, we walk the schema once at serialisation time and fix the two
+ * known-strict violations:
+ *
+ *   • Fill in `items: { type: "string" }` on any `array` missing items.
+ *   • Collapse `type: [..., "null"]` into the first non-null value.
+ *
+ * This is non-destructive — it never overrides an existing `items` value or a
+ * single-string type. The mutation is on a clone so the upstream tool registry
+ * is never modified.
+ */
+function sanitizeJsonSchemaForStrictProviders(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) {
+    return schema.map((item) => sanitizeJsonSchemaForStrictProviders(item));
+  }
+
+  const source = schema as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...source };
+
+  // Normalise the `type` field. JSON Schema permits `type: ["string", "null"]`
+  // to mean nullable; Gemini wants `type: "string"` and nothing else.
+  if (Array.isArray(out.type)) {
+    const nonNull = out.type.find((value) => value !== "null" && typeof value === "string");
+    out.type = nonNull ?? out.type[0];
+  }
+
+  // If this is an array schema with no items, default to a permissive string item.
+  if (out.type === "array" && (out.items === undefined || out.items === null)) {
+    out.items = { type: "string" };
+  }
+
+  // Recurse into nested structures (properties + items + anyOf/oneOf/allOf).
+  if (out.properties && typeof out.properties === "object") {
+    const properties = out.properties as Record<string, unknown>;
+    const sanitisedProperties: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(properties)) {
+      sanitisedProperties[name] = sanitizeJsonSchemaForStrictProviders(value);
+    }
+    out.properties = sanitisedProperties;
+  }
+  if (out.items !== undefined) {
+    out.items = sanitizeJsonSchemaForStrictProviders(out.items);
+  }
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    if (Array.isArray(out[key])) {
+      out[key] = (out[key] as unknown[]).map((entry) => sanitizeJsonSchemaForStrictProviders(entry));
+    }
+  }
+
+  return out;
 }
 
 function parseToolArgs(value: string | undefined): Record<string, unknown> {
