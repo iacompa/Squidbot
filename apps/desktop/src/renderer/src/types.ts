@@ -61,6 +61,10 @@ import type {
 
 export type PageId =
   | "chat"
+  | "onboarding"
+  | "identity"
+  | "trust"
+  | "profiles"
   | "traces"
   | "memory"
   | "gaps"
@@ -140,3 +144,37 @@ export type {
   GovernanceStatusDto,
   GovernanceUserDto
 };
+
+// Identity / Trust / Profile / Onboarding / Terminal-in-app
+export type {
+  ApprovedMemoryDto,
+  CapabilitySnapshotDto,
+  CapabilityToolSummaryDto,
+  CommandRunResultDto,
+  CommittedOnboardingDto,
+  ComplianceControlEvidenceDto,
+  CompliancePacketDto,
+  EnterpriseProfileBrandingDto,
+  EnterpriseProfileCreateRequestDto,
+  EnterpriseProfileDto,
+  IdentityCardDto,
+  IdentityReportDto,
+  OnboardingAnswerDto,
+  OnboardingInferenceDto,
+  OnboardingMemoryDraftDto,
+  OnboardingQuestionDto,
+  ProfileSensitivityDto,
+  SquidbotCommandDescriptorDto,
+  SquidbotCommandId,
+  TrustAffordanceStatsDto,
+  TrustAuditStatsDto,
+  TrustConnectorStatsDto,
+  TrustDigestDto,
+  TrustHealthLabelDto,
+  TrustPolicyPackSummaryDto,
+  TrustPolicyStatsDto,
+  TrustReportDto,
+  TrustRetentionStatsDto,
+  TrustSandboxStatsDto,
+  TrustVaultStatsDto
+} from "../../shared/api";

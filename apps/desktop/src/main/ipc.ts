@@ -10,34 +10,59 @@ import { Scheduler } from "@squidbot/scheduler";
 import { evaluateSkill, installDeveloperWorkflowSkills, SkillService } from "@squidbot/skills";
 import { defaultTeamManifest, RoleRegistry, TeamCoordinator, TeamStore, validateTeamManifest } from "@squidbot/team";
 import {
+  activateProfile,
   AgentRuntime,
   approveMemoryCandidate,
+  buildIdentityReport,
   buildTrace,
+  commitOnboarding,
   computeTraceMetrics,
+  createCustomProfile,
   createId,
+  describeForWhoami,
+  formatOnboardingSummary,
+  formatNextActions,
+  getActiveProfile,
   getTrace,
   getLatestTrace,
+  inferOnboardingProfile,
+  installSeedProfiles,
+  listProfiles,
   listRuns,
   parseStoredTrace,
   redactTrace,
-  searchEvents,
-  type AgentEvent,
-  type JsonObject,
   registerTerminalTools,
   registerTestTools,
   registerWorkspaceTools,
-  ToolRegistry
+  searchEvents,
+  STANDARD_QUESTIONS,
+  ToolRegistry,
+  type AgentEvent,
+  type JsonObject,
+  type OnboardingAnswer
 } from "@squidbot/core";
+import {
+  buildCompliancePacket,
+  buildTrustReport,
+  digestTrustReport,
+  formatTrustReportMarkdown,
+  summarizeTrustReport
+} from "@squidbot/governance";
 import type { SquidDatabase } from "@squidbot/db";
 import type {
   ChatRequest,
+  CommandRunResultDto,
   ConnectorDto,
+  EnterpriseProfileCreateRequestDto,
   JobCreateRequestDto,
   MemoryGraphDetailDto,
   MessagingAllowlistRuleDto,
   MessagingChannelDto,
   MessagingDeliveryRuleDto,
+  OnboardingAnswerDto,
   SettingsDto,
+  SquidbotCommandDescriptorDto,
+  SquidbotCommandId,
   TeamRunRequestDto
 } from "../shared/api.js";
 import type { DesktopAppPaths } from "./appPaths.js";
@@ -823,7 +848,336 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   ipcMain.handle("squidbot:mergeMemoryGraphNodes", (_event, targetNodeId: string, sourceNodeId: string) =>
     new MemoryGraphStore(database).mergeNodes(targetNodeId, sourceNodeId)
   );
+
+  // ---------------- Identity / Profile / Trust / Onboarding ----------------
+
+  // Capability snapshot needs a tool registry built like the CLI's
+  // `createToolRegistryForReporting` so the GUI sees the same surface as the CLI.
+  const reportingToolRegistry = (): ToolRegistry => {
+    const registry = new ToolRegistry();
+    registerWorkspaceTools(registry);
+    registerTerminalTools(registry);
+    registerTestTools(registry);
+    return registry;
+  };
+
+  ipcMain.handle("squidbot:getIdentityReport", () => {
+    installSeedProfiles(database);
+    return buildIdentityReport(database, reportingToolRegistry());
+  });
+
+  ipcMain.handle("squidbot:listEnterpriseProfiles", () => {
+    installSeedProfiles(database);
+    return listProfiles(database);
+  });
+
+  ipcMain.handle("squidbot:getActiveEnterpriseProfile", () => {
+    installSeedProfiles(database);
+    return getActiveProfile(database);
+  });
+
+  ipcMain.handle("squidbot:activateEnterpriseProfile", (_event, profileId: string) => {
+    installSeedProfiles(database);
+    return activateProfile(database, profileId);
+  });
+
+  ipcMain.handle(
+    "squidbot:createEnterpriseProfile",
+    (_event, request: EnterpriseProfileCreateRequestDto) => {
+      installSeedProfiles(database);
+      const sensitivity = request.sensitivity ?? "standard";
+      const profile = createCustomProfile(database, {
+        industry: request.industry ?? "general_business",
+        displayName: request.displayName,
+        businessUnit: null,
+        role: request.role ?? null,
+        primarySystems: request.primarySystems ?? [],
+        primaryChannels: request.primaryChannels ?? [],
+        sensitivity,
+        vocabulary: request.vocabulary ?? {},
+        branding: { productName: `SquidBot for ${request.displayName}` },
+        policyPacks: request.policyPacks ?? ["developer-safe-default", "secrets-redaction"],
+        defaultSkills: [],
+        defaultConnectors: [],
+        readOnlyByDefault:
+          request.readOnlyByDefault ??
+          (sensitivity === "regulated" || sensitivity === "air-gapped"),
+        metadata: { customCreated: true, createdVia: "desktop" },
+        activate: request.activate === true
+      });
+      return profile;
+    }
+  );
+
+  ipcMain.handle("squidbot:getTrustReport", () => {
+    installSeedProfiles(database);
+    const identityReport = buildIdentityReport(database, reportingToolRegistry());
+    return buildTrustReport({ database, identityReport });
+  });
+
+  ipcMain.handle("squidbot:getTrustDigest", () => {
+    installSeedProfiles(database);
+    const identityReport = buildIdentityReport(database, reportingToolRegistry());
+    const report = buildTrustReport({ database, identityReport });
+    return digestTrustReport(report);
+  });
+
+  ipcMain.handle("squidbot:buildCompliancePacket", (_event, framework: "soc2" | "gdpr") => {
+    if (framework !== "soc2" && framework !== "gdpr") {
+      throw new Error(`Unsupported framework: ${framework}`);
+    }
+    installSeedProfiles(database);
+    const identityReport = buildIdentityReport(database, reportingToolRegistry());
+    const trustReport = buildTrustReport({ database, identityReport });
+    return buildCompliancePacket({ database, trustReport, framework });
+  });
+
+  // Onboarding wizard endpoints — these power the "live preview" UI.
+  // The renderer calls `inferOnboarding` after each answer change to refresh
+  // the preview panel, then calls `commitOnboarding` once when the user
+  // confirms the result.
+  ipcMain.handle("squidbot:getOnboardingQuestions", () => {
+    return STANDARD_QUESTIONS.map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      hint: question.hint,
+      kind: question.kind,
+      choices: question.choices,
+      required: question.required
+    }));
+  });
+
+  ipcMain.handle("squidbot:inferOnboarding", (_event, answers: OnboardingAnswerDto[]) => {
+    return inferOnboardingProfile(coerceOnboardingAnswers(answers));
+  });
+
+  ipcMain.handle(
+    "squidbot:commitOnboarding",
+    (_event, answers: OnboardingAnswerDto[], options?: { activate?: boolean }) => {
+      installSeedProfiles(database);
+      const inference = inferOnboardingProfile(coerceOnboardingAnswers(answers));
+      const committed = commitOnboarding(database, inference, {
+        activate: options?.activate ?? true
+      });
+      return { inference, committed };
+    }
+  );
+
+  ipcMain.handle("squidbot:listSquidbotCommands", () => SQUIDBOT_COMMAND_REGISTRY);
+
+  ipcMain.handle("squidbot:runSquidbotCommand", (_event, commandId: SquidbotCommandId): CommandRunResultDto => {
+    const descriptor = SQUIDBOT_COMMAND_REGISTRY.find((entry) => entry.id === commandId);
+    if (!descriptor) {
+      throw new Error(`Unknown SquidBot command: ${String(commandId)}`);
+    }
+    installSeedProfiles(database);
+    const startedAt = new Date().toISOString();
+    const tools = reportingToolRegistry();
+    const identityReport = buildIdentityReport(database, tools);
+
+    let output = "";
+    let data: unknown = undefined;
+    try {
+      switch (descriptor.id) {
+        case "whoami":
+          output = describeForWhoami(identityReport);
+          data = identityReport;
+          break;
+        case "trust.summary": {
+          const report = buildTrustReport({ database, identityReport });
+          output = summarizeTrustReport(report);
+          data = report;
+          break;
+        }
+        case "trust.digest": {
+          const report = buildTrustReport({ database, identityReport });
+          const digest = digestTrustReport(report);
+          output = [
+            `${digest.agentName} v${digest.agentVersion}`,
+            `Profile: ${digest.profile ?? "(none)"}`,
+            `Health: ${digest.healthLabel} (${digest.healthScore}/100)`,
+            `Audit chain valid: ${digest.auditChainValid ? "yes" : "NO"}`,
+            `Schema: ${digest.schemaVersion}`,
+            `Hash: ${digest.hash}`,
+            `Generated: ${digest.generatedAt}`
+          ].join("\n");
+          data = digest;
+          break;
+        }
+        case "trust.report": {
+          const report = buildTrustReport({ database, identityReport });
+          output = formatTrustReportMarkdown(report);
+          data = report;
+          break;
+        }
+        case "trust.packet.soc2":
+        case "trust.packet.gdpr": {
+          const framework = descriptor.id.endsWith("soc2") ? "soc2" : "gdpr";
+          const report = buildTrustReport({ database, identityReport });
+          const packet = buildCompliancePacket({ database, trustReport: report, framework });
+          output = packet.markdown;
+          data = packet;
+          break;
+        }
+        case "profile.list": {
+          const profiles = listProfiles(database);
+          const active = getActiveProfile(database);
+          const lines = ["Enterprise profiles:"];
+          for (const profile of profiles) {
+            const marker = profile.isActive ? "*" : " ";
+            lines.push(
+              `${marker} ${profile.id}  ${profile.displayName}  (${profile.industry}, sensitivity=${profile.sensitivity}${profile.readOnlyByDefault ? ", read-only" : ""})`
+            );
+          }
+          lines.push("");
+          lines.push(active ? `Active profile: ${active.displayName} (${active.id})` : "No active profile.");
+          output = lines.join("\n");
+          data = { profiles, active };
+          break;
+        }
+        case "profile.current": {
+          const active = getActiveProfile(database);
+          if (!active) {
+            output = "No active enterprise profile.";
+            data = null;
+          } else {
+            output = [
+              `${active.displayName}  (${active.id})`,
+              `Industry: ${active.industry}`,
+              `Sensitivity: ${active.sensitivity}`,
+              `Read-only by default: ${active.readOnlyByDefault ? "yes" : "no"}`,
+              `Policy packs: ${active.policyPacks.join(", ") || "(none)"}`,
+              `Default skills: ${active.defaultSkills.join(", ") || "(none)"}`,
+              `Default connectors: ${active.defaultConnectors.join(", ") || "(none)"}`
+            ].join("\n");
+            data = active;
+          }
+          break;
+        }
+        case "memory.list": {
+          const memories = database.listApprovedMemories(50);
+          if (memories.length === 0) {
+            output = "No approved memories yet.";
+          } else {
+            const lines = ["Approved memories"];
+            for (const memory of memories) {
+              lines.push(`- ${memory.id}`);
+              lines.push(`  type: ${memory.type}`);
+              lines.push(`  title: ${memory.title}`);
+              lines.push(`  approved: ${memory.approvedAt ?? "(pending)"}`);
+            }
+            output = lines.join("\n");
+          }
+          data = memories;
+          break;
+        }
+        default: {
+          const _exhaustive: never = descriptor.id;
+          throw new Error(`Unhandled command: ${String(_exhaustive)}`);
+        }
+      }
+    } catch (error) {
+      return {
+        id: descriptor.id,
+        displayCommand: descriptor.displayCommand,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        ok: false,
+        output: error instanceof Error ? error.message : String(error)
+      };
+    }
+
+    return {
+      id: descriptor.id,
+      displayCommand: descriptor.displayCommand,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      ok: true,
+      output,
+      data
+    };
+  });
 }
+
+function coerceOnboardingAnswers(answers: OnboardingAnswerDto[]): OnboardingAnswer[] {
+  if (!Array.isArray(answers)) return [];
+  return answers.map((answer) => ({
+    questionId: String(answer.questionId ?? ""),
+    rawValue: String(answer.rawValue ?? ""),
+    skipped: Boolean(answer.skipped)
+  }));
+}
+
+/**
+ * Whitelist of "safe" SquidBot CLI-equivalent commands the renderer can run
+ * from the in-app terminal panel. Every entry routes to a deterministic IPC
+ * handler (no shell exec, no arbitrary args), keeping the surface auditable.
+ */
+const SQUIDBOT_COMMAND_REGISTRY: SquidbotCommandDescriptorDto[] = [
+  {
+    id: "whoami",
+    label: "whoami",
+    description: "Show the current SquidBot identity + active profile + capabilities.",
+    displayCommand: "npm run whoami",
+    outputIsMarkdown: false
+  },
+  {
+    id: "trust.summary",
+    label: "trust summary",
+    description: "One-line live security posture summary.",
+    displayCommand: "npm run trust -- summary",
+    outputIsMarkdown: false
+  },
+  {
+    id: "trust.report",
+    label: "trust report",
+    description: "Full markdown Trust & Security report.",
+    displayCommand: "npm run trust -- report",
+    outputIsMarkdown: true
+  },
+  {
+    id: "trust.digest",
+    label: "trust digest",
+    description: "Shareable signed digest of current security posture.",
+    displayCommand: "npm run trust -- digest",
+    outputIsMarkdown: false
+  },
+  {
+    id: "trust.packet.soc2",
+    label: "trust packet (SOC2)",
+    description: "Generate a SOC2 compliance evidence packet.",
+    displayCommand: "npm run trust -- packet --framework=soc2",
+    outputIsMarkdown: true
+  },
+  {
+    id: "trust.packet.gdpr",
+    label: "trust packet (GDPR)",
+    description: "Generate a GDPR compliance evidence packet.",
+    displayCommand: "npm run trust -- packet --framework=gdpr",
+    outputIsMarkdown: true
+  },
+  {
+    id: "profile.list",
+    label: "profile list",
+    description: "List all enterprise profiles and which one is active.",
+    displayCommand: "npm run profile -- list",
+    outputIsMarkdown: false
+  },
+  {
+    id: "profile.current",
+    label: "profile current",
+    description: "Show the active enterprise profile.",
+    displayCommand: "npm run profile -- current",
+    outputIsMarkdown: false
+  },
+  {
+    id: "memory.list",
+    label: "memory list",
+    description: "List approved memories (founder note, guardrails, ...).",
+    displayCommand: "npm run memory -- list",
+    outputIsMarkdown: false
+  }
+];
 
 function normalizeModelProvider(value: unknown): "local" | "api" | "mock" {
   return value === "api" || value === "mock" || value === "local" ? value : "local";

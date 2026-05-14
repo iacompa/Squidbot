@@ -86,7 +86,22 @@ const api: SquidbotApi = {
   updateMemoryGraphNode: (nodeId, request) => ipcRenderer.invoke("squidbot:updateMemoryGraphNode", nodeId, request),
   archiveMemoryGraphNode: (nodeId) => ipcRenderer.invoke("squidbot:archiveMemoryGraphNode", nodeId),
   deleteMemoryGraphNode: (nodeId) => ipcRenderer.invoke("squidbot:deleteMemoryGraphNode", nodeId),
-  mergeMemoryGraphNodes: (targetNodeId, sourceNodeId) => ipcRenderer.invoke("squidbot:mergeMemoryGraphNodes", targetNodeId, sourceNodeId)
+  mergeMemoryGraphNodes: (targetNodeId, sourceNodeId) => ipcRenderer.invoke("squidbot:mergeMemoryGraphNodes", targetNodeId, sourceNodeId),
+
+  // Identity / Trust / Profile / Onboarding / Terminal-in-app
+  getIdentityReport: () => ipcRenderer.invoke("squidbot:getIdentityReport"),
+  listEnterpriseProfiles: () => ipcRenderer.invoke("squidbot:listEnterpriseProfiles"),
+  getActiveEnterpriseProfile: () => ipcRenderer.invoke("squidbot:getActiveEnterpriseProfile"),
+  activateEnterpriseProfile: (profileId) => ipcRenderer.invoke("squidbot:activateEnterpriseProfile", profileId),
+  createEnterpriseProfile: (input) => ipcRenderer.invoke("squidbot:createEnterpriseProfile", input),
+  getTrustReport: () => ipcRenderer.invoke("squidbot:getTrustReport"),
+  getTrustDigest: () => ipcRenderer.invoke("squidbot:getTrustDigest"),
+  buildCompliancePacket: (framework) => ipcRenderer.invoke("squidbot:buildCompliancePacket", framework),
+  getOnboardingQuestions: () => ipcRenderer.invoke("squidbot:getOnboardingQuestions"),
+  inferOnboarding: (answers) => ipcRenderer.invoke("squidbot:inferOnboarding", answers),
+  commitOnboarding: (answers, options) => ipcRenderer.invoke("squidbot:commitOnboarding", answers, options),
+  runSquidbotCommand: (command) => ipcRenderer.invoke("squidbot:runSquidbotCommand", command),
+  listSquidbotCommands: () => ipcRenderer.invoke("squidbot:listSquidbotCommands")
 };
 
 contextBridge.exposeInMainWorld("squidbot", api);

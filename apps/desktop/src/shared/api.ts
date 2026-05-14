@@ -1007,4 +1007,341 @@ export type SquidbotApi = {
   archiveMemoryGraphNode: (nodeId: string) => Promise<MemoryGraphNodeDto>;
   deleteMemoryGraphNode: (nodeId: string) => Promise<MemoryGraphNodeDto>;
   mergeMemoryGraphNodes: (targetNodeId: string, sourceNodeId: string) => Promise<MemoryGraphNodeDto>;
+
+  // ---------------- Identity / Trust / Profile / Onboarding ----------------
+  getIdentityReport: () => Promise<IdentityReportDto>;
+  listEnterpriseProfiles: () => Promise<EnterpriseProfileDto[]>;
+  getActiveEnterpriseProfile: () => Promise<EnterpriseProfileDto | null>;
+  activateEnterpriseProfile: (profileId: string) => Promise<EnterpriseProfileDto>;
+  createEnterpriseProfile: (input: EnterpriseProfileCreateRequestDto) => Promise<EnterpriseProfileDto>;
+  getTrustReport: () => Promise<TrustReportDto>;
+  getTrustDigest: () => Promise<TrustDigestDto>;
+  buildCompliancePacket: (framework: "soc2" | "gdpr") => Promise<CompliancePacketDto>;
+  getOnboardingQuestions: () => Promise<OnboardingQuestionDto[]>;
+  inferOnboarding: (answers: OnboardingAnswerDto[]) => Promise<OnboardingInferenceDto>;
+  commitOnboarding: (
+    answers: OnboardingAnswerDto[],
+    options?: { activate?: boolean }
+  ) => Promise<{ inference: OnboardingInferenceDto; committed: CommittedOnboardingDto }>;
+  /**
+   * "Terminal in the app" — runs a whitelisted SquidBot operation (no arbitrary
+   * shell) and returns its rendered output so it can be displayed in a styled
+   * terminal panel inside the UI.
+   */
+  runSquidbotCommand: (command: SquidbotCommandId) => Promise<CommandRunResultDto>;
+  listSquidbotCommands: () => Promise<SquidbotCommandDescriptorDto[]>;
+};
+
+// ---------------- Identity / Profile DTOs ----------------
+
+export type IdentityCardDto = {
+  id: "singleton";
+  agentName: string;
+  agentVersion: string;
+  mission: string;
+  installedAt: string;
+  updatedAt: string;
+};
+
+export type CapabilityToolSummaryDto = {
+  name: string;
+  riskLevel: string | null;
+  permissionScopes: string[];
+};
+
+export type CapabilitySnapshotDto = {
+  toolCount: number;
+  tools: CapabilityToolSummaryDto[];
+  permissionScopes: string[];
+};
+
+export type ProfileSensitivityDto = "standard" | "sensitive" | "regulated" | "air-gapped";
+
+export type EnterpriseProfileBrandingDto = {
+  productName?: string;
+  accentColor?: string;
+  logoPath?: string;
+  supportEmail?: string;
+};
+
+export type EnterpriseProfileDto = {
+  id: string;
+  industry: string;
+  displayName: string;
+  businessUnit: string | null;
+  role: string | null;
+  primarySystems: string[];
+  primaryChannels: string[];
+  sensitivity: ProfileSensitivityDto;
+  vocabulary: Record<string, string>;
+  branding: EnterpriseProfileBrandingDto;
+  policyPacks: string[];
+  defaultSkills: string[];
+  defaultConnectors: string[];
+  readOnlyByDefault: boolean;
+  isActive: boolean;
+  seeded: boolean;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IdentityReportDto = {
+  card: IdentityCardDto;
+  profile: EnterpriseProfileDto | null;
+  capabilities: CapabilitySnapshotDto;
+};
+
+export type EnterpriseProfileCreateRequestDto = {
+  displayName: string;
+  industry?: string;
+  role?: string | null;
+  sensitivity?: ProfileSensitivityDto;
+  readOnlyByDefault?: boolean;
+  vocabulary?: Record<string, string>;
+  primarySystems?: string[];
+  primaryChannels?: string[];
+  policyPacks?: string[];
+  activate?: boolean;
+};
+
+// ---------------- Trust report DTOs ----------------
+
+export type TrustAuditStatsDto = {
+  entryCount: number;
+  last24hCount: number;
+  latestSequence: number;
+  latestEntryHash: string | null;
+  latestEntryAt: string | null;
+  chainValid: boolean;
+  chainFailureSequence: number | null;
+  chainFailureReason: string | null;
+};
+
+export type TrustPolicyPackSummaryDto = {
+  id: string;
+  name: string;
+  description: string;
+  ruleCount: number;
+};
+
+export type TrustPolicyStatsDto = {
+  policyPackCount: number;
+  policyPacks: TrustPolicyPackSummaryDto[];
+  abacRuleCount: number;
+  decisionCount: number;
+  denyDecisionCount: number;
+  recentDenyDecisions: number;
+};
+
+export type TrustVaultStatsDto = {
+  secretReferenceCount: number;
+  rotatedSecretCount: number;
+  encryptedAtRest: boolean;
+  algorithm: string;
+};
+
+export type TrustRetentionStatsDto = {
+  policyCount: number;
+  enabledPolicyCount: number;
+  legalHoldCount: number;
+  activeLegalHoldCount: number;
+};
+
+export type TrustAffordanceStatsDto = {
+  openCount: number;
+  resolvedCount: number;
+  wontfixCount: number;
+  highSeverityOpenCount: number;
+};
+
+export type TrustSandboxStatsDto = {
+  activeCount: number;
+  promotedCount: number;
+  rejectedCount: number;
+};
+
+export type TrustConnectorStatsDto = {
+  registeredCount: number;
+  readOnlyDefault: boolean;
+  fixtureMode: boolean;
+};
+
+export type TrustHealthLabelDto = "excellent" | "strong" | "fair" | "needs_attention";
+
+export type TrustReportDto = {
+  schemaVersion: string;
+  generatedAt: string;
+  agentName: string;
+  agentVersion: string;
+  profile: {
+    active: boolean;
+    industry: string | null;
+    displayName: string | null;
+    sensitivity: string | null;
+    readOnlyByDefault: boolean;
+  };
+  audit: TrustAuditStatsDto;
+  policy: TrustPolicyStatsDto;
+  vault: TrustVaultStatsDto;
+  retention: TrustRetentionStatsDto;
+  affordanceGaps: TrustAffordanceStatsDto;
+  sandbox: TrustSandboxStatsDto;
+  connectors: TrustConnectorStatsDto;
+  capabilities: {
+    toolCount: number;
+    permissionScopes: string[];
+  };
+  zeroSpendDefault: boolean;
+  redactionEnabled: boolean;
+  healthScore: number;
+  healthLabel: TrustHealthLabelDto;
+  warnings: string[];
+};
+
+export type TrustDigestDto = {
+  schemaVersion: string;
+  hash: string;
+  generatedAt: string;
+  agentName: string;
+  agentVersion: string;
+  profile: string | null;
+  healthScore: number;
+  healthLabel: TrustHealthLabelDto;
+  auditChainValid: boolean;
+};
+
+export type ComplianceControlEvidenceDto = {
+  controlId: string;
+  controlTitle: string;
+  status: "met" | "partial" | "manual";
+  evidence: string[];
+  notes?: string;
+};
+
+export type CompliancePacketDto = {
+  schemaVersion: string;
+  framework: "soc2" | "gdpr";
+  generatedAt: string;
+  agentName: string;
+  agentVersion: string;
+  profile: string | null;
+  trustReportHash: string;
+  controls: ComplianceControlEvidenceDto[];
+  auditWindow: {
+    from: string | null;
+    to: string | null;
+    entryCount: number;
+    chainValid: boolean;
+  };
+  markdown: string;
+  digest: string;
+};
+
+// ---------------- Onboarding DTOs ----------------
+
+export type OnboardingQuestionDto = {
+  id: string;
+  prompt: string;
+  hint?: string;
+  kind: "text" | "choice";
+  choices?: Array<{ value: string; label: string; description?: string }>;
+  required?: boolean;
+};
+
+export type OnboardingAnswerDto = {
+  questionId: string;
+  rawValue: string;
+  skipped: boolean;
+};
+
+export type OnboardingMemoryDraftDto = {
+  type: "founder_note" | "guardrail" | "system_inventory" | "business_summary";
+  title: string;
+  body: string;
+  importance: number;
+  confidence: number;
+};
+
+export type OnboardingInferenceDto = {
+  profile: {
+    industry: string;
+    displayName: string;
+    businessUnit: string | null;
+    role: string | null;
+    primarySystems: string[];
+    primaryChannels: string[];
+    sensitivity: ProfileSensitivityDto;
+    vocabulary: Record<string, string>;
+    branding: EnterpriseProfileBrandingDto;
+    policyPacks: string[];
+    defaultSkills: string[];
+    defaultConnectors: string[];
+    readOnlyByDefault: boolean;
+    metadata: Record<string, unknown>;
+  };
+  memories: OnboardingMemoryDraftDto[];
+  rationale: string[];
+  nextActions: string[];
+};
+
+export type ApprovedMemoryDto = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  sourceRunId: string;
+  sourceReflectionId: string | null;
+  sourceEventId: string | null;
+  confidence: number;
+  importance: number;
+  createdAt: string;
+  approvedAt: string | null;
+  archivedAt: string | null;
+};
+
+export type CommittedOnboardingDto = {
+  profile: EnterpriseProfileDto;
+  memories: ApprovedMemoryDto[];
+  syntheticRunId: string;
+};
+
+// ---------------- Terminal-in-app DTOs ----------------
+
+/**
+ * Canonical list of SquidBot operations the user can "run from the terminal
+ * panel" inside the app. Each id maps to a deterministic IPC handler call
+ * (never a raw shell exec), so the panel feels like a terminal while staying
+ * inside the audited IPC boundary.
+ */
+export type SquidbotCommandId =
+  | "whoami"
+  | "trust.summary"
+  | "trust.digest"
+  | "trust.report"
+  | "trust.packet.soc2"
+  | "trust.packet.gdpr"
+  | "profile.list"
+  | "profile.current"
+  | "memory.list";
+
+export type SquidbotCommandDescriptorDto = {
+  id: SquidbotCommandId;
+  label: string;
+  description: string;
+  /** The literal command the user could paste into a real terminal to run it themselves. */
+  displayCommand: string;
+  /** True if this command produces structured output we should pretty-print. */
+  outputIsMarkdown: boolean;
+};
+
+export type CommandRunResultDto = {
+  id: SquidbotCommandId;
+  displayCommand: string;
+  startedAt: string;
+  completedAt: string;
+  ok: boolean;
+  output: string;
+  /** Optional: machine-readable payload mirroring the textual output. */
+  data?: unknown;
 };

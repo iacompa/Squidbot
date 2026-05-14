@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
-import { Activity, Boxes, CalendarClock, Database, FlaskConical, MessageCircle, MessageSquare, Settings, ShieldAlert, ShieldCheck, Sparkles, UsersRound } from "lucide-react";
+import { Activity, Bot, Boxes, CalendarClock, Database, FlaskConical, MessageCircle, MessageSquare, Settings, ShieldAlert, ShieldCheck, Sparkles, UserCog, UsersRound, Wand2 } from "lucide-react";
 import { squidbotApi } from "./lib/api";
 import { AffordancePage } from "./pages/AffordancePage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { ChatPage } from "./pages/ChatPage";
+import { IdentityPage } from "./pages/IdentityPage";
 import { MemoryPage } from "./pages/MemoryPage";
+import { OnboardingPage } from "./pages/OnboardingPage";
+import { ProfilesPage } from "./pages/ProfilesPage";
 import { RunListPage } from "./pages/RunListPage";
 import { SandboxesPage } from "./pages/SandboxesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SkillsPage } from "./pages/SkillsPage";
 import { TeamsPage } from "./pages/TeamsPage";
+import { TrustPage } from "./pages/TrustPage";
 import { JobsPage } from "./pages/JobsPage";
 import { EvaluationLabPage } from "./pages/EvaluationLabPage";
 import { MessagingPage } from "./pages/MessagingPage";
@@ -18,7 +22,11 @@ import type { PageId, TraceDto } from "./types";
 import type { SettingsDto } from "../../shared/api";
 
 const pages: Array<{ id: PageId; label: string; icon: typeof MessageSquare }> = [
+  { id: "onboarding", label: "Onboarding", icon: Wand2 },
   { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "identity", label: "Identity", icon: Bot },
+  { id: "trust", label: "Trust", icon: ShieldCheck },
+  { id: "profiles", label: "Profiles", icon: UserCog },
   { id: "traces", label: "Runs", icon: Activity },
   { id: "memory", label: "Memory", icon: Database },
   { id: "gaps", label: "Gaps", icon: ShieldAlert },
@@ -93,6 +101,22 @@ export function App() {
           onSettingsChange={setSettings}
         />
       );
+    }
+
+    if (activePage === "onboarding") {
+      return <OnboardingPage />;
+    }
+
+    if (activePage === "identity") {
+      return <IdentityPage />;
+    }
+
+    if (activePage === "trust") {
+      return <TrustPage />;
+    }
+
+    if (activePage === "profiles") {
+      return <ProfilesPage />;
     }
 
     if (activePage === "traces") {
