@@ -4,6 +4,7 @@ export * from "./eventLog.js";
 export * from "./identity.js";
 export * from "./memory.js";
 export * from "./modelRouter.js";
+export * from "./onboarding.js";
 export * from "./policyEngine.js";
 export * from "./repoTask.js";
 export * from "./redaction.js";

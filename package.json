@@ -38,6 +38,8 @@
     "trust": "npm run ensure:node-native && npm run trust -w apps/cli --",
     "profile": "npm run ensure:node-native && npm run profile -w apps/cli --",
     "profiles": "npm run ensure:node-native && npm run profile -w apps/cli --",
+    "onboarding": "npm run ensure:node-native && npm run onboarding -w apps/cli --",
+    "onboard": "npm run ensure:node-native && npm run onboarding -w apps/cli --",
     "verify:all": "node scripts/verify-all.mjs",
     "memory": "npm run ensure:node-native && npm run memory -w apps/cli --",
     "connectors": "npm run ensure:node-native && npm run connectors -w apps/cli --",

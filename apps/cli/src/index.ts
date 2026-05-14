@@ -52,15 +52,19 @@ import {
   approveMemoryCandidate,
   buildIdentityReport,
   buildTrace,
+  commitOnboarding,
   computeTraceMetrics,
   createCustomProfile,
   createId,
   describeForWhoami,
   ensureLocalConfig,
   exportTraceMarkdown,
+  formatNextActions,
+  formatOnboardingSummary,
   getActiveProfile,
   getTrace,
   getLatestTrace,
+  inferOnboardingProfile,
   installSeedProfiles,
   listProfiles,
   listRuns,
@@ -69,9 +73,12 @@ import {
   registerTestTools,
   registerWorkspaceTools,
   searchEvents,
+  STANDARD_QUESTIONS,
   ToolRegistry,
   type AgentEvent,
-  type JsonObject
+  type JsonObject,
+  type OnboardingAnswer,
+  type OnboardingQuestion
 } from "@squidbot/core";
 
 type ParsedArgs = {
@@ -534,6 +541,11 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (args.command === "onboarding" || args.command === "onboard") {
+      await handleOnboardingCommand(database, splitCommandParts(args.message));
+      return;
+    }
+
     console.log("Usage:");
     console.log("  npm run init");
     console.log("  npm run chat -- --workspace ./examples/buggy-python \"list files\"");
@@ -560,6 +572,9 @@ async function main(): Promise<void> {
     console.log("  npm run memory -- graph search --hybrid \"calculator bug\" --top 5");
     console.log("  npm run connectors -- install ./connectors/demo/salesConnector.json");
     console.log("  npm run connectors -- import-openapi ./specs/petstore.yaml --name petstore");
+    console.log("  npm run onboarding                                     # 6-question interview that configures SquidBot for your business");
+    console.log("  npm run onboarding -- --answers ./examples/onboarding-acme.json --yes  # non-interactive (for tests + scripted setup)");
+    console.log("  npm run onboarding -- --dry-run                        # show what would be created without saving");
     console.log("  npm run whoami");
     console.log("  npm run trust -- summary");
     console.log("  npm run trust -- report");
@@ -1543,6 +1558,191 @@ async function handleProfileCommand(
   throw new Error(
     "Usage: npm run profile -- list | current | activate <profile-id> | create --name \"<name>\" [flags] | seed [--json]"
   );
+}
+
+/**
+ * AI-assisted onboarding wizard. Runs a short interview, infers an enterprise
+ * profile + memories from the answers, and offers to save & activate them.
+ *
+ * Modes:
+ *   - default (interactive): prompts the operator via readline.
+ *   - --answers <path>: reads pre-canned answers from a JSON file, no prompts.
+ *                       Used by automated tests and scripted partner setups.
+ *   - --yes: skip the final "save & activate?" confirmation.
+ *   - --no-activate: save the inferred profile but leave the active profile alone.
+ *   - --dry-run: show what would be created, write nothing.
+ *   - --json: emit the inference (and committed records, if not dry-run) as JSON.
+ */
+async function handleOnboardingCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  parts: string[]
+): Promise<void> {
+  installSeedProfiles(database);
+
+  const answersPath = collectFlagValue(parts, "--answers");
+  const skipConfirm = parts.includes("--yes") || parts.includes("-y");
+  const activate = !parts.includes("--no-activate");
+  const dryRun = parts.includes("--dry-run");
+  const asJson = parts.includes("--json");
+
+  let answers: OnboardingAnswer[];
+
+  if (answersPath) {
+    answers = loadOnboardingAnswers(resolveFromInvocationCwd(answersPath));
+  } else {
+    answers = await runInteractiveOnboarding(STANDARD_QUESTIONS);
+  }
+
+  const inference = inferOnboardingProfile(answers);
+
+  if (asJson && dryRun) {
+    printJson({ mode: "dry-run", answers, inference });
+    return;
+  }
+
+  if (!asJson) {
+    console.log(formatOnboardingSummary(inference));
+  }
+
+  if (dryRun) {
+    if (!asJson) {
+      console.log("");
+      console.log("(dry-run) Nothing was saved. Re-run without --dry-run to commit.");
+    }
+    return;
+  }
+
+  // Confirmation step for interactive sessions only.
+  if (!answersPath && !skipConfirm) {
+    const confirmed = await promptYesNo(
+      "\nSave this profile and activate it? [Y/n] ",
+      true
+    );
+    if (!confirmed) {
+      console.log("Skipped. Nothing was saved.");
+      return;
+    }
+  }
+
+  const committed = commitOnboarding(database, inference, { activate });
+
+  if (asJson) {
+    printJson({ inference, committed });
+    return;
+  }
+
+  console.log("");
+  console.log(`✓ Created profile: ${committed.profile.displayName}  (${committed.profile.id})`);
+  console.log(`  Status: ${committed.profile.isActive ? "ACTIVE" : "saved (not active)"}`);
+  console.log(`  Memory entries written: ${committed.memories.length}`);
+  console.log(`  Provenance run id: ${committed.syntheticRunId}`);
+  console.log(formatNextActions(inference));
+}
+
+function loadOnboardingAnswers(filePath: string): OnboardingAnswer[] {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`--answers file not found: ${filePath}`);
+  }
+  const raw = fs.readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(raw) as { answers?: OnboardingAnswer[] } | OnboardingAnswer[];
+  const list = Array.isArray(parsed) ? parsed : parsed.answers;
+  if (!Array.isArray(list)) {
+    throw new Error(
+      `--answers file must contain a JSON array of {questionId, rawValue, skipped} or {"answers": [...]}.`
+    );
+  }
+  return list.map((entry) => ({
+    questionId: String(entry.questionId ?? ""),
+    rawValue: String(entry.rawValue ?? ""),
+    skipped: Boolean(entry.skipped)
+  }));
+}
+
+async function runInteractiveOnboarding(questions: OnboardingQuestion[]): Promise<OnboardingAnswer[]> {
+  const rl = readline.createInterface({ input, output });
+  const collected: OnboardingAnswer[] = [];
+  const total = questions.length;
+
+  try {
+    output.write("\n");
+    output.write("Welcome to SquidBot. I'll ask a few short questions so I can adapt to your business.\n");
+    output.write("This takes ~3 minutes. Type 'skip' on any optional question, or press Ctrl-C to abort.\n");
+    output.write("\n");
+
+    for (let index = 0; index < questions.length; index += 1) {
+      const question = questions[index];
+      const required = question.required === true;
+      output.write(`Q${index + 1}/${total} — ${question.prompt}\n`);
+      if (question.hint) output.write(`         ${question.hint}\n`);
+
+      if (question.kind === "choice" && question.choices) {
+        for (let choiceIndex = 0; choiceIndex < question.choices.length; choiceIndex += 1) {
+          const choice = question.choices[choiceIndex];
+          const desc = choice.description ? ` — ${choice.description}` : "";
+          output.write(`  ${choiceIndex + 1}) ${choice.label}${desc}\n`);
+        }
+      }
+
+      while (true) {
+        const raw = await rl.question("> ");
+        const trimmed = (raw ?? "").trim();
+
+        if (trimmed.toLowerCase() === "skip" || trimmed === "") {
+          if (required) {
+            output.write(`   (This one is required — please answer.)\n`);
+            continue;
+          }
+          collected.push({ questionId: question.id, rawValue: "", skipped: true });
+          break;
+        }
+
+        let normalisedValue = trimmed;
+        if (question.kind === "choice" && question.choices) {
+          // Accept 1-based index OR the choice value/label directly (case-insensitive).
+          const numericChoice = Number(trimmed);
+          if (Number.isFinite(numericChoice) && numericChoice >= 1 && numericChoice <= question.choices.length) {
+            normalisedValue = question.choices[Math.floor(numericChoice) - 1].value;
+          } else {
+            const match = question.choices.find(
+              (choice) =>
+                choice.value.toLowerCase() === trimmed.toLowerCase() ||
+                choice.label.toLowerCase() === trimmed.toLowerCase()
+            );
+            if (!match) {
+              output.write(`   (Pick one: ${question.choices.map((choice) => choice.value).join(", ")} or 1–${question.choices.length}.)\n`);
+              continue;
+            }
+            normalisedValue = match.value;
+          }
+        }
+
+        collected.push({ questionId: question.id, rawValue: normalisedValue, skipped: false });
+        if (question.echoTemplate) {
+          const echo = question.echoTemplate(normalisedValue);
+          if (echo) output.write(`   ↳ ${echo}\n`);
+        }
+        break;
+      }
+      output.write("\n");
+    }
+  } finally {
+    rl.close();
+  }
+
+  return collected;
+}
+
+async function promptYesNo(prompt: string, defaultYes: boolean): Promise<boolean> {
+  const rl = readline.createInterface({ input, output });
+  try {
+    const raw = (await rl.question(prompt)).trim().toLowerCase();
+    if (!raw) return defaultYes;
+    if (raw === "y" || raw === "yes") return true;
+    if (raw === "n" || raw === "no") return false;
+    return defaultYes;
+  } finally {
+    rl.close();
+  }
 }
 
 async function handleProjectStatusCommand(database: ReturnType<typeof initializeDatabase>): Promise<void> {

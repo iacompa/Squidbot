@@ -1,0 +1,11 @@
+{
+  "_description": "Example onboarding answers for a generic SaaS company called Acme. Pass via `npm run onboarding -- --answers ./examples/onboarding-acme.json --yes`.",
+  "answers": [
+    { "questionId": "business_summary", "rawValue": "Acme is a small SaaS that helps online retailers detect fulfillment errors before they ship.", "skipped": false },
+    { "questionId": "role", "rawValue": "Founder / engineering lead", "skipped": false },
+    { "questionId": "founder_note", "rawValue": "Triage of customer support tickets across Slack, email, and Intercom — most of my morning gets eaten.", "skipped": false },
+    { "questionId": "systems", "rawValue": "Slack, GitHub, Linear, Stripe, Shopify, Gmail", "skipped": false },
+    { "questionId": "sensitivity", "rawValue": "sensitive", "skipped": false },
+    { "questionId": "guardrail", "rawValue": "Never message a customer directly without my explicit approval.", "skipped": false }
+  ]
+}

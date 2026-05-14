@@ -30,6 +30,8 @@
     "trust": "tsx src/index.ts trust",
     "profile": "tsx src/index.ts profile",
     "profiles": "tsx src/index.ts profile",
+    "onboarding": "tsx src/index.ts onboarding",
+    "onboard": "tsx src/index.ts onboarding",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
