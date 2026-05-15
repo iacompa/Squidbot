@@ -141,8 +141,11 @@ describe("identity report and system prompt", () => {
     // We strip the redundant "Memory Bulletin" header so there is exactly
     // one section heading instead of two stacked ones.
     expect((prompt.match(/Memory Bulletin/g) ?? []).length).toBe(0);
-    // The closing instruction asks the model to cite memories explicitly.
-    expect(prompt).toContain("cite it explicitly");
+    // The closing instructions still tell the model to cite memories — the
+    // wording is now "cite memories above only when they directly apply"
+    // (rephrased as part of the conversation-style block) rather than the
+    // older "cite it explicitly" phrasing.
+    expect(prompt.toLowerCase()).toMatch(/cite memories|cite them/i);
   });
 
   it("skips the memory section when the bulletin is empty or 'no memories'", () => {
@@ -180,6 +183,29 @@ describe("identity report and system prompt", () => {
     const description = describeForWhoami(report);
     expect(description).toContain("SquidBot");
     expect(description).toContain("Auto Dealership");
+  });
+
+  it("system prompt instructs the model to be conversational and NOT recite capabilities on greetings", () => {
+    // Reported in the wild: user said "hi" and the model dumped its entire
+    // tool list grouped by family ("Sales: …, GitHub: …, GitLab: …"). Root
+    // cause was the closing instruction priming the model to recite the
+    // identity card. The fix adds explicit conversation-style guidance —
+    // this test pins that guidance so a future edit can't quietly remove it.
+    database = freshDatabase();
+    installSeedProfiles(database);
+    activateProfile(database, "profile_seed_auto_dealer");
+
+    const report = buildIdentityReport(database, new ToolRegistry());
+    const prompt = buildSystemPrompt(report);
+
+    expect(prompt).toMatch(/Conversation style/i);
+    // Pin the specific anti-pattern guard — small talk must NOT trigger a
+    // capability dump.
+    expect(prompt).toMatch(/small talk/i);
+    expect(prompt).toMatch(/Do NOT recite your tools/i);
+    expect(prompt).toMatch(/short greeting deserves a short greeting back/i);
+    // And the "no tool-names-as-feature-list" rule.
+    expect(prompt).toMatch(/Never read tool names out loud/i);
   });
 
   it("snapshots tool capabilities deterministically", () => {
