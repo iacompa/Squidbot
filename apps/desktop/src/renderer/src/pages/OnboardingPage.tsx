@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, Compass, Sparkles, Wand2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, Compass, Sparkles, Wand2 } from "lucide-react";
 import { squidbotApi } from "../lib/api";
+import { ModelAccountsSection } from "../components/ModelAccountsSection";
 import { StepProgress } from "../components/StepProgress";
 import { TerminalSnippet } from "../components/TerminalSnippet";
 import { TerminalRunner } from "../components/TerminalRunner";
 import type {
   CommittedOnboardingDto,
+  ModelAccountSummaryDto,
   OnboardingAnswerDto,
   OnboardingInferenceDto,
   OnboardingQuestionDto
@@ -29,6 +31,9 @@ import type {
 export function OnboardingPage() {
   const [questions, setQuestions] = useState<OnboardingQuestionDto[]>([]);
   const [answers, setAnswers] = useState<Record<string, OnboardingAnswerDto>>({});
+  // `currentIndex` is now offset by one to make room for the chat-style
+  // "Connect a model" step at index 0. The first structured question is at
+  // index 1, and the confirm step lives at index N+1 (instead of N).
   const [currentIndex, setCurrentIndex] = useState(0);
   const [draftValue, setDraftValue] = useState("");
   const [inference, setInference] = useState<OnboardingInferenceDto | null>(null);
@@ -37,6 +42,12 @@ export function OnboardingPage() {
   const [committed, setCommitted] = useState<CommittedOnboardingDto | null>(null);
   const [activateOnSave, setActivateOnSave] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Model-step state. We pre-load existing accounts so a returning user who
+  // already has a key configured (e.g. via Settings or the CLI) can move past
+  // step 0 immediately. The ModelAccountsSection component manages its own
+  // form/loading state — we just observe the count.
+  const [modelAccounts, setModelAccounts] = useState<ModelAccountSummaryDto[]>([]);
+  const [modelStepReady, setModelStepReady] = useState(false);
 
   // ----- Load the question catalog once -----
   useEffect(() => {
@@ -54,8 +65,34 @@ export function OnboardingPage() {
     };
   }, []);
 
+  // ----- Load existing model accounts so step 0 knows whether to gate -----
+  useEffect(() => {
+    let cancelled = false;
+    squidbotApi
+      .listModelAccounts()
+      .then((resp) => {
+        if (cancelled) return;
+        setModelAccounts(resp.accounts);
+        setModelStepReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setModelStepReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ----- Step routing (model step → questions → confirm) -----
+  // currentIndex === 0          → Connect-a-model step
+  // currentIndex === 1..N       → structured questions (questions[i-1])
+  // currentIndex === N+1        → confirm + commit
+  const isModelStep = currentIndex === 0;
+  const questionIndex = currentIndex - 1;
+  const currentQuestion =
+    questionIndex >= 0 && questionIndex < questions.length ? questions[questionIndex] : null;
+
   // ----- Sync draft input to whatever the current answer is -----
-  const currentQuestion = questions[currentIndex] ?? null;
   useEffect(() => {
     if (!currentQuestion) {
       setDraftValue("");
@@ -93,19 +130,27 @@ export function OnboardingPage() {
     };
   }, [recordedAnswers]);
 
-  // ----- Step progress (one logical step per question + a final confirm step) -----
+  // ----- Step progress: model + N questions + confirm -----
   const steps = useMemo(
     () => [
+      { id: "model", label: "1. Model" },
       ...questions.map((question, index) => ({
         id: question.id,
-        label: `${index + 1}. ${shortLabelForQuestion(question)}`
+        label: `${index + 2}. ${shortLabelForQuestion(question)}`
       })),
-      { id: "confirm", label: `${questions.length + 1}. Confirm` }
+      { id: "confirm", label: `${questions.length + 2}. Confirm` }
     ],
     [questions]
   );
-  const onConfirmStep = currentIndex === questions.length;
-  const completedIds = useMemo(() => new Set(Object.keys(answers)), [answers]);
+  const onConfirmStep = currentIndex === questions.length + 1;
+  const completedIds = useMemo(() => {
+    // Mark the model step "done" as soon as the user has at least one saved
+    // account — answers don't track this step (it's structurally different),
+    // so we synthesize the completion here.
+    const set = new Set<string>(Object.keys(answers));
+    if (modelAccounts.length > 0) set.add("model");
+    return set;
+  }, [answers, modelAccounts.length]);
 
   const recordAnswer = useCallback(
     (value: string, skipped: boolean) => {
@@ -132,7 +177,8 @@ export function OnboardingPage() {
     }
     setError(null);
     recordAnswer(trimmed, skipped);
-    setCurrentIndex((current) => Math.min(current + 1, questions.length));
+    // questions.length + 1 is the confirm step.
+    setCurrentIndex((current) => Math.min(current + 1, questions.length + 1));
   }
 
   function handlePrev(): void {
@@ -144,8 +190,29 @@ export function OnboardingPage() {
     if (!currentQuestion || currentQuestion.required) return;
     setError(null);
     recordAnswer("", true);
-    setCurrentIndex((current) => Math.min(current + 1, questions.length));
+    setCurrentIndex((current) => Math.min(current + 1, questions.length + 1));
   }
+
+  /**
+   * The model step's "Continue" button — advances past step 0 once the user
+   * has saved at least one account (or explicitly chose to proceed without
+   * one, in which case SquidBot will route through the local/mock provider
+   * until they add a key later via Settings).
+   */
+  function advancePastModelStep(): void {
+    setError(null);
+    setCurrentIndex(1);
+  }
+
+  /** Re-fetch the saved-accounts list after the model step saves one. */
+  const refreshModelAccounts = useCallback(async () => {
+    try {
+      const resp = await squidbotApi.listModelAccounts();
+      setModelAccounts(resp.accounts);
+    } catch {
+      // Non-fatal — the count was just optimistic UI.
+    }
+  }, []);
 
   function handleRestart(): void {
     setAnswers({});
@@ -255,8 +322,9 @@ export function OnboardingPage() {
             <Wand2 size={18} aria-hidden /> Get SquidBot configured for your business
           </h2>
           <p className="page-subtitle">
-            Six short questions · SquidBot adapts in real time on the right · everything you say becomes a memory
-            with provenance.
+            First, connect SquidBot to an AI model. Then six short questions tune it to your business
+            — SquidBot adapts in real time on the right, and everything you say becomes a memory with
+            provenance.
           </p>
         </div>
       </header>
@@ -267,7 +335,16 @@ export function OnboardingPage() {
 
       <div className="onboarding-grid">
         <section className="onboarding-step" aria-label="Current question">
-          {onConfirmStep ? (
+          {isModelStep ? (
+            <ModelStep
+              ready={modelStepReady}
+              accountsCount={modelAccounts.length}
+              onAccountSaved={() => {
+                void refreshModelAccounts();
+              }}
+              onContinue={advancePastModelStep}
+            />
+          ) : onConfirmStep ? (
             <ConfirmStep
               inference={inference}
               activate={activateOnSave}
@@ -279,7 +356,7 @@ export function OnboardingPage() {
           ) : currentQuestion ? (
             <QuestionStep
               question={currentQuestion}
-              index={currentIndex}
+              index={questionIndex}
               total={questions.length}
               draftValue={draftValue}
               onChange={setDraftValue}
@@ -311,6 +388,71 @@ export function OnboardingPage() {
 }
 
 // ---------------- Sub-components ----------------
+
+/**
+ * Step 0 — chat-style intro from SquidBot followed by the model-account
+ * picker. This is the first thing a new operator sees on the Onboarding
+ * page and is intentionally framed as a conversation: SquidBot introduces
+ * itself, explains *why* it needs a model account, and then surfaces the
+ * concrete form below.
+ *
+ * The "Continue" button has two modes:
+ *   • Disabled state hint: "Add a model first or skip" — when the user has
+ *     no saved accounts. The label changes to "Continue without a model"
+ *     so the choice is explicit.
+ *   • Enabled state: a normal "Continue" once an account exists.
+ */
+type ModelStepProps = {
+  ready: boolean;
+  accountsCount: number;
+  onAccountSaved: () => void;
+  onContinue: () => void;
+};
+
+function ModelStep({ ready, accountsCount, onAccountSaved, onContinue }: ModelStepProps) {
+  if (!ready) {
+    return <div className="muted">Loading model accounts…</div>;
+  }
+  const hasAccount = accountsCount > 0;
+  return (
+    <div className="onboarding-model-step">
+      <div className="onboarding-chat-bubble" role="note" aria-label="SquidBot intro">
+        <div className="onboarding-chat-bubble__avatar" aria-hidden>
+          <Bot size={18} />
+        </div>
+        <div className="onboarding-chat-bubble__body">
+          <p>
+            <strong>Hi, I&apos;m SquidBot.</strong> Before we get into the questions about your business,
+            let&apos;s plug me into a real AI model. Pick a provider below, paste a key, and I&apos;ll fetch
+            the exact list of models your account can use.
+          </p>
+          <p className="muted">
+            You can also skip this for now and add a model later from Settings — but I&apos;ll be answering
+            with the deterministic mock provider in the meantime, which is just a placeholder.
+          </p>
+        </div>
+      </div>
+
+      <ModelAccountsSection
+        forceOpenForm={!hasAccount}
+        onAccountSaved={onAccountSaved}
+        introNode={null}
+      />
+
+      <div className="onboarding-actions">
+        <span className="muted onboarding-model-step__hint">
+          {hasAccount
+            ? `${accountsCount} account${accountsCount === 1 ? "" : "s"} saved · SquidBot will route through the active one.`
+            : "No account yet — you can still continue with the mock provider."}
+        </span>
+        <button type="button" className="primary-button" onClick={onContinue}>
+          <span>{hasAccount ? "Continue" : "Continue without a model"}</span>
+          <ArrowRight size={14} aria-hidden />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 type QuestionStepProps = {
   question: OnboardingQuestionDto;

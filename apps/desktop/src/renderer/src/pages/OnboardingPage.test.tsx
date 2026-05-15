@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const inferMock = vi.fn();
@@ -66,6 +66,35 @@ beforeEach(() => {
       ]),
       inferOnboarding: inferMock,
       commitOnboarding: commitMock,
+      // Step 0 (Connect a model) reads these on mount. We default to "no
+      // accounts saved" so the existing tests need to click through the
+      // skip-style "Continue without a model" button to reach the question
+      // wizard — that mirrors the real new-user flow.
+      listModelAccounts: vi.fn(async () => ({ activeAccountName: null, accounts: [] })),
+      getProviderPresets: vi.fn(async () => [
+        {
+          providerKind: "openrouter",
+          label: "OpenRouter",
+          defaultApiUrl: "https://openrouter.ai/api/v1/chat/completions",
+          defaultModel: "anthropic/claude-opus-4-5",
+          notes: "BYOK gateway.",
+          catalog: [{ id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", tier: "flagship" }]
+        }
+      ]),
+      upsertModelAccount: vi.fn(async (input) => ({
+        id: "id_test",
+        ...input,
+        apiKeyConfigured: Boolean(input.apiKey),
+        isActive: true,
+        costPerToken: 0,
+        dailyBudgetTokens: null,
+        description: null,
+        createdAt: "now",
+        updatedAt: "now"
+      })),
+      activateModelAccount: vi.fn(),
+      deleteModelAccount: vi.fn(),
+      discoverModels: vi.fn(async () => ({ success: false, code: "not_found", message: "mock", fallback: { providerKind: "openrouter", catalog: [] } })),
       listSquidbotCommands: vi.fn(async () => [
         { id: "whoami", label: "whoami", description: "Identity", displayCommand: "npm run whoami", outputIsMarkdown: false }
       ]),
@@ -75,13 +104,58 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Without explicit cleanup the rendered DOM persists across tests, so the
+  // second time we look for the SquidBot intro bubble we find three of them
+  // (one per prior render) and getByText throws "found multiple elements".
+  // SettingsPage has the same setup — keep them consistent.
+  cleanup();
   Reflect.deleteProperty(window, "squidbot");
+});
+
+/**
+ * Helper to skip the new Step 0 (Connect a model). The existing wizard tests
+ * don't care about model setup — they want to exercise the question flow —
+ * so we click the "Continue without a model" CTA and proceed.
+ */
+async function skipModelStep(): Promise<void> {
+  await waitFor(() => {
+    expect(screen.getByText(/Hi, I'm SquidBot/i)).toBeTruthy();
+  });
+  // With zero accounts, the CTA reads "Continue without a model".
+  fireEvent.click(screen.getByRole("button", { name: /continue without a model/i }));
+}
+
+describe("OnboardingPage Step 0 — Connect a model (chat intro)", () => {
+  it("introduces SquidBot in a chat bubble and exposes the model picker", async () => {
+    const { OnboardingPage } = await import("./OnboardingPage");
+    render(<OnboardingPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/Hi, I'm SquidBot/i)).toBeTruthy();
+    });
+    // The page subtitle now reflects the model-first flow.
+    expect(screen.getByText(/First, connect SquidBot to an AI model/i)).toBeTruthy();
+    // The empty-state inside the model-accounts panel tells the user why they
+    // need an account, not just *that* they need one.
+    expect(screen.getByText("No model accounts yet")).toBeTruthy();
+    // The Continue CTA is labelled to make the no-key path explicit.
+    expect(screen.getByRole("button", { name: /continue without a model/i })).toBeTruthy();
+  });
+
+  it("advances to question 1 when the user clicks Continue without a model", async () => {
+    const { OnboardingPage } = await import("./OnboardingPage");
+    render(<OnboardingPage />);
+    await skipModelStep();
+    await waitFor(() => {
+      expect(screen.getByText("In one sentence, what does your business do?")).toBeTruthy();
+    });
+  });
 });
 
 describe("OnboardingPage wizard", () => {
   it("walks the user through questions and shows a live preview after answering", async () => {
     const { OnboardingPage } = await import("./OnboardingPage");
     render(<OnboardingPage />);
+    await skipModelStep();
 
     // Q1 visible after the question catalog loads
     await waitFor(() => {
@@ -116,6 +190,7 @@ describe("OnboardingPage wizard", () => {
   it("requires an answer to required questions", async () => {
     const { OnboardingPage } = await import("./OnboardingPage");
     render(<OnboardingPage />);
+    await skipModelStep();
     await waitFor(() => screen.getByText("In one sentence, what does your business do?"));
 
     fireEvent.click(screen.getByText("Next"));

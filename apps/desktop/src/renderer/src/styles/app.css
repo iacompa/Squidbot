@@ -3293,3 +3293,69 @@ pre {
     align-items: stretch;
   }
 }
+
+/* ---- Onboarding → step 0 (Connect a model) ----
+   Chat-style intro bubble from SquidBot. The model-accounts section reuses
+   its existing styles, this just frames it. */
+.onboarding-model-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.onboarding-chat-bubble {
+  display: flex;
+  gap: 12px;
+  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.onboarding-chat-bubble__avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  background: var(--teal);
+  color: #fff;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-chat-bubble__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.onboarding-chat-bubble__body p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.onboarding-chat-bubble__body p:last-child {
+  margin-bottom: 0;
+}
+
+.onboarding-chat-bubble__body p.muted {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.onboarding-model-step__hint {
+  flex: 1;
+  font-size: 12.5px;
+}
+
+.onboarding-model-step .onboarding-actions {
+  /* Onboarding step 0 reuses .onboarding-actions for its Continue button row,
+     but it doesn't have a "back" button (it's the first step), so we wrap
+     the hint text + the CTA into a single justified row. */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+}
