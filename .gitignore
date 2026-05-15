@@ -24,3 +24,10 @@ secrets/
 *.p12
 squidbot-trace-*.json
 squidbot-trace-*.md
+
+# Claude Code worktrees live under .claude/worktrees/<name>/ — they're
+# independent checkouts of the same repo, not files that belong in any
+# commit. Ignoring the directory keeps `git status` clean in whichever
+# checkout is the "main" one and prevents `git add -A` from walking into
+# a sibling worktree by mistake.
+.claude/
