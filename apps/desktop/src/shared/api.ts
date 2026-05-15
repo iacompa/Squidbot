@@ -880,6 +880,27 @@ export type SquidbotApi = {
     value: unknown
   ) => Promise<SettingsDto>;
   saveConnectorSetting: (connectorName: string, key: "apiKey" | "baseUrl", value: string) => Promise<SettingsDto>;
+  // ---------- Model accounts (multi-BYOK) ----------
+  listModelAccounts: () => Promise<{
+    activeAccountName: string | null;
+    accounts: ModelAccountSummaryDto[];
+  }>;
+  upsertModelAccount: (input: ModelAccountInputDto) => Promise<ModelAccountSummaryDto>;
+  activateModelAccount: (accountName: string) => Promise<ModelAccountSummaryDto>;
+  deleteModelAccount: (accountName: string) => Promise<{ deleted: true; name: string }>;
+  getProviderPresets: () => Promise<ProviderPresetDto[]>;
+  getProviderCatalog: (providerKind: ProviderKindDto) => Promise<{
+    providerKind: ProviderKindDto;
+    preset: ProviderPresetDto | undefined;
+    defaultModel: string | null;
+    catalog: readonly ModelCatalogEntryDto[];
+  }>;
+  discoverModels: (request: {
+    providerKind: ProviderKindDto;
+    apiUrl: string;
+    apiKey: string;
+    timeoutMs?: number;
+  }) => Promise<DiscoverModelsApiResult>;
   sendChatMessage: (request: ChatRequest) => Promise<ChatResponse>;
   getLatestTrace: () => Promise<TraceDto | null>;
   listTraces: () => Promise<TraceDto[]>;
@@ -1361,3 +1382,89 @@ export type CommandRunResultDto = {
   /** Optional: machine-readable payload mirroring the textual output. */
   data?: unknown;
 };
+
+// ---------- Model accounts (multi-BYOK) ----------
+//
+// These DTOs intentionally mirror — but don't directly re-export — the core
+// types so the renderer's TypeScript checker doesn't pull a transitive
+// dependency on the core package's runtime code through the type graph.
+// Keeping them duplicated is the standard renderer/main-process pattern in
+// this codebase.
+
+export type ProviderKindDto =
+  | "openrouter"
+  | "openai"
+  | "anthropic"
+  | "groq"
+  | "together"
+  | "ollama"
+  | "custom";
+
+export type ModelCatalogEntryDto = {
+  id: string;
+  label: string;
+  tier: "flagship" | "balanced" | "fast" | "reasoning" | "legacy";
+  description?: string;
+};
+
+export type ProviderPresetDto = {
+  providerKind: ProviderKindDto;
+  label: string;
+  defaultApiUrl: string;
+  defaultModel: string | null;
+  documentationUrl?: string;
+  notes?: string;
+  catalog: readonly ModelCatalogEntryDto[];
+};
+
+/**
+ * A saved model account, with the key redacted to `apiKeyConfigured: true`.
+ * The renderer never sees the raw API key — it's stored only in the SQLite
+ * model_accounts table and read inside the main process when SquidBot
+ * actually calls the provider.
+ */
+export type ModelAccountSummaryDto = {
+  id: string;
+  name: string;
+  providerKind: ProviderKindDto;
+  apiUrl: string;
+  apiModel: string;
+  costPerToken: number;
+  dailyBudgetTokens: number | null;
+  description: string | null;
+  isActive: boolean;
+  apiKeyConfigured: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ModelAccountInputDto = {
+  /** Optional id — when present, updates an existing account in-place. */
+  id?: string;
+  name: string;
+  providerKind: ProviderKindDto;
+  apiUrl: string;
+  apiKey?: string;
+  apiModel: string;
+  costPerToken?: number;
+  dailyBudgetTokens?: number | null;
+  description?: string | null;
+  activate?: boolean;
+};
+
+export type DiscoverModelsApiResult =
+  | {
+      success: true;
+      models: string[];
+      durationMs: number;
+      merged: readonly ModelCatalogEntryDto[];
+    }
+  | {
+      success: false;
+      code: "auth" | "not_found" | "network" | "timeout" | "malformed" | "unknown";
+      message: string;
+      fallback: {
+        providerKind: ProviderKindDto;
+        catalog: readonly ModelCatalogEntryDto[];
+      };
+    };

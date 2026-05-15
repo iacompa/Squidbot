@@ -10,6 +10,7 @@ import { Scheduler } from "@squidbot/scheduler";
 import { evaluateSkill, installDeveloperWorkflowSkills, SkillService } from "@squidbot/skills";
 import { defaultTeamManifest, RoleRegistry, TeamCoordinator, TeamStore, validateTeamManifest } from "@squidbot/team";
 import {
+  activateModelAccount,
   activateProfile,
   AgentRuntime,
   approveMemoryCandidate,
@@ -19,17 +20,26 @@ import {
   computeTraceMetrics,
   createCustomProfile,
   createId,
+  deleteModelAccount,
   describeForWhoami,
   formatOnboardingSummary,
   formatNextActions,
+  getActiveModelAccount,
   getActiveProfile,
+  getCatalogForProvider,
+  getDefaultModelForProvider,
+  getProviderPreset,
   getTrace,
   getLatestTrace,
   inferOnboardingProfile,
   installSeedProfiles,
+  listModelAccounts,
   listProfiles,
   listRuns,
+  mergeWithLiveModels,
   parseStoredTrace,
+  PROVIDER_PRESETS,
+  redactAccount,
   redactTrace,
   registerModelAccountTools,
   registerTerminalTools,
@@ -38,10 +48,14 @@ import {
   searchEvents,
   STANDARD_QUESTIONS,
   ToolRegistry,
+  upsertModelAccount,
   type AgentEvent,
   type JsonObject,
-  type OnboardingAnswer
+  type ModelAccountInput,
+  type OnboardingAnswer,
+  type ProviderKind
 } from "@squidbot/core";
+import { discoverProviderModels } from "@squidbot/models";
 import {
   buildCompliancePacket,
   buildTrustReport,
@@ -254,6 +268,95 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     database.setSetting(`${connectorName}.${key}`, value);
     return readSettings(database, paths);
   });
+
+  // ---------- Model accounts (multi-BYOK) ----------
+  // The renderer talks to these handlers to: list saved accounts, add a new
+  // one with a key, activate / delete one, fetch the static catalog of models
+  // for a provider, and call the provider's live /v1/models endpoint to
+  // populate the model dropdown after a key is pasted in.
+
+  ipcMain.handle("squidbot:listModelAccounts", () => {
+    const accounts = listModelAccounts(database);
+    const active = getActiveModelAccount(database);
+    return {
+      activeAccountName: active?.name ?? null,
+      accounts: accounts.map((account) => redactAccount(account))
+    };
+  });
+
+  ipcMain.handle("squidbot:upsertModelAccount", (_event, input: ModelAccountInput) => {
+    const saved = upsertModelAccount(database, input);
+    return redactAccount(saved);
+  });
+
+  ipcMain.handle("squidbot:activateModelAccount", (_event, accountName: string) => {
+    const active = activateModelAccount(database, accountName);
+    return redactAccount(active);
+  });
+
+  ipcMain.handle("squidbot:deleteModelAccount", (_event, accountName: string) => {
+    deleteModelAccount(database, accountName);
+    return { deleted: true, name: accountName };
+  });
+
+  ipcMain.handle("squidbot:getProviderPresets", () => {
+    // Reshape the core ProviderPreset (which uses `kind`) into the DTO shape
+    // (which uses `providerKind`) so the renderer's discriminator matches the
+    // ModelAccountSummaryDto / ProviderKindDto naming convention.
+    return PROVIDER_PRESETS.map((preset) => ({
+      providerKind: preset.kind,
+      label: preset.displayName,
+      defaultApiUrl: preset.defaultApiUrl,
+      defaultModel: getDefaultModelForProvider(preset.kind),
+      notes: preset.description,
+      catalog: getCatalogForProvider(preset.kind)
+    }));
+  });
+
+  ipcMain.handle("squidbot:getProviderCatalog", (_event, providerKind: ProviderKind) => {
+    const preset = getProviderPreset(providerKind);
+    return {
+      providerKind,
+      preset: {
+        providerKind: preset.kind,
+        label: preset.displayName,
+        defaultApiUrl: preset.defaultApiUrl,
+        defaultModel: getDefaultModelForProvider(preset.kind),
+        notes: preset.description,
+        catalog: getCatalogForProvider(preset.kind)
+      },
+      defaultModel: getDefaultModelForProvider(providerKind),
+      catalog: getCatalogForProvider(providerKind)
+    };
+  });
+
+  ipcMain.handle(
+    "squidbot:discoverModels",
+    async (_event, request: { providerKind: ProviderKind; apiUrl: string; apiKey: string; timeoutMs?: number }) => {
+      const result = await discoverProviderModels({
+        apiUrl: request.apiUrl,
+        apiKey: request.apiKey,
+        timeoutMs: request.timeoutMs
+      });
+      if (!result.success) {
+        // Mirror the static catalog back so the UI can still show *something*
+        // even when the live fetch fails — the failure code/message tells the
+        // renderer whether to render a warning banner.
+        return {
+          ...result,
+          fallback: {
+            providerKind: request.providerKind,
+            catalog: getCatalogForProvider(request.providerKind)
+          }
+        };
+      }
+      // Merge the live list with the curated catalog so we have rich labels
+      // where the catalog knows the model and bare-id entries where it
+      // doesn't.
+      const merged = mergeWithLiveModels(request.providerKind, result.models);
+      return { ...result, merged };
+    }
+  );
 
   ipcMain.handle("squidbot:sendChatMessage", async (_event, request: ChatRequest) => {
     const settings = readSettings(database, paths);

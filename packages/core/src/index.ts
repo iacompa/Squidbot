@@ -6,6 +6,7 @@ export * from "./memory.js";
 export * from "./modelAccounts.js";
 export * from "./modelAccountTools.js";
 export * from "./modelRouter.js";
+export * from "./providerCatalog.js";
 export * from "./onboarding.js";
 export * from "./policyEngine.js";
 export * from "./repoTask.js";
