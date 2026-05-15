@@ -29,22 +29,65 @@ function fresh(): SquidDatabase {
 }
 
 describe("PROVIDER_PRESETS", () => {
-  it("includes the major OpenAI-compatible gateways + local Ollama + custom escape hatch", () => {
+  it("includes a model-neutral set of direct providers + the OpenRouter gateway + Ollama + custom escape hatch", () => {
     const kinds = PROVIDER_PRESETS.map((preset) => preset.kind);
+    // Gateway
     expect(kinds).toContain("openrouter");
+    // Direct providers we ship presets for
     expect(kinds).toContain("openai");
+    expect(kinds).toContain("anthropic");
+    expect(kinds).toContain("xai");
+    expect(kinds).toContain("gemini");
+    expect(kinds).toContain("deepseek");
     expect(kinds).toContain("groq");
+    expect(kinds).toContain("together");
+    // BYO infrastructure
     expect(kinds).toContain("ollama");
     expect(kinds).toContain("custom");
-    // OpenRouter is the curated default — surface it first.
+    // OpenRouter is the curated default — surface it first as the all-in-one
+    // gateway. Everything after it is model-neutral by design.
     expect(kinds[0]).toBe("openrouter");
   });
 
-  it("openrouter preset has a real /v1/chat/completions URL and a Gemini Flash model id", () => {
+  it("openrouter preset has a real /v1/chat/completions URL and a curated cheap model", () => {
     const preset = getProviderPreset("openrouter");
     expect(preset.defaultApiUrl).toMatch(/openrouter\.ai\/api\/v1\/chat\/completions$/);
-    expect(preset.commonModels.map((model) => model.id)).toContain("google/gemini-2.0-flash-001");
+    // The curated list should include at least one obviously cheap Gemini Flash
+    // variant — the exact id evolves, so we match on the family rather than
+    // pinning a specific build (those rotate when Google ships new versions).
+    const ids = preset.commonModels.map((model) => model.id);
+    expect(ids.some((id) => /gemini-2\.\d+-flash/.test(id))).toBe(true);
     expect(preset.requiresApiKey).toBe(true);
+  });
+
+  it("xai preset points at the xAI endpoint and lists at least one Grok model", () => {
+    // Grok and Groq are different products — verify we ship the Grok preset
+    // separately and that its URL is xAI's, not Groq's LPU host.
+    const preset = getProviderPreset("xai");
+    expect(preset.defaultApiUrl).toMatch(/api\.x\.ai\/v1\/chat\/completions$/);
+    expect(preset.commonModels.some((m) => m.id.startsWith("grok"))).toBe(true);
+    // Sanity: Groq's URL must NOT match xAI's.
+    expect(getProviderPreset("groq").defaultApiUrl).not.toMatch(/api\.x\.ai/);
+  });
+
+  it("gemini preset uses Google's OpenAI-compatible endpoint", () => {
+    const preset = getProviderPreset("gemini");
+    expect(preset.defaultApiUrl).toMatch(/generativelanguage\.googleapis\.com/);
+    expect(preset.commonModels.some((m) => m.id.startsWith("gemini-"))).toBe(true);
+  });
+
+  it("deepseek preset advertises the very-cheap default model", () => {
+    const preset = getProviderPreset("deepseek");
+    expect(preset.defaultApiUrl).toMatch(/api\.deepseek\.com/);
+    expect(preset.commonModels.some((m) => m.id === "deepseek-chat")).toBe(true);
+  });
+
+  it("custom preset description is model-neutral (does not lead with 'OpenAI')", () => {
+    // The user explicitly flagged the old "Custom OpenAI-compatible endpoint"
+    // label as making SquidBot feel OpenAI-biased. The replacement label and
+    // description should not lead with "OpenAI".
+    const preset = getProviderPreset("custom");
+    expect(preset.displayName.toLowerCase()).not.toContain("openai");
   });
 
   it("ollama preset does not require an API key", () => {

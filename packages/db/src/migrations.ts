@@ -1213,6 +1213,62 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_model_accounts_provider_kind
         ON model_accounts (providerKind);
     `
+  },
+  {
+    id: 16,
+    name: "model_accounts_expand_providers",
+    // SQLite doesn't support ALTER TABLE on a CHECK constraint, so to widen
+    // the allowed providerKinds we have to rebuild the table. We:
+    //   1. create a new table with the expanded CHECK,
+    //   2. copy every row across (data shape is unchanged),
+    //   3. drop the old table and rename the new one in,
+    //   4. recreate the partial-unique and provider-kind indexes.
+    //
+    // The expanded set adds the three direct providers the user asked for
+    // (xai = Grok, gemini = Google direct, deepseek). All previously-valid
+    // values stay valid so existing rows survive the migration verbatim.
+    up: `
+      CREATE TABLE model_accounts_v2 (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        providerKind TEXT NOT NULL DEFAULT 'custom'
+          CHECK(providerKind IN (
+            'openrouter','openai','anthropic',
+            'xai','gemini','deepseek',
+            'groq','together','ollama','custom'
+          )),
+        apiUrl TEXT NOT NULL,
+        apiKey TEXT,
+        apiModel TEXT NOT NULL,
+        costPerToken REAL NOT NULL DEFAULT 0,
+        dailyBudgetTokens INTEGER,
+        description TEXT,
+        isActive INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      INSERT INTO model_accounts_v2 (
+        id, name, providerKind, apiUrl, apiKey, apiModel,
+        costPerToken, dailyBudgetTokens, description, isActive,
+        createdAt, updatedAt
+      )
+      SELECT
+        id, name, providerKind, apiUrl, apiKey, apiModel,
+        costPerToken, dailyBudgetTokens, description, isActive,
+        createdAt, updatedAt
+      FROM model_accounts;
+
+      DROP TABLE model_accounts;
+      ALTER TABLE model_accounts_v2 RENAME TO model_accounts;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_model_accounts_active_one
+        ON model_accounts (isActive)
+        WHERE isActive = 1;
+
+      CREATE INDEX IF NOT EXISTS idx_model_accounts_provider_kind
+        ON model_accounts (providerKind);
+    `
   }
 ];
 

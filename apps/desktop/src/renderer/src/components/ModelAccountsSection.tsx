@@ -355,6 +355,14 @@ export function ModelAccountsSection({
       )}
 
       {showForm && (
+        <p className="model-accounts__cost-hint">
+          Pricing in each option is the provider&apos;s public list price, per 1 million tokens.
+          Cheaper models like <code>deepseek-chat</code>, <code>gemini-2.5-flash</code>, and
+          <code> grok-3-mini</code> can be 50–100× less expensive than a flagship for everyday work.
+        </p>
+      )}
+
+      {showForm && (
         <div className="model-account-form" role="form" aria-label="Add a model account">
           <div className="model-account-form__row">
             <label>
@@ -418,8 +426,7 @@ export function ModelAccountsSection({
                   )}
                   {form.catalog.map((entry) => (
                     <option key={entry.id} value={entry.id} title={entry.description}>
-                      {entry.label}
-                      {entry.tier !== "balanced" ? ` — ${entry.tier}` : ""}
+                      {formatCatalogOptionLabel(entry)}
                     </option>
                   ))}
                 </select>
@@ -476,4 +483,40 @@ export function ModelAccountsSection({
       )}
     </section>
   );
+}
+
+/**
+ * Build the visible label for one option in the model dropdown. Format:
+ *
+ *   {label} — {tier} · {input/output pricing}
+ *
+ * Tier is omitted when it's `balanced` (the default), since labelling the
+ * common case adds clutter without info. Pricing is omitted entirely when
+ * the catalog entry doesn't have any — better than fabricating "free"
+ * or "$?".
+ */
+function formatCatalogOptionLabel(entry: ModelCatalogEntryDto): string {
+  const parts: string[] = [entry.label];
+  if (entry.tier !== "balanced") {
+    parts.push(`— ${entry.tier}`);
+  }
+  const priceSuffix = formatCatalogPricing(entry.pricing);
+  if (priceSuffix) {
+    parts.push(`· ${priceSuffix}`);
+  }
+  return parts.join(" ");
+}
+
+function formatCatalogPricing(pricing: ModelCatalogEntryDto["pricing"]): string | null {
+  if (!pricing) return null;
+  const { inputPerMTokens, outputPerMTokens } = pricing;
+  if (inputPerMTokens === undefined && outputPerMTokens === undefined) return null;
+  if (inputPerMTokens === 0 && outputPerMTokens === 0) return "free (local)";
+  const fmt = (n: number | undefined): string => {
+    if (n === undefined) return "$?";
+    if (n === 0) return "$0";
+    if (n < 0.01) return `$${n.toFixed(4)}`;
+    return `$${n.toFixed(2)}`;
+  };
+  return `${fmt(inputPerMTokens)}/${fmt(outputPerMTokens)} per 1M`;
 }

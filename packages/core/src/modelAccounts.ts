@@ -19,10 +19,28 @@ import { createId } from "./types.js";
  * migrate them into the encrypted vault.
  */
 
+/**
+ * Provider slugs SquidBot knows about. The list is deliberately model-
+ * neutral: OpenRouter is the all-in-one gateway, and every other entry is
+ * a first-class direct provider. `custom` covers any endpoint that follows
+ * the standard chat-completions JSON shape (which is now an industry spec,
+ * not an OpenAI-only convention).
+ *
+ * Adding a new direct provider takes three steps:
+ *   1. Add the slug here.
+ *   2. Add a PROVIDER_PRESETS entry below (URL, label, description).
+ *   3. Add a catalog entry in `providerCatalog.ts` so the model dropdown has
+ *      something curated to show before the user runs "Refresh from API".
+ *
+ * The DB CHECK constraint must also be expanded — see migration 16.
+ */
 export type ProviderKind =
   | "openrouter"
   | "openai"
   | "anthropic"
+  | "xai"
+  | "gemini"
+  | "deepseek"
   | "groq"
   | "together"
   | "ollama"
@@ -46,10 +64,19 @@ export type ProviderPreset = {
 };
 
 /**
- * Curated provider presets. The list is intentionally short and biased
- * toward cheap-but-capable models — these are the defaults a new user
- * sees in the "Add account" picker. Anything not on this list is still
- * usable via the "custom" preset.
+ * Curated provider presets. Ordering rules:
+ *
+ *   1. OpenRouter first — it's the all-in-one gateway and the most neutral
+ *      starting point for someone who doesn't yet know which model they
+ *      want. One key, every provider.
+ *   2. Then all direct providers in alphabetical order — no implicit
+ *      hierarchy, no "preferred" framing.
+ *   3. Local Ollama and Custom endpoint last (BYO infrastructure / fully
+ *      flexible escape hatch).
+ *
+ * `commonModels` is a legacy field kept for the CLI's preset listing. The
+ * desktop UI now reads from `providerCatalog.ts` instead — that's where
+ * the richer per-model metadata (tier, pricing, description) lives.
  */
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
@@ -57,37 +84,53 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     displayName: "OpenRouter",
     defaultApiUrl: "https://openrouter.ai/api/v1/chat/completions",
     requiresApiKey: true,
-    description: "Universal gateway — one key, hundreds of models. Reports real per-call cost in usage.cost.",
+    description:
+      "Universal gateway — one key, hundreds of models. Includes Anthropic Claude, OpenAI GPT, Google Gemini, xAI Grok, DeepSeek, Meta Llama, and more. Reports real per-call cost in usage.cost.",
     commonModels: [
-      { id: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash (cheap, fast)" },
-      { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (cheap, fast)" },
+      { id: "deepseek/deepseek-chat", label: "DeepSeek Chat (very cheap)" },
+      { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5" },
       { id: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
-      { id: "anthropic/claude-haiku-4", label: "Claude Haiku 4" },
-      { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct" },
-      { id: "google/gemini-2.0-flash-exp:free", label: "Gemini 2.0 Flash (FREE tier)" }
-    ]
-  },
-  {
-    kind: "openai",
-    displayName: "OpenAI (direct)",
-    defaultApiUrl: "https://api.openai.com/v1/chat/completions",
-    requiresApiKey: true,
-    description: "Direct OpenAI API. Use when you have OpenAI credits or org-paid keys.",
-    commonModels: [
-      { id: "gpt-4o-mini", label: "GPT-4o Mini" },
-      { id: "gpt-4o", label: "GPT-4o" },
-      { id: "gpt-5-mini", label: "GPT-5 Mini (if available)" }
+      { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct" }
     ]
   },
   {
     kind: "anthropic",
-    displayName: "Anthropic (via OpenRouter)",
+    displayName: "Anthropic Claude (via OpenRouter)",
     defaultApiUrl: "https://openrouter.ai/api/v1/chat/completions",
     requiresApiKey: true,
-    description: "Anthropic's native /v1/messages schema is not OpenAI-compatible. Route through OpenRouter for now; the apiModel field accepts `anthropic/claude-...` ids.",
+    description:
+      "Anthropic's native /v1/messages schema isn't yet wired in SquidBot, so Claude accounts route through OpenRouter. The apiModel field takes `anthropic/claude-…` ids. Direct Anthropic API support is a tracked TODO.",
     commonModels: [
-      { id: "anthropic/claude-haiku-4", label: "Claude Haiku 4" },
-      { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" }
+      { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5 (cheap)" },
+      { id: "anthropic/claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+      { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5 (flagship)" }
+    ]
+  },
+  {
+    kind: "deepseek",
+    displayName: "DeepSeek",
+    defaultApiUrl: "https://api.deepseek.com/v1/chat/completions",
+    requiresApiKey: true,
+    description:
+      "Direct DeepSeek API. Industry-leading prices — deepseek-chat is ~$0.14 per million input tokens, around 1/100th the cost of GPT-5. Great default for cost-conscious workloads.",
+    commonModels: [
+      { id: "deepseek-chat", label: "DeepSeek V3 (very cheap, balanced)" },
+      { id: "deepseek-reasoner", label: "DeepSeek R1 (reasoning)" },
+      { id: "deepseek-coder", label: "DeepSeek Coder" }
+    ]
+  },
+  {
+    kind: "gemini",
+    displayName: "Google Gemini",
+    defaultApiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    requiresApiKey: true,
+    description:
+      "Google's OpenAI-compatible Gemini endpoint. Gemini 2.5 Flash is one of the cheapest flagship-quality models available; Gemini 2.5 Pro is competitive on long-context reasoning.",
+    commonModels: [
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (cheap, fast)" },
+      { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (cheapest)" },
+      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (flagship)" }
     ]
   },
   {
@@ -95,10 +138,23 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     displayName: "Groq",
     defaultApiUrl: "https://api.groq.com/openai/v1/chat/completions",
     requiresApiKey: true,
-    description: "Extremely fast inference on open-weights models. OpenAI-compatible endpoint.",
+    description:
+      "Extremely fast inference on open-weights models (Llama, Mixtral, Qwen). Sub-second time-to-first-byte on most models — great when latency matters.",
     commonModels: [
       { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile" },
-      { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant" }
+      { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant (ultra-cheap)" }
+    ]
+  },
+  {
+    kind: "openai",
+    displayName: "OpenAI",
+    defaultApiUrl: "https://api.openai.com/v1/chat/completions",
+    requiresApiKey: true,
+    description: "Direct OpenAI API. Use when you have OpenAI credits or an org-paid key.",
+    commonModels: [
+      { id: "gpt-4o-mini", label: "GPT-4o Mini (cheap)" },
+      { id: "gpt-5-mini", label: "GPT-5 Mini" },
+      { id: "gpt-5", label: "GPT-5 (flagship)" }
     ]
   },
   {
@@ -106,10 +162,22 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     displayName: "Together",
     defaultApiUrl: "https://api.together.xyz/v1/chat/completions",
     requiresApiKey: true,
-    description: "Hosted open-weights inference. OpenAI-compatible endpoint.",
+    description: "Hosted open-weights inference (Llama, Qwen, DeepSeek, Mistral, etc.). Standard chat-completions API.",
     commonModels: [
       { id: "meta-llama/Llama-3.3-70B-Instruct-Turbo", label: "Llama 3.3 70B Turbo" },
       { id: "Qwen/Qwen2.5-72B-Instruct-Turbo", label: "Qwen 2.5 72B Turbo" }
+    ]
+  },
+  {
+    kind: "xai",
+    displayName: "xAI (Grok)",
+    defaultApiUrl: "https://api.x.ai/v1/chat/completions",
+    requiresApiKey: true,
+    description: "Direct xAI API. Grok models excel at real-time / current-events knowledge and conversational style. Note: this is xAI's Grok, NOT Groq the LPU host — different companies.",
+    commonModels: [
+      { id: "grok-4", label: "Grok 4 (flagship)" },
+      { id: "grok-3-mini", label: "Grok 3 Mini (cheap)" },
+      { id: "grok-3", label: "Grok 3" }
     ]
   },
   {
@@ -117,19 +185,20 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     displayName: "Local Ollama",
     defaultApiUrl: "http://localhost:11434/v1/chat/completions",
     requiresApiKey: false,
-    description: "Local model served by Ollama. Zero cost, runs entirely on your machine.",
+    description: "Local model served by Ollama. Zero cost, runs entirely on your machine. Privacy-preserving — nothing leaves the laptop.",
     commonModels: [
-      { id: "llama3.2", label: "Llama 3.2" },
+      { id: "llama3.3:latest", label: "Llama 3.3" },
       { id: "qwen2.5", label: "Qwen 2.5" },
-      { id: "mistral", label: "Mistral 7B" }
+      { id: "mistral", label: "Mistral 7B" },
+      { id: "phi3:latest", label: "Phi 3 (tiny)" }
     ]
   },
   {
     kind: "custom",
-    displayName: "Custom OpenAI-compatible endpoint",
+    displayName: "Custom endpoint",
     defaultApiUrl: "",
     requiresApiKey: true,
-    description: "Any OpenAI-compatible /v1/chat/completions endpoint. Fill in URL, model id, and key by hand.",
+    description: "Any endpoint that follows the standard chat-completions JSON shape (used by most providers, including vLLM, Fireworks, Mistral, Perplexity, LM Studio, OpenLLM, and many self-hosted servers). Fill in URL, model id, and key by hand.",
     commonModels: []
   }
 ];
@@ -425,9 +494,15 @@ export function ensureLegacyAccountMigrated(database: SquidDatabase): void {
 
 function inferProviderKindFromUrl(url: string): ProviderKind {
   const lowered = url.toLowerCase();
+  // Order matters here only when two patterns might overlap — currently
+  // none do, but if a new provider URL ever sits under one of these hosts
+  // (e.g. an *.x.ai subdomain) the earlier rule wins by listing first.
   if (lowered.includes("openrouter.ai")) return "openrouter";
   if (lowered.includes("api.openai.com")) return "openai";
   if (lowered.includes("api.anthropic.com")) return "anthropic";
+  if (lowered.includes("api.x.ai")) return "xai";
+  if (lowered.includes("generativelanguage.googleapis.com")) return "gemini";
+  if (lowered.includes("api.deepseek.com")) return "deepseek";
   if (lowered.includes("api.groq.com")) return "groq";
   if (lowered.includes("api.together.xyz")) return "together";
   if (lowered.includes("localhost:11434") || lowered.includes("127.0.0.1:11434")) return "ollama";

@@ -1395,16 +1395,25 @@ export type ProviderKindDto =
   | "openrouter"
   | "openai"
   | "anthropic"
+  | "xai"
+  | "gemini"
+  | "deepseek"
   | "groq"
   | "together"
   | "ollama"
   | "custom";
+
+export type ModelPricingDto = {
+  inputPerMTokens?: number;
+  outputPerMTokens?: number;
+};
 
 export type ModelCatalogEntryDto = {
   id: string;
   label: string;
   tier: "flagship" | "balanced" | "fast" | "reasoning" | "legacy";
   description?: string;
+  pricing?: ModelPricingDto;
 };
 
 export type ProviderPresetDto = {
