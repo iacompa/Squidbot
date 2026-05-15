@@ -1,8 +1,8 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { FolderOpen, Send, Wrench } from "lucide-react";
 import { squidbotApi } from "../lib/api";
 import type { UiMessage } from "../types";
-import type { ChatResponse, SettingsDto, TraceDto } from "../../../shared/api";
+import type { ChatResponse, ModelAccountSummaryDto, SettingsDto, TraceDto } from "../../../shared/api";
 
 type ChatPageProps = {
   settings: SettingsDto;
@@ -53,6 +53,27 @@ export function ChatPage({
   const [input, setInput] = useState("list files");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The active model account, refreshed every send so chat-driven switches
+  // (the user asks SquidBot to "switch to my OpenAI account") immediately
+  // surface in the header without needing a page reload.
+  const [activeAccount, setActiveAccount] = useState<ModelAccountSummaryDto | null>(null);
+
+  // Refresh helper — used on mount and after every chat send (the model can
+  // change the active account via the model.useAccount tool, and we want the
+  // header to reflect that without a refresh).
+  async function refreshActiveAccount(): Promise<void> {
+    try {
+      const resp = await squidbotApi.listModelAccounts();
+      const active = resp.accounts.find((a) => a.name === resp.activeAccountName) ?? null;
+      setActiveAccount(active);
+    } catch {
+      // Non-fatal — the header just falls back to the mock-provider label.
+    }
+  }
+
+  useEffect(() => {
+    void refreshActiveAccount();
+  }, []);
 
   const workspaceLabel = useMemo(() => {
     if (!settings.workspacePath) {
@@ -61,6 +82,26 @@ export function ChatPage({
 
     return settings.workspacePath;
   }, [settings.workspacePath]);
+
+  /**
+   * Header copy reflects who's actually answering. We avoid the misleading
+   * "Mock agent session" string this used to show — that was a stale default
+   * from before BYOK existed. Now it tells the user the model + provider in
+   * play, or "Mock provider" honestly when no account is active.
+   */
+  const headerTitle = useMemo(() => {
+    if (activeAccount) {
+      return `${activeAccount.name}`;
+    }
+    return "Mock provider (offline)";
+  }, [activeAccount]);
+
+  const headerSubtitle = useMemo(() => {
+    if (activeAccount) {
+      return `${activeAccount.providerKind} · ${activeAccount.apiModel}`;
+    }
+    return "Add a model account in Settings to chat with a real LLM.";
+  }, [activeAccount]);
 
   async function chooseWorkspace(): Promise<void> {
     const selected = await squidbotApi.chooseWorkspace();
@@ -105,6 +146,10 @@ export function ChatPage({
       setError(caught instanceof Error ? caught.message : "Unable to send message.");
     } finally {
       setIsSending(false);
+      // The model may have called `model.useAccount` mid-turn to switch
+      // providers — refresh the active-account state so the header reflects
+      // it before the user sends the next message.
+      void refreshActiveAccount();
     }
   }
 
@@ -113,7 +158,8 @@ export function ChatPage({
       <header className="page-header">
         <div>
           <p className="section-label">Chat</p>
-          <h2>Mock agent session</h2>
+          <h2>{headerTitle}</h2>
+          <p className="page-subtitle chat-page__subtitle">{headerSubtitle}</p>
         </div>
         <button className="secondary-button" type="button" onClick={chooseWorkspace}>
           <FolderOpen size={17} />
@@ -154,6 +200,22 @@ export function ChatPage({
               </div>
             </article>
           ))
+        )}
+        {/* Typing indicator — three pulsing dots in an assistant-style bubble.
+            Renders while we're awaiting the model's response. Lives at the
+            bottom of the message-log so it naturally appears where the next
+            assistant message will land. */}
+        {isSending && (
+          <article className="message-row assistant" aria-live="polite" aria-label="SquidBot is thinking">
+            <div className="message-bubble chat-typing-bubble">
+              <span className="chat-typing-dot" />
+              <span className="chat-typing-dot" />
+              <span className="chat-typing-dot" />
+              <span className="chat-typing-label">
+                {activeAccount ? `${activeAccount.name} is thinking…` : "Thinking…"}
+              </span>
+            </div>
+          </article>
         )}
       </section>
 
