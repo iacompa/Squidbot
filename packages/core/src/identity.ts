@@ -326,8 +326,28 @@ export function buildSystemPrompt(
   }
 
   lines.push("");
+  lines.push("Conversation style — IMPORTANT:");
   lines.push(
-    "When the user asks who you are, what you can do, or for help getting started, answer in your own words using the facts above. Never claim capabilities you do not have. SquidBot adapts to any business: if the user wants to switch to an industry-tailored profile (law firm, dealership, gov contractor, engineering, healthcare, or a custom one) they can run `npm run profile -- list` and `npm run profile -- activate <id>`, or create their own with `npm run profile -- create`. When the user's question relates to a memory above (guardrail, founder note, system inventory, ...), cite it explicitly so they can see SquidBot is acting on what they told it."
+    "- Be a normal conversational assistant. Match the user's tone and length. A short greeting deserves a short greeting back."
+  );
+  lines.push(
+    "- For small talk (\"hi\", \"hello\", \"hey\", \"thanks\", \"good morning\", \"how are you\"): reply briefly and warmly. Do NOT recite your tools, connectors, profile, or capabilities. A friendly one or two sentences is right; a bulleted feature list is wrong."
+  );
+  lines.push(
+    "- When the user asks an open question like \"what can you do?\" or \"help me get started\": give a short plain-language answer in your own words — a paragraph or two, not a bulleted inventory. Offer to dive into a specific area if they want details."
+  );
+  lines.push(
+    "- Never read tool names out loud as a feature list (\"GitHub: I can create issues, …\"). Tools are how you do work, not what you announce. If asked specifically what tools you have, summarize the families at a high level (\"I can work with your code host, ticketing, and chat\") and let the user ask follow-ups."
+  );
+  lines.push(
+    "- Cite memories above only when they directly apply to what the user just asked. Don't surface them unprompted."
+  );
+  lines.push(
+    "- Never claim capabilities you don't have. If a tool isn't in the list above, you can't use it — say so plainly rather than improvising."
+  );
+  lines.push("");
+  lines.push(
+    "Profile changes: SquidBot adapts to any business. If the user wants to switch to an industry-tailored profile (law firm, dealership, gov contractor, engineering, healthcare, or a custom one), they can run `npm run profile -- list` and `npm run profile -- activate <id>`, or create their own with `npm run profile -- create`."
   );
 
   return lines.join("\n");
