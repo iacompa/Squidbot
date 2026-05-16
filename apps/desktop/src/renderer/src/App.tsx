@@ -1,61 +1,79 @@
 import { useEffect, useState } from "react";
-import { Activity, Bot, Boxes, CalendarClock, Database, FlaskConical, MessageCircle, MessageSquare, Settings, ShieldAlert, ShieldCheck, Sparkles, UserCog, UsersRound, Wand2 } from "lucide-react";
+import {
+  Activity,
+  Boxes,
+  CalendarClock,
+  FlaskConical,
+  MessageSquare,
+  Plug,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  UsersRound
+} from "lucide-react";
 import { squidbotApi } from "./lib/api";
+import { resolveNav } from "./lib/navRedirects";
 import { AffordancePage } from "./pages/AffordancePage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { ChatPage } from "./pages/ChatPage";
-import { IdentityPage } from "./pages/IdentityPage";
-import { MemoryPage } from "./pages/MemoryPage";
+import { EvaluationLabPage } from "./pages/EvaluationLabPage";
+import { HistoryPage } from "./pages/HistoryPage";
+import { IntegrationsPage } from "./pages/IntegrationsPage";
+import { JobsPage } from "./pages/JobsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
-import { ProfilesPage } from "./pages/ProfilesPage";
-import { RunListPage } from "./pages/RunListPage";
 import { SandboxesPage } from "./pages/SandboxesPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { SkillsPage } from "./pages/SkillsPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { TrustPage } from "./pages/TrustPage";
-import { JobsPage } from "./pages/JobsPage";
-import { EvaluationLabPage } from "./pages/EvaluationLabPage";
-import { MessagingPage } from "./pages/MessagingPage";
-import { GovernancePage } from "./pages/GovernancePage";
 import type { PageId, TraceDto } from "./types";
 import type { SettingsDto } from "../../shared/api";
 
-const pages: Array<{ id: PageId; label: string; icon: typeof MessageSquare }> = [
-  { id: "onboarding", label: "Onboarding", icon: Wand2 },
+type NavItem = { id: PageId; label: string; icon: typeof MessageSquare };
+
+const primaryPages: NavItem[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "identity", label: "Identity", icon: Bot },
+  { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "approvals", label: "Approvals", icon: ShieldCheck },
   { id: "trust", label: "Trust", icon: ShieldCheck },
-  { id: "profiles", label: "Profiles", icon: UserCog },
-  { id: "traces", label: "Runs", icon: Activity },
-  { id: "memory", label: "Memory", icon: Database },
-  { id: "gaps", label: "Gaps", icon: ShieldAlert },
-  { id: "sandboxes", label: "Sandboxes", icon: Boxes },
-  { id: "skills", label: "Skills", icon: Sparkles },
+  { id: "history", label: "History", icon: Activity },
+  { id: "settings", label: "Settings", icon: Settings }
+];
+
+const advancedPages: NavItem[] = [
   { id: "jobs", label: "Jobs", icon: CalendarClock },
   { id: "teams", label: "Teams", icon: UsersRound },
   { id: "evals", label: "Evals", icon: FlaskConical },
-  { id: "messaging", label: "Messaging", icon: MessageCircle },
-  { id: "governance", label: "Governance", icon: ShieldCheck },
-  { id: "approvals", label: "Approvals", icon: ShieldCheck },
-  { id: "settings", label: "Settings", icon: Settings }
+  { id: "sandboxes", label: "Sandboxes", icon: Boxes },
+  { id: "gaps", label: "Gaps", icon: ShieldAlert }
 ];
+
+const ADVANCED_OPEN_KEY = "sidebar.advancedOpen";
 
 export function App() {
   const [activePage, setActivePage] = useState<PageId>("chat");
   const [settings, setSettings] = useState<SettingsDto | null>(null);
-  const [latestTrace, setLatestTrace] = useState<TraceDto | null>(null);
-  const [traces, setTraces] = useState<TraceDto[]>([]);
+  const [, setLatestTrace] = useState<TraceDto | null>(null);
+  const [, setTraces] = useState<TraceDto[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>();
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(ADVANCED_OPEN_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  // Stubbed for Phase 1 — Task 2.3 will wire this to listPendingApprovals so
+  // the sidebar badge shows the real pending count. Keeping the state slot
+  // here means Phase 2 only has to add a fetch effect, not refactor the JSX.
+  const [pendingApprovalCount] = useState<number>(0);
+  // Tab hint forwarded from onNavigate redirects (e.g. onNavigate("memory")
+  // → { pageId: "history", tab: "memory" } — the tab is stashed here so the
+  // destination page gets it as `initialTab`).
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
 
   async function refreshSettings(): Promise<void> {
     const nextSettings = await squidbotApi.getSettings();
     setSettings(nextSettings);
-  }
-
-  async function refreshTrace(): Promise<void> {
-    const trace = await squidbotApi.getLatestTrace();
-    setLatestTrace(trace);
   }
 
   async function refreshTraces(): Promise<void> {
@@ -75,13 +93,35 @@ export function App() {
     setTraces((currentTraces) => [trace, ...currentTraces.filter((item) => item.id !== trace.id)].slice(0, 20));
   }
 
+  function handleNavigate(pageId: PageId, payload?: { tab?: string }): void {
+    const resolved = resolveNav(pageId);
+    setActivePage(resolved.pageId);
+    const tab = payload?.tab ?? resolved.tab ?? null;
+    setPendingTab(tab);
+  }
+
+  function toggleAdvanced(): void {
+    setAdvancedOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(ADVANCED_OPEN_KEY, String(next));
+      } catch {
+        // localStorage may be unavailable (e.g. in tests with a stubbed
+        // window); silently fall back to in-memory state only.
+      }
+      return next;
+    });
+  }
+
   useEffect(() => {
     void refreshSettings();
     void refreshTraces();
   }, []);
 
+  // Refresh the trace list when navigating to History so the Activity tab
+  // reflects newly-recorded runs without a page reload.
   useEffect(() => {
-    if (activePage === "traces") {
+    if (activePage === "history") {
       void refreshTraces();
     }
   }, [activePage]);
@@ -103,40 +143,30 @@ export function App() {
       );
     }
 
-    if (activePage === "onboarding") {
-      return <OnboardingPage />;
+    if (activePage === "integrations") {
+      return (
+        <IntegrationsPage
+          initialTab={pendingTab as "models" | "connectors" | "messaging" | undefined}
+        />
+      );
     }
 
-    if (activePage === "identity") {
-      return <IdentityPage />;
+    if (activePage === "history") {
+      return (
+        <HistoryPage initialTab={pendingTab as "activity" | "memory" | undefined} />
+      );
+    }
+
+    if (activePage === "approvals") {
+      return <ApprovalsPage />;
     }
 
     if (activePage === "trust") {
       return <TrustPage />;
     }
 
-    if (activePage === "profiles") {
-      return <ProfilesPage />;
-    }
-
-    if (activePage === "traces") {
-      return <RunListPage />;
-    }
-
-    if (activePage === "memory") {
-      return <MemoryPage />;
-    }
-
-    if (activePage === "gaps") {
-      return <AffordancePage />;
-    }
-
-    if (activePage === "sandboxes") {
-      return <SandboxesPage />;
-    }
-
-    if (activePage === "skills") {
-      return <SkillsPage />;
+    if (activePage === "onboarding") {
+      return <OnboardingPage />;
     }
 
     if (activePage === "jobs") {
@@ -151,19 +181,22 @@ export function App() {
       return <EvaluationLabPage />;
     }
 
-    if (activePage === "messaging") {
-      return <MessagingPage />;
+    if (activePage === "sandboxes") {
+      return <SandboxesPage />;
     }
 
-    if (activePage === "governance") {
-      return <GovernancePage />;
+    if (activePage === "gaps") {
+      return <AffordancePage />;
     }
 
-    if (activePage === "approvals") {
-      return <ApprovalsPage />;
-    }
-
-    return <SettingsPage settings={settings} onSettingsChange={setSettings} onNavigate={setActivePage} />;
+    return (
+      <SettingsPage
+        settings={settings}
+        onSettingsChange={setSettings}
+        onNavigate={handleNavigate}
+        initialTab={pendingTab as "general" | "profile" | "skills" | "governance" | undefined}
+      />
+    );
   };
 
   return (
@@ -177,22 +210,60 @@ export function App() {
           </div>
         </div>
 
-        <nav className="nav-list" aria-label="Main navigation">
-          {pages.map((page) => {
-            const Icon = page.icon;
+        <nav className="nav-list" aria-label="Primary">
+          {primaryPages.map((item) => {
+            const Icon = item.icon;
+            const isActive = activePage === item.id;
             return (
               <button
-                className={`nav-item ${activePage === page.id ? "active" : ""}`}
-                key={page.id}
-                onClick={() => setActivePage(page.id)}
+                key={item.id}
                 type="button"
+                className={`nav-item ${isActive ? "active" : ""}`}
+                onClick={() => handleNavigate(item.id)}
               >
-                <Icon size={18} />
-                <span>{page.label}</span>
+                <Icon size={18} aria-hidden />
+                <span>{item.label}</span>
+                {item.id === "approvals" && pendingApprovalCount > 0 && (
+                  <span
+                    className="nav-badge"
+                    aria-label={`${pendingApprovalCount} pending`}
+                  >
+                    {pendingApprovalCount}
+                  </span>
+                )}
               </button>
             );
           })}
         </nav>
+
+        <button
+          type="button"
+          className="sidebar-section-toggle"
+          aria-expanded={advancedOpen}
+          onClick={toggleAdvanced}
+        >
+          Advanced {advancedOpen ? "▾" : "▸"}
+        </button>
+
+        {advancedOpen && (
+          <nav className="nav-list nav-list--advanced" aria-label="Advanced">
+            {advancedPages.map((item) => {
+              const Icon = item.icon;
+              const isActive = activePage === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`nav-item ${isActive ? "active" : ""}`}
+                  onClick={() => handleNavigate(item.id)}
+                >
+                  <Icon size={15} aria-hidden />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
         <div className="status-stack">
           <div className="status-row">

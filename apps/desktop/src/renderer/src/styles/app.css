@@ -3530,3 +3530,53 @@ pre {
     position: static;
   }
 }
+
+/* ----------------------------------------------------------------------
+ * Sidebar Advanced section toggle + Approvals badge.
+ *
+ * Task 1.8 of the sidebar reorg added a collapsed-by-default "Advanced"
+ * group beneath the 6 primary nav items. The toggle button gets the
+ * uppercase-section-header treatment so it reads as a divider rather
+ * than another nav item. The badge sits at the end of the Approvals
+ * row to surface pending approval count without forcing a click.
+ * ---------------------------------------------------------------------- */
+
+.sidebar-section-toggle {
+  margin: 14px 14px 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  width: calc(100% - 28px);
+  border-radius: 6px;
+}
+
+.sidebar-section-toggle:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.nav-list--advanced .nav-item {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.nav-list--advanced .nav-item span {
+  font-size: 13px;
+}
+
+.nav-badge {
+  background: var(--coral);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: auto;
+}
