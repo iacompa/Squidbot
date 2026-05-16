@@ -257,16 +257,23 @@ const DOC_TOPICS: DocTopic[] = [
     pageLabel: "Open chat"
   },
   {
+    title: "Integrations (connect your tools)",
+    body:
+      "Save model accounts (OpenRouter / OpenAI / Anthropic / Groq / Together / Ollama / Custom), configure connectors (Stripe / GitHub / Slack / …), and wire messaging channels — all in one destination. SquidBot uses the active model account for reasoning and the saved connectors for action.",
+    page: "integrations",
+    pageLabel: "Open Integrations"
+  },
+  {
     title: "Model accounts (BYOK)",
     body:
-      "Save multiple model accounts — OpenRouter, OpenAI, Anthropic, Groq, Together, Ollama, or any OpenAI-compatible endpoint — and switch the active one any time. SquidBot can switch on its own when you ask it to in chat. Configure them below in this page, or from the CLI: `squidbot model accounts add`."
+      "Save multiple model accounts — OpenRouter, OpenAI, Anthropic, Groq, Together, Ollama, or any OpenAI-compatible endpoint — and switch the active one any time. SquidBot can switch on its own when you ask it to in chat. Configure them in the Integrations page → AI models tab, or from the CLI: `squidbot model accounts add`."
   },
   {
     title: "Identity",
     body:
       "What SquidBot believes it is right now: which model account is active, its bonded skills, the policies it's enforcing, the memories that shape its answers. Open this when you want to understand why SquidBot just behaved the way it did.",
-    page: "identity",
-    pageLabel: "Open identity"
+    page: "settings",
+    pageLabel: "Open Settings → Profile"
   },
   {
     title: "Trust report",
@@ -279,36 +286,36 @@ const DOC_TOPICS: DocTopic[] = [
     title: "Enterprise profiles",
     body:
       "A profile is a pre-tuned bundle: vocabulary, sensitivity defaults, policy packs, default skills. Start with the Generic Business profile (the default) and let onboarding personalise it — or pick a vertical preset.",
-    page: "profiles",
-    pageLabel: "Open profiles"
+    page: "settings",
+    pageLabel: "Open Settings → Profile"
   },
   {
     title: "Memory",
     body:
       "Every memory has provenance — what created it, when, and the trace it came from. SquidBot retrieves relevant memories before each turn and can cite them in its answers. Curate, delete, or pin memories here.",
-    page: "memory",
-    pageLabel: "Open memory"
+    page: "history",
+    pageLabel: "Open History → Memory"
   },
   {
     title: "Traces",
     body:
       "Every chat turn and every task run is recorded as a trace: which model, which tools, which approvals, which cost. Replay any of them. Search across all of them. Export them for compliance.",
-    page: "traces",
-    pageLabel: "Open traces"
+    page: "history",
+    pageLabel: "Open History → Activity"
   },
   {
     title: "Skills, Jobs, and Teams",
     body:
       "Skills are reusable capabilities SquidBot can compose. Jobs are scheduled work. Teams are multi-agent collaborations with a shared blackboard. All optional — you can use SquidBot without any of them.",
-    page: "skills",
-    pageLabel: "Open skills"
+    page: "settings",
+    pageLabel: "Open Settings → Skills"
   },
   {
     title: "Governance & approvals",
     body:
       "Tools have risk levels. Risky tools require explicit human approval; low-risk ones run automatically. The Governance page shows the policy engine state — who can do what, what's allowed, what's been audited.",
-    page: "governance",
-    pageLabel: "Open governance"
+    page: "settings",
+    pageLabel: "Open Settings → Governance"
   },
   {
     title: "Sandboxes & evaluations",
