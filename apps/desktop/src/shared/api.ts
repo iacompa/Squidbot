@@ -176,6 +176,33 @@ export type SandboxDto = {
   lastError: string | null;
 };
 
+/**
+ * The renderer asks for one stable list of "things waiting for approval"; the
+ * main process can later compose this from multiple sources. For v1 the only
+ * source is active sandboxes (which need promotion approval). The `kind`
+ * discriminator is the future-proofing pin — adding "high-risk-tool" or
+ * "memory-deletion" approval kinds later doesn't change the renderer.
+ */
+export type PendingApprovalDto = {
+  /** Stable id — sandbox id for v1; future kinds may use other ids. */
+  id: string;
+  /** Discriminator for the approval source. */
+  kind: "sandbox-promotion";
+  /** Human-friendly title rendered in the approvals queue row. */
+  title: string;
+  /** One-line context about what's being approved. */
+  summary: string;
+  /** Risk level for visual treatment. */
+  riskLevel: "low" | "medium" | "high";
+  /** ISO timestamp of when this entered the queue. */
+  createdAt: string;
+  /** Kind-specific data the page may need to drive approve/reject actions. */
+  payload: {
+    sandboxId?: string;
+    workspacePath?: string;
+  };
+};
+
 export type SkillManifestDto = {
   id: string;
   name: string;
@@ -928,6 +955,7 @@ export type SquidbotApi = {
   getSandbox: (sandboxId: string) => Promise<SandboxDto | null>;
   approveSandbox: (sandboxId: string) => Promise<SandboxDto>;
   rejectSandbox: (sandboxId: string) => Promise<SandboxDto>;
+  listPendingApprovals: () => Promise<PendingApprovalDto[]>;
   listSkills: () => Promise<SkillDto[]>;
   getSkill: (skillId: string, version?: string) => Promise<SkillDetailDto | null>;
   evaluateSkill: (skillId: string, version?: string) => Promise<SkillEvaluationResultDto>;

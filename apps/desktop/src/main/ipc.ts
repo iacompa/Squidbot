@@ -75,6 +75,7 @@ import type {
   MessagingChannelDto,
   MessagingDeliveryRuleDto,
   OnboardingAnswerDto,
+  PendingApprovalDto,
   SettingsDto,
   SquidbotCommandDescriptorDto,
   SquidbotCommandId,
@@ -525,6 +526,22 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       reason: "rejected"
     });
     return updated;
+  });
+
+  ipcMain.handle("squidbot:listPendingApprovals", (): PendingApprovalDto[] => {
+    // v1 source: active sandboxes pending promotion approval. The DTO `kind`
+    // discriminator lets future approval sources slot in here without
+    // changing the renderer contract.
+    const sandboxes = database.listSandboxes({ status: "active" });
+    return sandboxes.map((sandbox) => ({
+      id: sandbox.id,
+      kind: "sandbox-promotion" as const,
+      title: `Promote sandbox ${sandbox.id.slice(0, 12)}…`,
+      summary: `Workspace: ${sandbox.workspacePath} · ${sandbox.diff.length} bytes of diff`,
+      riskLevel: "medium" as const,
+      createdAt: sandbox.createdAt,
+      payload: { sandboxId: sandbox.id, workspacePath: sandbox.workspacePath }
+    }));
   });
 
   ipcMain.handle("squidbot:listSkills", () => createSkillService(database, paths).listSkills(100));

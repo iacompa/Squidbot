@@ -32,6 +32,7 @@ const api: SquidbotApi = {
   getSandbox: (sandboxId) => ipcRenderer.invoke("squidbot:getSandbox", sandboxId),
   approveSandbox: (sandboxId) => ipcRenderer.invoke("squidbot:approveSandbox", sandboxId),
   rejectSandbox: (sandboxId) => ipcRenderer.invoke("squidbot:rejectSandbox", sandboxId),
+  listPendingApprovals: () => ipcRenderer.invoke("squidbot:listPendingApprovals"),
   listSkills: () => ipcRenderer.invoke("squidbot:listSkills"),
   getSkill: (skillId, version) => ipcRenderer.invoke("squidbot:getSkill", skillId, version),
   evaluateSkill: (skillId, version) => ipcRenderer.invoke("squidbot:evaluateSkill", skillId, version),
