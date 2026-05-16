@@ -1,20 +1,222 @@
-import { useEffect, useState } from "react";
-import { ArrowRight, BookOpen, FolderOpen, KeyRound, Plug, Wand2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, BookOpen, FolderOpen, Plug, RefreshCw, ShieldCheck, Wand2 } from "lucide-react";
 import { squidbotApi } from "../lib/api";
-import { ConnectorsSection } from "../components/ConnectorsSection";
-import { ModelAccountsSection } from "../components/ModelAccountsSection";
+import { GovernanceSection, type GovernanceSectionHandle } from "../components/GovernanceSection";
+import { IdentitySection } from "../components/IdentitySection";
+import { ProfileSection, type ProfileSectionHandle } from "../components/ProfileSection";
+import { SkillsSection, type SkillsSectionHandle } from "../components/SkillsSection";
 import type { SettingsDto } from "../../../shared/api";
 import type { EnterpriseProfileDto, PageId } from "../types";
+
+/**
+ * Settings is the four-tab "local runtime" destination introduced in the
+ * sidebar reorg (Task 1.7). The left rail switches between:
+ *
+ *   • General    — workspace + paths + onboarding shortcut + Docs accordion.
+ *                  (Model accounts + connectors moved to IntegrationsPage.)
+ *   • Profile    — Identity (read-only "whoami" summary) + Profiles config.
+ *   • Skills     — installed skills + manifest detail.
+ *   • Governance — security control plane.
+ *
+ * Tab state is mirrored to localStorage so a hot-reload or app restart
+ * keeps you on the same tab. The deprecated PageIds (identity / profiles /
+ * skills / governance) redirect here via `initialTab` in Task 1.8.
+ */
+export type SettingsTab = "general" | "profile" | "skills" | "governance";
 
 type SettingsPageProps = {
   settings: SettingsDto;
   onSettingsChange: (settings: SettingsDto) => void;
   /**
    * Optional navigation hook so the Settings page can deep-link to other
-   * pages (e.g. the Onboarding wizard). Wired from `App.tsx`.
+   * pages (e.g. the Onboarding wizard or the Integrations destination).
+   * Wired from `App.tsx`.
    */
   onNavigate?: (pageId: PageId) => void;
+  /**
+   * Optional initial tab — used when the App.tsx redirect map routes
+   * deprecated PageIds (identity / profiles / skills / governance) to
+   * SettingsPage with a tab hint.
+   */
+  initialTab?: SettingsTab;
 };
+
+const TAB_STORAGE_KEY = "settings.activeTab";
+
+function loadInitialTab(initialFromProps?: SettingsTab): SettingsTab {
+  if (initialFromProps) return initialFromProps;
+  try {
+    const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
+    if (
+      stored === "general" ||
+      stored === "profile" ||
+      stored === "skills" ||
+      stored === "governance"
+    ) {
+      return stored;
+    }
+  } catch {
+    /* localStorage may be unavailable (incognito, SSR). Fall through. */
+  }
+  return "general";
+}
+
+export function SettingsPage({ settings, onSettingsChange, onNavigate, initialTab }: SettingsPageProps) {
+  const [tab, setTab] = useState<SettingsTab>(() => loadInitialTab(initialTab));
+  // Section handles + per-tab loading flags so each tab's Refresh button
+  // can disable while in-flight. The standalone pages do this same dance;
+  // we keep the parity so users get the spinner UX they're used to.
+  const profileRef = useRef<ProfileSectionHandle | null>(null);
+  const skillsRef = useRef<SkillsSectionHandle | null>(null);
+  const governanceRef = useRef<GovernanceSectionHandle | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  // ProfileSection consumes formOpen / onFormOpenChange because the standalone
+  // ProfilesPage owns the "New profile" toggle in its header. Inside Settings
+  // we don't surface that toggle in the header strip (the section can grow its
+  // own form trigger in a future task), so we just keep local state and never
+  // open it from a toolbar — the section still renders correctly with formOpen
+  // pinned to false.
+  const [profileFormOpen, setProfileFormOpen] = useState(false);
+
+  function switchTab(next: SettingsTab): void {
+    setTab(next);
+    try {
+      window.localStorage.setItem(TAB_STORAGE_KEY, next);
+    } catch {
+      /* localStorage may be unavailable; tab still switches in-memory. */
+    }
+  }
+
+  return (
+    <main className="page-panel settings-page settings-page--tabbed">
+      <header className="page-header">
+        <div>
+          <p className="section-label">Settings</p>
+          <h2>Local runtime</h2>
+        </div>
+      </header>
+
+      <div className="settings-shell">
+        <nav className="settings-rail" role="tablist" aria-label="Settings sections">
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "general"}
+            onClick={() => switchTab("general")}
+          >
+            General
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "profile"}
+            onClick={() => switchTab("profile")}
+          >
+            Profile
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "skills"}
+            onClick={() => switchTab("skills")}
+          >
+            Skills
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "governance"}
+            onClick={() => switchTab("governance")}
+          >
+            Governance
+          </button>
+        </nav>
+
+        <div className="settings-content">
+          {tab === "general" && (
+            <GeneralTab settings={settings} onSettingsChange={onSettingsChange} onNavigate={onNavigate} />
+          )}
+
+          {tab === "profile" && (
+            <>
+              <div className="settings-tab-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={profileLoading}
+                  onClick={() => void profileRef.current?.refresh()}
+                  aria-label="Refresh profile"
+                >
+                  <RefreshCw size={15} className={profileLoading ? "spin" : ""} aria-hidden />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <IdentitySection readonly />
+              <ProfileSection
+                ref={profileRef}
+                formOpen={profileFormOpen}
+                onFormOpenChange={setProfileFormOpen}
+                onLoadingChange={setProfileLoading}
+              />
+            </>
+          )}
+
+          {tab === "skills" && (
+            <>
+              <div className="settings-tab-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void skillsRef.current?.refresh()}
+                  aria-label="Refresh skills"
+                >
+                  <RefreshCw size={15} aria-hidden />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <SkillsSection ref={skillsRef} />
+            </>
+          )}
+
+          {tab === "governance" && (
+            <>
+              <div className="settings-tab-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void governanceRef.current?.simulate()}
+                  aria-label="Simulate governance policy"
+                >
+                  <ShieldCheck size={15} aria-hidden />
+                  <span>Simulate</span>
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void governanceRef.current?.refresh()}
+                  aria-label="Refresh governance"
+                >
+                  <RefreshCw size={15} aria-hidden />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <GovernanceSection ref={governanceRef} />
+            </>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// -------------------------------------------------------------------------
+// GeneralTab — workspace + paths + onboarding shortcut + docs accordion.
+// Everything that used to live directly inside SettingsPage minus the
+// connector + model-routing blocks (those moved to IntegrationsPage in
+// Task 1.4). The Connectors heading row stays as a sign-post so an operator
+// who still expects to find connectors here at least sees "we know about
+// them, they live in Integrations now".
+// -------------------------------------------------------------------------
 
 const GENERIC_PROFILE_ID = "profile_seed_generic_business";
 
@@ -117,7 +319,13 @@ const DOC_TOPICS: DocTopic[] = [
   }
 ];
 
-export function SettingsPage({ settings, onSettingsChange, onNavigate }: SettingsPageProps) {
+type GeneralTabProps = {
+  settings: SettingsDto;
+  onSettingsChange: (settings: SettingsDto) => void;
+  onNavigate?: (pageId: PageId) => void;
+};
+
+function GeneralTab({ settings, onSettingsChange, onNavigate }: GeneralTabProps) {
   // Active enterprise profile drives the onboarding-shortcut copy: a fresh
   // install on the default Generic Business shows "Start onboarding", while
   // an operator who's already configured a custom or vertical profile sees
@@ -154,19 +362,8 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
     }
   }
 
-  async function saveModelProvider(provider: "local" | "api" | "mock"): Promise<void> {
-    onSettingsChange(await squidbotApi.saveSetting("model.provider", provider));
-  }
-
   return (
-    <main className="page-panel settings-page">
-      <header className="page-header">
-        <div>
-          <p className="section-label">Settings</p>
-          <h2>Local runtime</h2>
-        </div>
-      </header>
-
+    <>
       {onNavigate && (
         <section className="settings-shortcut" aria-label="Onboarding shortcut">
           <div className="settings-shortcut__icon" aria-hidden>
@@ -240,52 +437,6 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
           </button>
         </div>
 
-        <div className="settings-row">
-          <div>
-            <h3>Model provider</h3>
-            <p>
-              Current provider: {settings.modelSettings.provider} ({settings.modelSettings.costOwner})
-            </p>
-          </div>
-          <div className="segmented-control" aria-label="Model provider">
-            <button
-              className={settings.modelSettings.provider === "local" ? "selected" : ""}
-              type="button"
-              onClick={() => void saveModelProvider("local")}
-            >
-              Local
-            </button>
-            <button
-              className={settings.modelSettings.provider === "api" ? "selected" : ""}
-              type="button"
-              onClick={() => void saveModelProvider("api")}
-            >
-              <KeyRound size={14} />
-              BYOK
-            </button>
-            <button
-              className={settings.modelSettings.provider === "mock" ? "selected" : ""}
-              type="button"
-              onClick={() => void saveModelProvider("mock")}
-            >
-              Mock
-            </button>
-          </div>
-        </div>
-
-        <div className="settings-row wide">
-          <div>
-            <h3>Model budget</h3>
-            <p>
-              API usage today: {settings.modelSettings.apiUsedTokens} tokens
-              {settings.modelSettings.apiRemainingTokens !== undefined
-                ? `, ${settings.modelSettings.apiRemainingTokens} remaining`
-                : ", no budget set"}
-              , ${settings.modelSettings.apiCost.toFixed(6)} estimated
-            </p>
-          </div>
-        </div>
-
         <div className="settings-row wide">
           <div>
             <h3>Local database</h3>
@@ -303,15 +454,13 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
         <div className="settings-row wide connector-settings-heading">
           <div>
             <h3>Connectors</h3>
-            <p>{settings.connectors.length} installed</p>
+            <p>
+              {settings.connectors.length} installed — manage them in Integrations.
+            </p>
           </div>
           <Plug size={18} />
         </div>
       </section>
-
-      <ModelAccountsSection />
-
-      <ConnectorsSection settings={settings} onSettingsChange={onSettingsChange} />
-    </main>
+    </>
   );
 }

@@ -27,9 +27,49 @@ const baseSettings: SettingsDto = {
 
 const navigateMock = vi.fn();
 
+// JSDOM defaults its URL to `about:blank`, which is an opaque origin — any
+// access to window.localStorage from there throws SecurityError. Node 25
+// also exposes its own experimental localStorage built-in that masks
+// jsdom's. Either way, SettingsPage's tab-persistence logic needs a working
+// Storage shim for the assertion to mean anything. We install a tiny
+// in-memory shim once per test file so the SettingsPage tab tests can
+// actually read back what they wrote.
+const localStorageShim: Storage = (() => {
+  const map = new Map<string, string>();
+  return {
+    get length() {
+      return map.size;
+    },
+    clear() {
+      map.clear();
+    },
+    getItem(key: string) {
+      return map.has(key) ? map.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(map.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      map.delete(key);
+    },
+    setItem(key: string, value: string) {
+      map.set(key, String(value));
+    }
+  } satisfies Storage;
+})();
+
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: localStorageShim
+});
+
 beforeEach(() => {
   vi.resetModules();
   navigateMock.mockClear();
+  // SettingsPage persists the active tab in localStorage; clear the shim
+  // between tests so each case starts from the General default unless it
+  // explicitly primes the storage or passes initialTab.
+  localStorageShim.clear();
 });
 
 afterEach(() => {
@@ -40,48 +80,30 @@ afterEach(() => {
   Reflect.deleteProperty(window, "squidbot");
 });
 
-function mountWithProfile(
-  profileId: string | null,
-  overrides: {
-    accounts?: unknown[];
-    activeAccountName?: string | null;
-    presets?: unknown[];
-    discoverModels?: (req: unknown) => Promise<unknown>;
-    upsertModelAccount?: (input: unknown) => Promise<unknown>;
-    activateModelAccount?: (name: string) => Promise<unknown>;
-    deleteModelAccount?: (name: string) => Promise<unknown>;
-  } = {}
-) {
-  // The Settings page calls listModelAccounts + getProviderPresets on mount
-  // for the new multi-account UI. Mocks have to return shaped data even for
-  // the legacy onboarding-shortcut tests, otherwise the section throws and
-  // tears down the surrounding render.
-  const accounts = overrides.accounts ?? [];
-  const presets =
-    overrides.presets ?? [
-      {
-        providerKind: "openrouter",
-        label: "OpenRouter",
-        defaultApiUrl: "https://openrouter.ai/api/v1/chat/completions",
-        defaultModel: "anthropic/claude-opus-4-5",
-        notes: "BYOK gateway with hundreds of models.",
-        catalog: [
-          { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", tier: "flagship" },
-          { id: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash", tier: "fast" }
-        ]
-      },
-      {
-        providerKind: "anthropic",
-        label: "Anthropic",
-        defaultApiUrl: "https://api.anthropic.com/v1/chat/completions",
-        defaultModel: "claude-opus-4-5",
-        notes: "Direct Anthropic API.",
-        catalog: [
-          { id: "claude-opus-4-5", label: "Claude Opus 4.5", tier: "flagship" },
-          { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", tier: "fast" }
-        ]
+function mountWithProfile(profileId: string | null) {
+  const seededProfile = profileId
+    ? {
+        id: profileId,
+        industry: profileId === "profile_seed_generic_business" ? "general_business" : "saas",
+        displayName: profileId === "profile_seed_generic_business" ? "Generic Business" : "Acme Corp",
+        businessUnit: null,
+        role: null,
+        primarySystems: [],
+        primaryChannels: [],
+        sensitivity: "standard",
+        vocabulary: {},
+        branding: {},
+        policyPacks: [],
+        defaultSkills: [],
+        defaultConnectors: [],
+        readOnlyByDefault: false,
+        isActive: true,
+        seeded: profileId === "profile_seed_generic_business",
+        metadata: {},
+        createdAt: "now",
+        updatedAt: "now"
       }
-    ];
+    : null;
   Object.defineProperty(window, "squidbot", {
     configurable: true,
     value: {
@@ -89,44 +111,65 @@ function mountWithProfile(
       saveSetting: vi.fn(),
       saveConnectorSetting: vi.fn(),
       getSettings: vi.fn(),
-      listModelAccounts: vi.fn(async () => ({
-        activeAccountName: overrides.activeAccountName ?? null,
-        accounts
+      getActiveEnterpriseProfile: vi.fn(async () => seededProfile),
+      // The Profile / Identity / Skills / Governance tabs each call IPC on
+      // mount. We stub them with shaped empty / minimal responses so the
+      // tabbed shell can render any tab without tearing down on missing IPC.
+      listEnterpriseProfiles: vi.fn(async () => (seededProfile ? [seededProfile] : [])),
+      activateEnterpriseProfile: vi.fn(async () => ({})),
+      createEnterpriseProfile: vi.fn(async () => seededProfile),
+      getIdentityReport: vi.fn(async () => ({
+        card: {
+          id: "singleton",
+          agentName: "SquidBot",
+          agentVersion: "0.1.0",
+          mission: "Local-first AI agent.",
+          installedAt: "now",
+          updatedAt: "now"
+        },
+        profile: seededProfile,
+        capabilities: { toolCount: 0, tools: [], permissionScopes: [] }
       })),
-      getProviderPresets: vi.fn(async () => presets),
-      upsertModelAccount:
-        overrides.upsertModelAccount ?? vi.fn(async (input: unknown) => input),
-      activateModelAccount:
-        overrides.activateModelAccount ?? vi.fn(async (name: string) => ({ name })),
-      deleteModelAccount:
-        overrides.deleteModelAccount ?? vi.fn(async (name: string) => ({ deleted: true, name })),
-      discoverModels:
-        overrides.discoverModels ?? vi.fn(async () => ({ success: false, code: "not_found", message: "mock" })),
-      getActiveEnterpriseProfile: vi.fn(async () =>
-        profileId
-          ? {
-              id: profileId,
-              industry: profileId === "profile_seed_generic_business" ? "general_business" : "saas",
-              displayName: profileId === "profile_seed_generic_business" ? "Generic Business" : "Acme Corp",
-              businessUnit: null,
-              role: null,
-              primarySystems: [],
-              primaryChannels: [],
-              sensitivity: "standard",
-              vocabulary: {},
-              branding: {},
-              policyPacks: [],
-              defaultSkills: [],
-              defaultConnectors: [],
-              readOnlyByDefault: false,
-              isActive: true,
-              seeded: profileId === "profile_seed_generic_business",
-              metadata: {},
-              createdAt: "now",
-              updatedAt: "now"
-            }
-          : null
-      )
+      listSquidbotCommands: vi.fn(async () => []),
+      runSquidbotCommand: vi.fn(async () => ({})),
+      listSkills: vi.fn(async () => []),
+      getSkill: vi.fn(async () => null),
+      evaluateSkill: vi.fn(),
+      promoteSkill: vi.fn(),
+      rollbackSkill: vi.fn(),
+      runSkill: vi.fn(),
+      bootstrapGovernance: vi.fn(async () => ({
+        organizationId: "local-org",
+        tenantId: "local-tenant",
+        adminUserId: "user_local_admin",
+        rolesCreated: 1
+      })),
+      getGovernanceStatus: vi.fn(async () => ({
+        tenantId: "local-tenant",
+        users: 0,
+        roles: 0,
+        decisions: 0,
+        auditEntries: 0,
+        secrets: 0,
+        retentionPolicies: 0,
+        legalHolds: 0,
+        n8nIntegrations: 0,
+        policyPacks: 0
+      })),
+      listGovernanceUsers: vi.fn(async () => []),
+      listGovernanceRoles: vi.fn(async () => []),
+      listGovernancePolicyDecisions: vi.fn(async () => []),
+      listGovernanceSecrets: vi.fn(async () => []),
+      listGovernanceAudit: vi.fn(async () => []),
+      listGovernanceRetentionPolicies: vi.fn(async () => []),
+      listGovernanceN8nIntegrations: vi.fn(async () => []),
+      simulateGovernancePolicy: vi.fn(async () => ({
+        tenantId: "local-tenant",
+        decision: "allow",
+        reason: "stub",
+        matchedPolicies: [],
+        obligations: []
+      }))
     }
   });
 }
@@ -254,220 +297,52 @@ describe("SettingsPage docs section", () => {
   });
 });
 
-describe("SettingsPage model accounts section", () => {
-  it("shows the empty-state copy when no accounts are saved", async () => {
-    mountWithProfile("profile_seed_generic_business", { accounts: [] });
+// NOTE: the seven "SettingsPage model accounts section" tests that used to
+// live here moved to `../components/ModelAccountsSection.test.tsx` in Task
+// 1.7 when the ModelAccountsSection render was removed from SettingsPage
+// (the section lives in IntegrationsPage now). The behavioural coverage is
+// preserved — it's just attached to the component rather than a former host.
+
+describe("SettingsPage — left-rail tabs", () => {
+  it("renders four tabs in the rail: General, Profile, Skills, Governance", async () => {
+    mountWithProfile("profile_seed_generic_business");
     const { SettingsPage } = await import("./SettingsPage");
-    render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
-    );
-    await waitFor(() => {
-      expect(screen.getByText("No model accounts yet")).toBeTruthy();
-    });
-    // The "Add account" CTA must be available so the user has a path out of
-    // the empty state.
-    expect(screen.getByRole("button", { name: /add account/i })).toBeTruthy();
+    render(<SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />);
+    expect(screen.getByRole("tab", { name: /^general$/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^profile$/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^skills$/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^governance$/i })).toBeTruthy();
   });
 
-  it("lists saved accounts with the active marker", async () => {
-    mountWithProfile("profile_seed_generic_business", {
-      activeAccountName: "OR Gemini",
-      accounts: [
-        {
-          id: "id_or_gemini",
-          name: "OR Gemini",
-          providerKind: "openrouter",
-          apiUrl: "https://openrouter.ai/api/v1/chat/completions",
-          apiModel: "google/gemini-2.0-flash-001",
-          costPerToken: 0,
-          dailyBudgetTokens: null,
-          description: null,
-          isActive: true,
-          apiKeyConfigured: true,
-          createdAt: "now",
-          updatedAt: "now"
-        },
-        {
-          id: "id_or_llama",
-          name: "OR Llama",
-          providerKind: "openrouter",
-          apiUrl: "https://openrouter.ai/api/v1/chat/completions",
-          apiModel: "meta-llama/llama-3.3-70b-instruct",
-          costPerToken: 0,
-          dailyBudgetTokens: null,
-          description: null,
-          isActive: false,
-          apiKeyConfigured: true,
-          createdAt: "now",
-          updatedAt: "now"
-        }
-      ]
-    });
+  it("defaults to the General tab", async () => {
+    mountWithProfile("profile_seed_generic_business");
     const { SettingsPage } = await import("./SettingsPage");
-    render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
-    );
-    await waitFor(() => {
-      expect(screen.getByText("OR Gemini")).toBeTruthy();
-      expect(screen.getByText("OR Llama")).toBeTruthy();
-    });
-    // Active row gets the "active" chip; inactive row gets a "Switch" button.
-    expect(screen.getByText("active")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^switch$/i })).toBeTruthy();
+    render(<SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />);
+    expect(screen.getByRole("tab", { name: /^general$/i }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("opening the add-account form auto-fills URL + model from the first provider preset", async () => {
-    mountWithProfile("profile_seed_generic_business", { accounts: [] });
+  it("clicking the Profile tab activates it and persists the choice", async () => {
+    mountWithProfile("profile_seed_generic_business");
     const { SettingsPage } = await import("./SettingsPage");
-    render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
-    );
-    // Wait for presets to load — without them, openAddForm sets the empty
-    // form, not the OpenRouter defaults.
+    render(<SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />);
+    fireEvent.click(screen.getByRole("tab", { name: /^profile$/i }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /add account/i })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: /^profile$/i }).getAttribute("aria-selected")).toBe("true");
     });
-    // Need a small delay for the presets to populate. The component's useEffect
-    // resolves Promise.all before setPresets is called.
-    await waitFor(() => {
-      // Click the add button only after presets are in state — this is the
-      // condition that makes openAddForm pick up the auto-fill.
-      const btn = screen.getByRole("button", { name: /add account/i });
-      fireEvent.click(btn);
-      const urlField = screen.getByDisplayValue("https://openrouter.ai/api/v1/chat/completions");
-      expect(urlField).toBeTruthy();
-    });
+    expect(window.localStorage.getItem("settings.activeTab")).toBe("profile");
   });
 
-  it("switching the provider dropdown changes the API URL and model dropdown contents", async () => {
-    mountWithProfile("profile_seed_generic_business", { accounts: [] });
+  it("respects initialTab prop", async () => {
+    mountWithProfile("profile_seed_generic_business");
     const { SettingsPage } = await import("./SettingsPage");
     render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
+      <SettingsPage
+        settings={baseSettings}
+        onSettingsChange={vi.fn()}
+        onNavigate={navigateMock}
+        initialTab="skills"
+      />
     );
-    await waitFor(() => screen.getByRole("button", { name: /add account/i }));
-    fireEvent.click(screen.getByRole("button", { name: /add account/i }));
-    // Auto-filled URL starts as OpenRouter's.
-    await waitFor(() => screen.getByDisplayValue("https://openrouter.ai/api/v1/chat/completions"));
-    // Switch to Anthropic.
-    const providerSelect = screen.getByRole("combobox", { name: /provider/i }) as HTMLSelectElement;
-    fireEvent.change(providerSelect, { target: { value: "anthropic" } });
-    await waitFor(() => {
-      expect(screen.getByDisplayValue("https://api.anthropic.com/v1/chat/completions")).toBeTruthy();
-    });
-    // Model dropdown now contains Anthropic options.
-    const modelSelect = screen.getByRole("combobox", { name: /model/i }) as HTMLSelectElement;
-    const optionTexts = Array.from(modelSelect.options).map((o) => o.text);
-    expect(optionTexts.join(" ")).toMatch(/Claude Opus 4\.5/i);
-    expect(optionTexts.join(" ")).toMatch(/Claude Haiku 4\.5/i);
-  });
-
-  it("refresh-from-API populates the model dropdown with live ids on success", async () => {
-    const discoverModels = vi.fn(async () => ({
-      success: true,
-      models: ["custom/exotic-model-v1", "anthropic/claude-opus-4-5"],
-      durationMs: 42,
-      merged: [
-        { id: "custom/exotic-model-v1", label: "custom/exotic-model-v1", tier: "balanced" },
-        { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", tier: "flagship" }
-      ]
-    }));
-    mountWithProfile("profile_seed_generic_business", { accounts: [], discoverModels });
-    const { SettingsPage } = await import("./SettingsPage");
-    render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
-    );
-    await waitFor(() => screen.getByRole("button", { name: /add account/i }));
-    fireEvent.click(screen.getByRole("button", { name: /add account/i }));
-    await waitFor(() => screen.getByDisplayValue("https://openrouter.ai/api/v1/chat/completions"));
-    // Need a key to enable the refresh button.
-    const inputs = screen.getAllByRole("textbox");
-    void inputs; // narrow: we use a specific selector below
-    const keyInput = document.querySelector('input[type="password"]') as HTMLInputElement;
-    expect(keyInput).not.toBeNull();
-    fireEvent.change(keyInput, { target: { value: "sk-test" } });
-    fireEvent.click(screen.getByRole("button", { name: /refresh from api/i }));
-    await waitFor(() => {
-      expect(discoverModels).toHaveBeenCalledTimes(1);
-      // Success banner mentions the count.
-      expect(screen.getByText(/Pulled 2 models/i)).toBeTruthy();
-    });
-    // The custom exotic model now exists as an option.
-    const modelSelect = screen.getByRole("combobox", { name: /model/i }) as HTMLSelectElement;
-    const ids = Array.from(modelSelect.options).map((o) => o.value);
-    expect(ids).toContain("custom/exotic-model-v1");
-  });
-
-  it("refresh-from-API shows the failure code when the provider rejects the key", async () => {
-    const discoverModels = vi.fn(async () => ({
-      success: false,
-      code: "auth",
-      message: "Provider rejected the API key (401).",
-      fallback: {
-        providerKind: "openrouter",
-        catalog: [{ id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", tier: "flagship" }]
-      }
-    }));
-    mountWithProfile("profile_seed_generic_business", { accounts: [], discoverModels });
-    const { SettingsPage } = await import("./SettingsPage");
-    render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
-    );
-    await waitFor(() => screen.getByRole("button", { name: /add account/i }));
-    fireEvent.click(screen.getByRole("button", { name: /add account/i }));
-    await waitFor(() => screen.getByDisplayValue("https://openrouter.ai/api/v1/chat/completions"));
-    const keyInput = document.querySelector('input[type="password"]') as HTMLInputElement;
-    fireEvent.change(keyInput, { target: { value: "sk-wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: /refresh from api/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/auth:.*rejected/i)).toBeTruthy();
-    });
-  });
-
-  it("clicking Switch on an inactive account calls activateModelAccount with that name", async () => {
-    const activateModelAccount = vi.fn(async (name: string) => ({ name }));
-    mountWithProfile("profile_seed_generic_business", {
-      activeAccountName: "OR Gemini",
-      activateModelAccount,
-      accounts: [
-        {
-          id: "id_or_gemini",
-          name: "OR Gemini",
-          providerKind: "openrouter",
-          apiUrl: "x",
-          apiModel: "google/gemini-2.0-flash-001",
-          costPerToken: 0,
-          dailyBudgetTokens: null,
-          description: null,
-          isActive: true,
-          apiKeyConfigured: true,
-          createdAt: "now",
-          updatedAt: "now"
-        },
-        {
-          id: "id_or_llama",
-          name: "OR Llama",
-          providerKind: "openrouter",
-          apiUrl: "x",
-          apiModel: "meta-llama/llama-3.3-70b-instruct",
-          costPerToken: 0,
-          dailyBudgetTokens: null,
-          description: null,
-          isActive: false,
-          apiKeyConfigured: true,
-          createdAt: "now",
-          updatedAt: "now"
-        }
-      ]
-    });
-    const { SettingsPage } = await import("./SettingsPage");
-    render(
-      <SettingsPage settings={baseSettings} onSettingsChange={vi.fn()} onNavigate={navigateMock} />
-    );
-    await waitFor(() => screen.getByText("OR Llama"));
-    fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
-    await waitFor(() => {
-      expect(activateModelAccount).toHaveBeenCalledWith("OR Llama");
-    });
+    expect(screen.getByRole("tab", { name: /^skills$/i }).getAttribute("aria-selected")).toBe("true");
   });
 });
