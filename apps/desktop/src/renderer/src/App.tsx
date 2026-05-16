@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { squidbotApi } from "./lib/api";
 import { resolveNav } from "./lib/navRedirects";
-import { AffordancePage } from "./pages/AffordancePage";
+import { GapsPage } from "./pages/GapsPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { ChatPage } from "./pages/ChatPage";
 import { EvaluationLabPage } from "./pages/EvaluationLabPage";
@@ -202,7 +202,7 @@ export function App() {
     }
 
     if (activePage === "gaps") {
-      return <AffordancePage />;
+      return <GapsPage />;
     }
 
     return (
