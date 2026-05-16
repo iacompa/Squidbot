@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveNav } from "./navRedirects";
+import type { PageId } from "../types";
 
 describe("resolveNav — redirect map for deprecated PageIds", () => {
   it("passes through current PageIds unchanged", () => {
@@ -26,5 +27,16 @@ describe("resolveNav — redirect map for deprecated PageIds", () => {
 
   it("redirects messaging → integrations with tab=messaging", () => {
     expect(resolveNav("messaging")).toEqual({ pageId: "integrations", tab: "messaging" });
+  });
+
+  it("never sets tab for current (non-deprecated) PageIds", () => {
+    const currentPageIds: PageId[] = [
+      "chat", "onboarding", "integrations", "history",
+      "approvals", "trust", "settings",
+      "jobs", "teams", "evals", "sandboxes", "gaps"
+    ];
+    for (const id of currentPageIds) {
+      expect(resolveNav(id)).toEqual({ pageId: id });
+    }
   });
 });

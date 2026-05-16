@@ -76,13 +76,13 @@ export type PageId =
   // Deprecated but kept reachable through navRedirects — do NOT remove,
   // some pages call onNavigate("traces"|"memory"|...) and resolveNav handles
   // the redirect to the new destination.
-  | "identity"
-  | "profiles"
-  | "skills"
-  | "traces"
-  | "memory"
-  | "messaging"
-  | "governance";
+  | "traces"      // → history (Activity tab)
+  | "memory"      // → history (Memory tab)
+  | "identity"    // → settings (Profile tab)
+  | "profiles"    // → settings (Profile tab)
+  | "skills"      // → settings (Skills tab)
+  | "governance"  // → settings (Governance tab)
+  | "messaging";  // → integrations (Messaging tab)
 
 export type UiMessage = {
   id: string;
