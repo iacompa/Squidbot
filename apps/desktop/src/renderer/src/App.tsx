@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   Boxes,
@@ -62,10 +62,10 @@ export function App() {
       return false;
     }
   });
-  // Stubbed for Phase 1 — Task 2.3 will wire this to listPendingApprovals so
-  // the sidebar badge shows the real pending count. Keeping the state slot
-  // here means Phase 2 only has to add a fetch effect, not refactor the JSX.
-  const [pendingApprovalCount] = useState<number>(0);
+  // Wired to listPendingApprovals — the sidebar badge reflects the live
+  // pending count. Refresh fires on App mount and after every chat send
+  // (a chat turn can produce a new sandbox approval via tool execution).
+  const [pendingApprovalCount, setPendingApprovalCount] = useState<number>(0);
   // Tab hint forwarded from onNavigate redirects (e.g. onNavigate("memory")
   // → { pageId: "history", tab: "memory" } — the tab is stashed here so the
   // destination page gets it as `initialTab`).
@@ -88,9 +88,21 @@ export function App() {
     });
   }
 
+  const refreshPendingApprovalCount = useCallback(async () => {
+    try {
+      const list = await squidbotApi.listPendingApprovals();
+      setPendingApprovalCount(list.length);
+    } catch {
+      // Non-fatal — keep last known value.
+    }
+  }, []);
+
   function handleTraceChange(trace: TraceDto): void {
     setLatestTrace(trace);
     setTraces((currentTraces) => [trace, ...currentTraces.filter((item) => item.id !== trace.id)].slice(0, 20));
+    // A chat turn may have produced a sandbox that needs approval — refresh
+    // the badge count so the sidebar surfaces it immediately.
+    void refreshPendingApprovalCount();
   }
 
   function handleNavigate(pageId: PageId, payload?: { tab?: string }): void {
@@ -117,6 +129,10 @@ export function App() {
     void refreshSettings();
     void refreshTraces();
   }, []);
+
+  useEffect(() => {
+    void refreshPendingApprovalCount();
+  }, [refreshPendingApprovalCount]);
 
   // Refresh the trace list when navigating to History so the Activity tab
   // reflects newly-recorded runs without a page reload.
