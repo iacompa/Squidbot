@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsDto } from "../../../shared/api";
 
@@ -80,7 +80,46 @@ describe("ConnectorsSection", () => {
     // could be "baseUrl" or "apiKey" — the contract being tested is "Save
     // triggers the IPC at all."
     // Wait microtask for the async handler.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(saveMock).toHaveBeenCalled();
+    await waitFor(() => expect(saveMock).toHaveBeenCalled());
+  });
+
+  it("re-syncs drafts when the settings prop changes", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    const initialSettings: SettingsDto = {
+      ...emptySettings,
+      connectors: [
+        {
+          name: "stripe",
+          systemType: "payments",
+          description: "Charges",
+          protocol: "rest",
+          fixtureMode: false,
+          costOwner: "user-paid",
+          operations: ["createCharge"]
+        }
+      ],
+      connectorSettings: { stripe: { baseUrl: "https://old.example", apiKeyConfigured: false } }
+    };
+    const { rerender } = render(
+      <ConnectorsSection settings={initialSettings} onSettingsChange={vi.fn()} />
+    );
+    // Initial draft pulls baseUrl from settings.
+    expect((screen.getByDisplayValue("https://old.example") as HTMLInputElement).value).toBe(
+      "https://old.example"
+    );
+    // Rerender with a new baseUrl on the same connector.
+    rerender(
+      <ConnectorsSection
+        settings={{
+          ...initialSettings,
+          connectorSettings: { stripe: { baseUrl: "https://new.example", apiKeyConfigured: false } }
+        }}
+        onSettingsChange={vi.fn()}
+      />
+    );
+    // The useEffect must have repopulated drafts from the new settings.
+    expect((screen.getByDisplayValue("https://new.example") as HTMLInputElement).value).toBe(
+      "https://new.example"
+    );
   });
 });
