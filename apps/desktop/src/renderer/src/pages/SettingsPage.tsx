@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, BookOpen, FolderOpen, KeyRound, Plug, Save, Wand2 } from "lucide-react";
+import { ArrowRight, BookOpen, FolderOpen, KeyRound, Plug, Wand2 } from "lucide-react";
 import { squidbotApi } from "../lib/api";
+import { ConnectorsSection } from "../components/ConnectorsSection";
 import { ModelAccountsSection } from "../components/ModelAccountsSection";
 import type { SettingsDto } from "../../../shared/api";
 import type { EnterpriseProfileDto, PageId } from "../types";
@@ -116,19 +117,12 @@ const DOC_TOPICS: DocTopic[] = [
   }
 ];
 
-type ConnectorDrafts = Record<string, { apiKey: string; baseUrl: string }>;
-
 export function SettingsPage({ settings, onSettingsChange, onNavigate }: SettingsPageProps) {
-  const [connectorDrafts, setConnectorDrafts] = useState<ConnectorDrafts>(() => buildConnectorDrafts(settings));
   // Active enterprise profile drives the onboarding-shortcut copy: a fresh
   // install on the default Generic Business shows "Start onboarding", while
   // an operator who's already configured a custom or vertical profile sees
   // "Re-run onboarding".
   const [activeProfile, setActiveProfile] = useState<EnterpriseProfileDto | null>(null);
-
-  useEffect(() => {
-    setConnectorDrafts(buildConnectorDrafts(settings));
-  }, [settings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,21 +156,6 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
 
   async function saveModelProvider(provider: "local" | "api" | "mock"): Promise<void> {
     onSettingsChange(await squidbotApi.saveSetting("model.provider", provider));
-  }
-
-  function updateConnectorDraft(connectorName: string, key: "apiKey" | "baseUrl", value: string): void {
-    setConnectorDrafts((current) => ({
-      ...current,
-      [connectorName]: {
-        ...(current[connectorName] ?? { apiKey: "", baseUrl: "" }),
-        [key]: value
-      }
-    }));
-  }
-
-  async function saveConnectorSetting(connectorName: string, key: "apiKey" | "baseUrl"): Promise<void> {
-    const value = connectorDrafts[connectorName]?.[key] ?? "";
-    onSettingsChange(await squidbotApi.saveConnectorSetting(connectorName, key, value));
   }
 
   return (
@@ -332,98 +311,7 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
 
       <ModelAccountsSection />
 
-
-      <section className="connector-settings-list" aria-label="Connector settings">
-        {settings.connectors.length === 0 ? (
-          <div className="empty-state compact">
-            <h3>No connectors installed</h3>
-            <p>Install a connector from the CLI to configure it here.</p>
-          </div>
-        ) : (
-          settings.connectors.map((connector) => {
-            const draft = connectorDrafts[connector.name] ?? { apiKey: "", baseUrl: "" };
-            const connectorSettings = settings.connectorSettings[connector.name];
-            return (
-              <article className="connector-settings-card" key={connector.name}>
-                <div className="connector-card-header">
-                  <div>
-                    <span>{connector.systemType}</span>
-                    <h3>{connector.name}</h3>
-                    <p>{connector.description}</p>
-                  </div>
-                  <div className="connector-meta">
-                    <span>{connector.protocol}</span>
-                    <span>{connector.fixtureMode ? "fixture" : "real"}</span>
-                    <span>{connector.costOwner}</span>
-                  </div>
-                </div>
-
-                <div className="connector-operations" aria-label={`${connector.name} operations`}>
-                  {connector.operations.map((operation) => (
-                    <code key={operation}>{operation}</code>
-                  ))}
-                </div>
-
-                <div className="connector-config-grid">
-                  <label>
-                    <span>Base URL</span>
-                    <div className="connector-input-row">
-                      <input
-                        autoComplete="off"
-                        onChange={(event) => updateConnectorDraft(connector.name, "baseUrl", event.target.value)}
-                        placeholder="Optional"
-                        type="url"
-                        value={draft.baseUrl}
-                      />
-                      <button
-                        className="secondary-button"
-                        onClick={() => void saveConnectorSetting(connector.name, "baseUrl")}
-                        type="button"
-                      >
-                        <Save size={15} />
-                        <span>Save</span>
-                      </button>
-                    </div>
-                  </label>
-
-                  <label>
-                    <span>API key {connectorSettings?.apiKeyConfigured ? "(set)" : ""}</span>
-                    <div className="connector-input-row">
-                      <input
-                        autoComplete="off"
-                        onChange={(event) => updateConnectorDraft(connector.name, "apiKey", event.target.value)}
-                        placeholder="Optional"
-                        type="password"
-                        value={draft.apiKey}
-                      />
-                      <button
-                        className="secondary-button"
-                        onClick={() => void saveConnectorSetting(connector.name, "apiKey")}
-                        type="button"
-                      >
-                        <Save size={15} />
-                        <span>Save</span>
-                      </button>
-                    </div>
-                  </label>
-                </div>
-              </article>
-            );
-          })
-        )}
-      </section>
+      <ConnectorsSection settings={settings} onSettingsChange={onSettingsChange} />
     </main>
-  );
-}
-
-function buildConnectorDrafts(settings: SettingsDto): ConnectorDrafts {
-  return Object.fromEntries(
-    settings.connectors.map((connector) => [
-      connector.name,
-      {
-        apiKey: "",
-        baseUrl: settings.connectorSettings[connector.name]?.baseUrl ?? ""
-      }
-    ])
   );
 }
