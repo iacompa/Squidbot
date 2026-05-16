@@ -38,7 +38,11 @@ function asCandidate(value: unknown): CandidateView | null {
   };
 }
 
-export function MemoryGraphPage() {
+type MemoryGraphPageProps = {
+  embedded?: boolean;
+};
+
+export function MemoryGraphPage({ embedded = false }: MemoryGraphPageProps = {}) {
   const [nodes, setNodes] = useState<MemoryGraphNodeDto[]>([]);
   const [results, setResults] = useState<MemoryGraphSearchResultDto[]>([]);
   const [detail, setDetail] = useState<MemoryGraphDetailDto | null>(null);
@@ -173,19 +177,8 @@ export function MemoryGraphPage() {
     [reflections]
   );
 
-  return (
-    <main className="page-panel memory-graph-page">
-      <header className="page-header">
-        <div>
-          <p className="section-label">Memory</p>
-          <h2>Semantic graph</h2>
-        </div>
-        <button className="secondary-button" type="button" onClick={() => void refreshAll()}>
-          <RefreshCw size={17} />
-          <span>Refresh</span>
-        </button>
-      </header>
-
+  const body = (
+    <>
       {error ? <div className="error-strip">{error}</div> : null}
 
       <section className="memory-graph-toolbar">
@@ -443,6 +436,26 @@ export function MemoryGraphPage() {
           </div>
         </div>
       </section>
+    </>
+  );
+
+  if (embedded) {
+    return body;
+  }
+
+  return (
+    <main className="page-panel memory-graph-page">
+      <header className="page-header">
+        <div>
+          <p className="section-label">Memory</p>
+          <h2>Semantic graph</h2>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => void refreshAll()}>
+          <RefreshCw size={17} />
+          <span>Refresh</span>
+        </button>
+      </header>
+      {body}
     </main>
   );
 }

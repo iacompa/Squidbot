@@ -24,7 +24,11 @@ function statusClass(status: string): string {
   return "medium";
 }
 
-export function RunListPage() {
+type RunListPageProps = {
+  embedded?: boolean;
+};
+
+export function RunListPage({ embedded = false }: RunListPageProps = {}) {
   const [runs, setRuns] = useState<TraceRunSummaryDto[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedTrace, setSelectedTrace] = useState<TraceDto | null>(null);
@@ -77,19 +81,8 @@ export function RunListPage() {
     });
   }, [runs, query, statusFilter]);
 
-  return (
-    <main className="page-panel run-list-page">
-      <header className="page-header">
-        <div>
-          <p className="section-label">Trace dashboard</p>
-          <h2>Runs</h2>
-        </div>
-        <button className="secondary-button" type="button" onClick={() => void refreshRuns()}>
-          <RefreshCw size={17} />
-          <span>Refresh</span>
-        </button>
-      </header>
-
+  const body = (
+    <>
       {error ? <div className="error-strip">{error}</div> : null}
 
       <section className="trace-filter-bar run-filter-bar">
@@ -178,6 +171,26 @@ export function RunListPage() {
           </div>
         </section>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return body;
+  }
+
+  return (
+    <main className="page-panel run-list-page">
+      <header className="page-header">
+        <div>
+          <p className="section-label">Trace dashboard</p>
+          <h2>Runs</h2>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => void refreshRuns()}>
+          <RefreshCw size={17} />
+          <span>Refresh</span>
+        </button>
+      </header>
+      {body}
     </main>
   );
 }
