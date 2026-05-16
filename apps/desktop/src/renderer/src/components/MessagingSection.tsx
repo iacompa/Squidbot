@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, CircleSlash, MessageCircle, RefreshCw, Send, ShieldCheck } from "lucide-react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { CheckCircle2, CircleSlash, MessageCircle, Send, ShieldCheck } from "lucide-react";
 import { squidbotApi } from "../lib/api";
 import type {
   MessagingAdapterDto,
@@ -20,10 +20,16 @@ import type {
  * of `MessagingPage` so the IntegrationsPage tab can reuse the markup
  * without duplication.
  *
- * Self-contained: no props. The component manages its own IPC fetches and
- * draft state, matching the original page's behavior. The owning page is
- * just chrome (title + outer `<main>`).
+ * Refresh affordance: the section exposes its `refresh()` via a
+ * `MessagingSectionHandle` ref so the owning page can keep its Refresh
+ * button in the `page-header` strip (the original visual location)
+ * without the section having to know about the button's chrome. The
+ * data-loading logic stays encapsulated here.
  */
+
+export type MessagingSectionHandle = {
+  refresh: () => Promise<void>;
+};
 
 function statusClass(status: string): string {
   if (status === "installed" || status === "active" || status === "supportedReal" || status === "low") {
@@ -39,7 +45,7 @@ function formatTime(value: string | null | undefined): string {
   return value ? new Date(value).toLocaleString() : "None";
 }
 
-export function MessagingSection() {
+export const MessagingSection = forwardRef<MessagingSectionHandle>((_props, ref) => {
   const [adapters, setAdapters] = useState<MessagingAdapterDto[]>([]);
   const [matrix, setMatrix] = useState<PlatformMatrixEntryDto[]>([]);
   const [channels, setChannels] = useState<MessagingChannelDto[]>([]);
@@ -76,6 +82,11 @@ export function MessagingSection() {
     void refresh().catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : "Unable to load Messaging."));
   }, []);
 
+  // Expose `refresh` to the owning page so the Refresh button can live in
+  // the page-header strip (its original location) while the data-loading
+  // logic stays encapsulated here.
+  useImperativeHandle(ref, () => ({ refresh }), []);
+
   async function addChannel(): Promise<void> {
     await squidbotApi.addMessagingChannel({
       platform: newChannel.platform,
@@ -111,20 +122,6 @@ export function MessagingSection() {
 
   return (
     <>
-      {/*
-       * Refresh action moved out of the page-header into the section so the
-       * section can be embedded into IntegrationsPage's Messaging tab
-       * (Task 1.4) without losing its manual-reload affordance. Inline
-       * styles keep the diff to this component only; a future polish pass
-       * can move them into a shared `.section-toolbar` rule in app.css.
-       */}
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 24px 0" }}>
-        <button className="secondary-button" type="button" onClick={() => void refresh()}>
-          <RefreshCw size={17} />
-          <span>Refresh</span>
-        </button>
-      </div>
-
       {error ? <div className="error-strip">{error}</div> : null}
 
       <section className="metric-grid">
@@ -315,4 +312,6 @@ export function MessagingSection() {
       </section>
     </>
   );
-}
+});
+
+MessagingSection.displayName = "MessagingSection";
