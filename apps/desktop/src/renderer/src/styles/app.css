@@ -3431,3 +3431,35 @@ pre {
   gap: 12px;
   justify-content: flex-end;
 }
+
+/* ---- Integrations / History tab strip (shared) ---- */
+.integrations-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.integrations-tabs button[role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.integrations-tabs button[role="tab"]:hover {
+  color: var(--ink);
+}
+
+.integrations-tabs button[role="tab"].is-active {
+  color: var(--teal-strong);
+  border-bottom-color: var(--teal);
+}
