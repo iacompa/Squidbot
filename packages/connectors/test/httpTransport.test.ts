@@ -39,8 +39,9 @@ describe("executeRealHttpCall — auth", () => {
     let captured: RequestInit | null = null;
     const original = globalThis.fetch;
     globalThis.fetch = vi.fn(async (_url, init) => {
-      captured = init ?? {};
-      return handler(captured);
+      const initRecord: RequestInit = init ?? {};
+      captured = initRecord;
+      return handler(initRecord);
     }) as typeof fetch;
     return { restore: () => { globalThis.fetch = original; }, captured: () => captured };
   }
