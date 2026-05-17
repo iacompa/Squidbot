@@ -123,3 +123,159 @@ describe("ConnectorsSection", () => {
     );
   });
 });
+
+describe("ConnectorsSection — Test button and status indicator", () => {
+  const connectorWithKey: SettingsDto = {
+    ...emptySettings,
+    connectors: [
+      {
+        name: "github",
+        systemType: "scm",
+        description: "Git hosting",
+        protocol: "rest",
+        fixtureMode: false,
+        costOwner: "user-paid",
+        operations: ["createIssue"]
+      }
+    ],
+    connectorSettings: { github: { baseUrl: "https://api.github.com", apiKeyConfigured: true } }
+  };
+
+  it("renders Test button when key is configured and not in fixture mode", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    render(<ConnectorsSection settings={connectorWithKey} onSettingsChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /^test$/i })).toBeTruthy();
+  });
+
+  it("does not render Test button when fixtureMode is true", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    const fixtureSettings: SettingsDto = {
+      ...emptySettings,
+      connectors: [
+        {
+          name: "github",
+          systemType: "scm",
+          description: "Git hosting",
+          protocol: "rest",
+          fixtureMode: true,
+          costOwner: "user-paid",
+          operations: ["createIssue"]
+        }
+      ],
+      connectorSettings: { github: { baseUrl: undefined, apiKeyConfigured: true } }
+    };
+    render(<ConnectorsSection settings={fixtureSettings} onSettingsChange={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /^test$/i })).toBeNull();
+    // Fixture state chip text.
+    expect(screen.getByText(/mock data/i)).toBeTruthy();
+  });
+
+  it("does not render Test button when no api key is configured", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    const noKeySettings: SettingsDto = {
+      ...emptySettings,
+      connectors: [
+        {
+          name: "github",
+          systemType: "scm",
+          description: "Git hosting",
+          protocol: "rest",
+          fixtureMode: false,
+          costOwner: "user-paid",
+          operations: ["createIssue"]
+        }
+      ],
+      connectorSettings: { github: { baseUrl: undefined, apiKeyConfigured: false } }
+    };
+    render(<ConnectorsSection settings={noKeySettings} onSettingsChange={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /^test$/i })).toBeNull();
+    // not-configured chip text.
+    expect(screen.getByText(/add a key/i)).toBeTruthy();
+  });
+
+  it("hides Test button when profile sensitivity is air-gapped", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    render(
+      <ConnectorsSection
+        settings={connectorWithKey}
+        onSettingsChange={vi.fn()}
+        activeProfileSensitivity="air-gapped"
+      />
+    );
+    expect(screen.queryByRole("button", { name: /^test$/i })).toBeNull();
+    expect(screen.getByText(/real calls disabled/i)).toBeTruthy();
+  });
+
+  it("clicking Test calls testConnector and refreshes settings", async () => {
+    const testConnectorMock = vi.fn(async () => ({ ok: true, durationMs: 12 }));
+    const refreshedSettings = { ...connectorWithKey };
+    const getSettingsMock = vi.fn(async () => refreshedSettings);
+    const onSettingsChange = vi.fn();
+    Reflect.deleteProperty(window, "squidbot");
+    Object.defineProperty(window, "squidbot", {
+      configurable: true,
+      value: {
+        saveConnectorSetting: vi.fn(),
+        testConnector: testConnectorMock,
+        getSettings: getSettingsMock
+      }
+    });
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    render(<ConnectorsSection settings={connectorWithKey} onSettingsChange={onSettingsChange} />);
+    fireEvent.click(screen.getByRole("button", { name: /^test$/i }));
+    await waitFor(() => expect(testConnectorMock).toHaveBeenCalledWith("github"));
+    await waitFor(() => expect(getSettingsMock).toHaveBeenCalled());
+    await waitFor(() => expect(onSettingsChange).toHaveBeenCalledWith(refreshedSettings));
+  });
+
+  it("shows green tested-recently chip when lastTest is ok and fresh", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    const recentSettings: SettingsDto = {
+      ...connectorWithKey,
+      connectorSettings: {
+        github: {
+          baseUrl: "https://api.github.com",
+          apiKeyConfigured: true,
+          lastTest: { status: "ok", at: new Date().toISOString() }
+        }
+      }
+    };
+    render(<ConnectorsSection settings={recentSettings} onSettingsChange={vi.fn()} />);
+    expect(screen.getByText(/tested/i)).toBeTruthy();
+  });
+
+  it("shows red auth-failed chip when lastTest.status is 'auth'", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    const authFailedSettings: SettingsDto = {
+      ...connectorWithKey,
+      connectorSettings: {
+        github: {
+          baseUrl: "https://api.github.com",
+          apiKeyConfigured: true,
+          lastTest: { status: "auth", at: new Date().toISOString(), message: "401" }
+        }
+      }
+    };
+    render(<ConnectorsSection settings={authFailedSettings} onSettingsChange={vi.fn()} />);
+    expect(screen.getByText(/key rejected/i)).toBeTruthy();
+  });
+
+  it("shows amber re-test recommended chip when lastTest is ok but stale", async () => {
+    const { ConnectorsSection } = await import("./ConnectorsSection");
+    const staleSettings: SettingsDto = {
+      ...connectorWithKey,
+      connectorSettings: {
+        github: {
+          baseUrl: "https://api.github.com",
+          apiKeyConfigured: true,
+          lastTest: {
+            status: "ok",
+            at: new Date(Date.now() - 2 * 86_400_000).toISOString()
+          }
+        }
+      }
+    };
+    render(<ConnectorsSection settings={staleSettings} onSettingsChange={vi.fn()} />);
+    expect(screen.getByText(/re-test recommended/i)).toBeTruthy();
+  });
+});

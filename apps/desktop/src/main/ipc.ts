@@ -132,13 +132,23 @@ function readSettings(database: SquidDatabase, paths: DesktopAppPaths): Settings
     },
     connectors,
     connectorSettings: Object.fromEntries(
-      connectors.map((connector) => [
-        connector.name,
-        {
-          baseUrl: typeof settings[`${connector.name}.baseUrl`] === "string" ? (settings[`${connector.name}.baseUrl`] as string) : undefined,
-          apiKeyConfigured: typeof settings[`${connector.name}.apiKey`] === "string" && Boolean(settings[`${connector.name}.apiKey`])
-        }
-      ])
+      connectors.map((connector) => {
+        const status = settings[`${connector.name}.lastTest.status`];
+        const at = settings[`${connector.name}.lastTest.at`];
+        const message = settings[`${connector.name}.lastTest.message`];
+        return [
+          connector.name,
+          {
+            baseUrl: typeof settings[`${connector.name}.baseUrl`] === "string"
+              ? (settings[`${connector.name}.baseUrl`] as string) : undefined,
+            apiKeyConfigured: typeof settings[`${connector.name}.apiKey`] === "string"
+              && Boolean(settings[`${connector.name}.apiKey`]),
+            lastTest: typeof status === "string" && typeof at === "string"
+              ? { status, at, message: typeof message === "string" ? message : undefined }
+              : undefined
+          }
+        ];
+      })
     )
   };
 }

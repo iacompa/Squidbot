@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import { squidbotApi } from "../lib/api";
-import type { SettingsDto } from "../../../shared/api";
+import type { ConnectorDto, SettingsDto } from "../../../shared/api";
 
 /**
  * Per-connector configuration list. Renders an empty state when no
@@ -21,7 +21,62 @@ import type { SettingsDto } from "../../../shared/api";
 type ConnectorsSectionProps = {
   settings: SettingsDto;
   onSettingsChange: (next: SettingsDto) => void;
+  /**
+   * Active enterprise profile sensitivity, if known. When the profile is
+   * "air-gapped" the Test button is hidden and the status row shows a
+   * locked indicator explaining that real calls are disabled by the
+   * profile. Optional — callers that don't know the profile can omit it
+   * and the "disabled" state simply won't render.
+   */
+  activeProfileSensitivity?: string;
 };
+
+type ConnectorStatusDot = "grey" | "yellow" | "blue" | "green" | "amber" | "red" | "lock";
+
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - Date.parse(iso);
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+/**
+ * Derives the dot color + chip text from connector state. See Section 8
+ * of the design doc for the 8-state matrix.
+ */
+function deriveStatus(
+  connector: ConnectorDto,
+  connectorSettings: SettingsDto["connectorSettings"][string] | undefined,
+  activeProfileSensitivity: string | undefined
+): { dot: ConnectorStatusDot; text: string } {
+  if (activeProfileSensitivity === "air-gapped") {
+    return { dot: "lock", text: "Real calls disabled by profile sensitivity" };
+  }
+  if (connector.fixtureMode) {
+    return { dot: "yellow", text: "Mock data — toggle off for real" };
+  }
+  if (!connectorSettings?.apiKeyConfigured) {
+    return { dot: "grey", text: "Add a key to use this" };
+  }
+  const last = connectorSettings?.lastTest;
+  if (!last) {
+    return { dot: "blue", text: "Test connection ↗" };
+  }
+  if (last.status === "ok") {
+    const ageMs = Date.now() - Date.parse(last.at);
+    if (ageMs < 86_400_000) {
+      return { dot: "green", text: `tested ${formatRelativeTime(last.at)}` };
+    }
+    return { dot: "amber", text: "Re-test recommended" };
+  }
+  if (last.status === "auth") {
+    return { dot: "red", text: "Key rejected — check and re-test" };
+  }
+  return { dot: "red", text: "Provider unreachable" };
+}
 
 type ConnectorDrafts = Record<string, { apiKey: string; baseUrl: string }>;
 
@@ -37,7 +92,7 @@ function buildConnectorDrafts(settings: SettingsDto): ConnectorDrafts {
   );
 }
 
-export function ConnectorsSection({ settings, onSettingsChange }: ConnectorsSectionProps) {
+export function ConnectorsSection({ settings, onSettingsChange, activeProfileSensitivity }: ConnectorsSectionProps) {
   const [connectorDrafts, setConnectorDrafts] = useState<ConnectorDrafts>(() => buildConnectorDrafts(settings));
 
   useEffect(() => {
@@ -57,6 +112,13 @@ export function ConnectorsSection({ settings, onSettingsChange }: ConnectorsSect
   async function saveConnectorSetting(connectorName: string, key: "apiKey" | "baseUrl"): Promise<void> {
     const value = connectorDrafts[connectorName]?.[key] ?? "";
     onSettingsChange(await squidbotApi.saveConnectorSetting(connectorName, key, value));
+  }
+
+  async function testConnector(connectorName: string): Promise<void> {
+    // Fire the test, then refresh settings so the status indicator picks up
+    // the new lastTest values populated by the IPC handler.
+    await squidbotApi.testConnector(connectorName);
+    onSettingsChange(await squidbotApi.getSettings());
   }
 
   return (
@@ -134,6 +196,29 @@ export function ConnectorsSection({ settings, onSettingsChange }: ConnectorsSect
                   </div>
                 </label>
               </div>
+
+              {(() => {
+                const status = deriveStatus(connector, connectorSettings, activeProfileSensitivity);
+                const showTestButton =
+                  connectorSettings?.apiKeyConfigured &&
+                  !connector.fixtureMode &&
+                  activeProfileSensitivity !== "air-gapped";
+                return (
+                  <div className="connector-status-row">
+                    <span className={`connector-status-dot ${status.dot}`} aria-hidden />
+                    <span className="connector-status-text">{status.text}</span>
+                    {showTestButton && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void testConnector(connector.name)}
+                      >
+                        Test
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </article>
           );
         })

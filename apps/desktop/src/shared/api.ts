@@ -110,7 +110,11 @@ export type SettingsDto = {
     costOwner: string;
   };
   connectors: ConnectorDto[];
-  connectorSettings: Record<string, { baseUrl?: string; apiKeyConfigured: boolean }>;
+  connectorSettings: Record<string, {
+    baseUrl?: string;
+    apiKeyConfigured: boolean;
+    lastTest?: { status: string; at: string; message?: string };
+  }>;
 };
 
 export type ConnectorDto = {

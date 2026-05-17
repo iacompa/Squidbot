@@ -4,7 +4,7 @@ import { ModelAccountsSection } from "../components/ModelAccountsSection";
 import { ConnectorsSection } from "../components/ConnectorsSection";
 import { MessagingSection } from "../components/MessagingSection";
 import { squidbotApi } from "../lib/api";
-import type { SettingsDto } from "../../../shared/api";
+import type { EnterpriseProfileDto, SettingsDto } from "../../../shared/api";
 
 export type IntegrationsTab = "models" | "connectors" | "messaging";
 
@@ -19,6 +19,7 @@ type IntegrationsPageProps = {
 export function IntegrationsPage({ initialTab = "models" }: IntegrationsPageProps = {}) {
   const [tab, setTab] = useState<IntegrationsTab>(initialTab);
   const [settings, setSettings] = useState<SettingsDto | null>(null);
+  const [activeProfile, setActiveProfile] = useState<EnterpriseProfileDto | null>(null);
 
   // ConnectorsSection needs settings — load lazily when its tab is opened so
   // a user who only ever uses AI models doesn't pay the IPC cost on mount.
@@ -27,6 +28,22 @@ export function IntegrationsPage({ initialTab = "models" }: IntegrationsPageProp
       void squidbotApi.getSettings().then(setSettings);
     }
   }, [tab, settings]);
+
+  // The active profile's sensitivity drives ConnectorsSection's "disabled by
+  // air-gap" state. Loaded once alongside settings; failure is non-fatal —
+  // the section falls back to showing all other states.
+  useEffect(() => {
+    if (tab !== "connectors" || activeProfile !== null) return;
+    if (typeof squidbotApi.getActiveEnterpriseProfile !== "function") return;
+    void squidbotApi
+      .getActiveEnterpriseProfile()
+      .then((profile) => {
+        if (profile) setActiveProfile(profile);
+      })
+      .catch(() => {
+        // Profile lookup is best-effort; leave activeProfile null.
+      });
+  }, [tab, activeProfile]);
 
   return (
     <main className="page-panel integrations-page">
@@ -74,7 +91,11 @@ export function IntegrationsPage({ initialTab = "models" }: IntegrationsPageProp
       <div className="integrations-tab-content">
         {tab === "models" && <ModelAccountsSection />}
         {tab === "connectors" && settings && (
-          <ConnectorsSection settings={settings} onSettingsChange={setSettings} />
+          <ConnectorsSection
+            settings={settings}
+            onSettingsChange={setSettings}
+            activeProfileSensitivity={activeProfile?.sensitivity}
+          />
         )}
         {tab === "connectors" && !settings && <div className="muted">Loading…</div>}
         {tab === "messaging" && <MessagingSection />}
