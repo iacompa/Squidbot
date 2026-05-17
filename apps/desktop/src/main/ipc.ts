@@ -1,6 +1,14 @@
 import path from "node:path";
 import { dialog, ipcMain } from "electron";
-import { ConnectorRegistry, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
+import {
+  ConnectorRegistry,
+  executeRealHttpCall,
+  getApproval,
+  installDeveloperWorkflowConnectors,
+  listOpenApprovals,
+  registerConnectorTools,
+  resolveApproval
+} from "@squidbot/connectors";
 import { EvalResultStore, SkillVariantStore } from "@squidbot/evals";
 import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEngine } from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
@@ -529,19 +537,37 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:listPendingApprovals", (): PendingApprovalDto[] => {
-    // v1 source: active sandboxes pending promotion approval. The DTO `kind`
-    // discriminator lets future approval sources slot in here without
-    // changing the renderer contract.
-    const sandboxes = database.listSandboxes({ status: "active" });
-    return sandboxes.map((sandbox) => ({
-      id: sandbox.id,
-      kind: "sandbox-promotion" as const,
-      title: `Promote sandbox ${sandbox.id.slice(0, 12)}…`,
-      summary: `Workspace: ${sandbox.workspacePath} · ${sandbox.diff.length} bytes of diff`,
-      riskLevel: "medium" as const,
-      createdAt: sandbox.createdAt,
-      payload: { sandboxId: sandbox.id, workspacePath: sandbox.workspacePath }
+    // Two sources merged into a single queue for the renderer:
+    //   - active sandboxes still pending promotion approval (legacy v1 source)
+    //   - rows in the pending_approvals table (Task 1.4) — currently only
+    //     connector-call kind, but the DTO `kind` discriminator keeps future
+    //     kinds (high-risk-tool, memory-deletion, …) easy to slot in.
+    const sandboxRows: PendingApprovalDto[] = database
+      .listSandboxes({ status: "active" })
+      .map((sandbox) => ({
+        id: sandbox.id,
+        kind: "sandbox-promotion" as const,
+        title: `Promote sandbox ${sandbox.id.slice(0, 12)}…`,
+        summary: `Workspace: ${sandbox.workspacePath} · ${sandbox.diff.length} bytes of diff`,
+        riskLevel: "medium" as const,
+        createdAt: sandbox.createdAt,
+        payload: { sandboxId: sandbox.id, workspacePath: sandbox.workspacePath }
+      }));
+
+    const tableRows: PendingApprovalDto[] = listOpenApprovals(database).map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      summary: row.summary,
+      riskLevel: row.riskLevel,
+      createdAt: row.createdAt,
+      payload: row.payload as PendingApprovalDto["payload"]
     }));
+
+    // Most-recent first across both sources.
+    return [...tableRows, ...sandboxRows].sort((a, b) =>
+      a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0
+    );
   });
 
   ipcMain.handle("squidbot:listSkills", () => createSkillService(database, paths).listSkills(100));

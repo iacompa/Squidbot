@@ -187,7 +187,7 @@ export type PendingApprovalDto = {
   /** Stable id — sandbox id for v1; future kinds may use other ids. */
   id: string;
   /** Discriminator for the approval source. */
-  kind: "sandbox-promotion";
+  kind: "sandbox-promotion" | "connector-call";
   /** Human-friendly title rendered in the approvals queue row. */
   title: string;
   /** One-line context about what's being approved. */
@@ -198,8 +198,15 @@ export type PendingApprovalDto = {
   createdAt: string;
   /** Kind-specific data the page may need to drive approve/reject actions. */
   payload: {
+    // sandbox-promotion fields
     sandboxId?: string;
     workspacePath?: string;
+    // connector-call fields (Task 1.6)
+    connectorName?: string;
+    operationId?: string;
+    args?: Record<string, unknown>;
+    callerSessionId?: string;
+    callerRunId?: string;
   };
 };
 
