@@ -89,6 +89,13 @@ export class AgentRuntime {
    * routers are not auto-refreshed on account changes.
    */
   private readonly modelRouterIsInjected: boolean;
+  /**
+   * High-water mark of the last `resolvedAt` timestamp we surfaced to the
+   * agent as a resolved-approvals system note, keyed by sessionId. Used so
+   * that each `sendMessage` only surfaces approvals resolved *since* the
+   * previous turn — the agent doesn't see the same approval announced twice.
+   */
+  private readonly lastResolvedAtBySession = new Map<string, string>();
 
   constructor(options: AgentRuntimeOptions) {
     this.database = options.database;
@@ -132,11 +139,84 @@ export class AgentRuntime {
     }
   }
 
-  private buildMessagesForModel(memoryBulletin?: string): ChatMessage[] {
+  private buildMessagesForModel(memoryBulletin?: string, resolvedApprovalsNote?: string): ChatMessage[] {
     const report = buildIdentityReport(this.database, this.toolRegistry);
     const systemPrompt = buildSystemPrompt(report, { memoryBulletin });
     const withoutSystem = this.messages.filter((message) => message.role !== "system");
-    return [{ role: "system", content: systemPrompt }, ...withoutSystem];
+    const messages: ChatMessage[] = [{ role: "system", content: systemPrompt }];
+    if (resolvedApprovalsNote) {
+      // Sits between the main system prompt and the conversation history so
+      // the agent sees the operator's resolutions BEFORE re-reading the
+      // pending tool-result that triggered the approval in the first place.
+      messages.push({ role: "system", content: resolvedApprovalsNote });
+    }
+    messages.push(...withoutSystem);
+    return messages;
+  }
+
+  /**
+   * Read approvals resolved for this session since the last `sendMessage`,
+   * and return them rendered as a single system note ready for injection
+   * into the next model call. Returns `null` when there's nothing new.
+   *
+   * The query is inlined here rather than imported from `@squidbot/connectors`
+   * because that package depends on `@squidbot/core` — a direct import would
+   * create a cycle. The `pending_approvals` schema lives in `@squidbot/db`,
+   * so this is just a read against that table.
+   */
+  private buildResolvedApprovalsNote(): string | null {
+    const lastSeen =
+      this.lastResolvedAtBySession.get(this.sessionId)
+      ?? new Date(Date.now() - 60_000).toISOString();
+    const rows = this.database.db
+      .prepare(
+        `SELECT id, payloadJson, resolution, resolvedAt, resultJson
+           FROM pending_approvals
+          WHERE callerSessionId = ?
+            AND resolvedAt IS NOT NULL
+            AND resolvedAt >= ?
+          ORDER BY resolvedAt ASC`
+      )
+      .all(this.sessionId, lastSeen) as Array<{
+        id: string;
+        payloadJson: string;
+        resolution: "approved" | "rejected" | null;
+        resolvedAt: string;
+        resultJson: string | null;
+      }>;
+    if (rows.length === 0) {
+      return null;
+    }
+    const lines = rows.map((row) => {
+      const payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+      const connectorName = (payload.connectorName as string | undefined) ?? "?";
+      const operationId = (payload.operationId as string | undefined) ?? "?";
+      const result = row.resultJson ? (JSON.parse(row.resultJson) as Record<string, unknown> | null) : null;
+      const resolutionLabel = row.resolution ? row.resolution.toUpperCase() : "RESOLVED";
+      let detail = "";
+      if (row.resolution === "approved" && result && typeof result.status !== "undefined") {
+        detail = ` (HTTP ${String(result.status)})`;
+      } else if (row.resolution === "rejected" && result && typeof result.reason === "string" && result.reason) {
+        detail = ` — reason: ${result.reason}`;
+      }
+      return `- ${connectorName}.${operationId} (${row.id}) — ${resolutionLabel}${detail}`;
+    });
+    // Update the high-water mark so we don't re-surface the same rows on
+    // the next sendMessage. We bump 1ms past the latest resolvedAt we just
+    // surfaced — using "now" can collide with the row's own timestamp when
+    // the test (or a real fast operator) resolves within the same
+    // millisecond as the runtime's read, which would replay the row
+    // forever. Using max(resolvedAt) + 1ms is collision-proof and still
+    // lets a concurrent resolve at "now + epsilon" be picked up on the
+    // next turn.
+    const latestSurfaced = rows[rows.length - 1].resolvedAt;
+    const bumped = new Date(new Date(latestSurfaced).getTime() + 1).toISOString();
+    this.lastResolvedAtBySession.set(this.sessionId, bumped);
+    return [
+      "SYSTEM: Since your last message, the following connector approvals were resolved:",
+      ...lines,
+      "Acknowledge any resolved approvals naturally in your response if relevant."
+    ].join("\n");
   }
 
   async sendMessage(content: string): Promise<AgentResponse> {
@@ -168,10 +248,20 @@ export class AgentRuntime {
       bulletin: memoryBulletin
     });
 
+    // Surface any connector approvals the operator has approved or rejected
+    // since this session's last turn. The agent can then naturally reason
+    // about the resolutions in its next response (e.g. "your GitHub issue
+    // is now created — number 42") instead of getting stuck waiting on a
+    // pending tool result from a prior turn.
+    const resolvedApprovalsNote = this.buildResolvedApprovalsNote();
+
     const modelResponse = await this.modelRouter.generate({
       sessionId: this.sessionId,
       runId,
-      messages: this.buildMessagesForModel(retrievedMemories.length > 0 ? memoryBulletin : undefined),
+      messages: this.buildMessagesForModel(
+        retrievedMemories.length > 0 ? memoryBulletin : undefined,
+        resolvedApprovalsNote ?? undefined
+      ),
       tools: this.toolRegistry.list(),
       emitEvent: append
     });

@@ -347,6 +347,85 @@ describe("AgentRuntime", () => {
     }
   });
 
+  it("injects a resolved-approvals system note on the next sendMessage", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+
+    // Drive the runtime with a fixed sessionId so we can pre-seed an
+    // approval row scoped to the same session before sending.
+    const sessionId = "session_runtime_resolved_approval_test";
+    const runtime = new AgentRuntime({
+      database,
+      workspacePath: fixture.workspacePath,
+      sessionId
+    });
+
+    // Insert a connector-call approval that's already been resolved by the
+    // operator (approved + HTTP 201 result). The runtime's read query is
+    // bounded to "resolved at >= (now - 60s)" on the first sendMessage, so
+    // a fresh resolvedAt timestamp guarantees the row is in-window.
+    const now = new Date().toISOString();
+    const approvalId = "ap_test_resolved_001";
+    database.db
+      .prepare(
+        `INSERT INTO pending_approvals
+           (id, kind, title, summary, riskLevel, payloadJson, callerSessionId, callerRunId,
+            createdAt, resolvedAt, resolution, resultJson)
+         VALUES (?, 'connector-call', ?, ?, 'high', ?, ?, NULL, ?, ?, 'approved', ?)`
+      )
+      .run(
+        approvalId,
+        "Allow github.createIssue?",
+        "Args: { title: 'Bug' }",
+        JSON.stringify({ connectorName: "github", operationId: "createIssue", args: { title: "Bug" } }),
+        sessionId,
+        now,
+        now,
+        JSON.stringify({ status: 201, body: { number: 42 } })
+      );
+
+    const result = await runtime.sendMessage("ok");
+
+    // The model.call event captures the exact messages array sent to the
+    // provider, so we can assert the resolved-approvals system note made it
+    // into the prompt.
+    const modelCallEvent = database
+      .listEvents(result.sessionId)
+      .find((event) => event.type === "model.call");
+    expect(modelCallEvent).toBeDefined();
+    const modelCallDetail = JSON.parse(modelCallEvent!.data) as {
+      promptSnapshot?: { messages: Array<{ role: string; content: string }> };
+    };
+    const combined =
+      modelCallDetail.promptSnapshot?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(combined).toMatch(/connector approvals were resolved/i);
+    expect(combined).toMatch(/github\.createIssue/);
+    expect(combined).toMatch(/APPROVED/);
+    expect(combined).toMatch(/HTTP 201/);
+
+    // The system note must be a dedicated system message (between the main
+    // system prompt and the conversation history) rather than glued onto
+    // the user message.
+    const systemMessages = modelCallDetail.promptSnapshot?.messages.filter((message) => message.role === "system") ?? [];
+    expect(systemMessages.length).toBeGreaterThanOrEqual(2);
+    expect(systemMessages.some((message) => /connector approvals were resolved/i.test(message.content))).toBe(true);
+
+    // A second sendMessage right after must NOT re-surface the same row —
+    // the high-water mark moves forward each turn.
+    const second = await runtime.sendMessage("anything new?");
+    const secondModelCall = database
+      .listEvents(second.sessionId)
+      .filter((event) => event.type === "model.call")
+      .map((event) => JSON.parse(event.data) as {
+        runId?: string;
+        promptSnapshot?: { messages: Array<{ role: string; content: string }> };
+      })
+      .find((event) => event.runId === second.runId);
+    const secondCombined =
+      secondModelCall?.promptSnapshot?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(secondCombined).not.toMatch(/connector approvals were resolved/i);
+  });
+
   it("chat path emits memory.retrieved with count=0 and omits the memory section when no memories exist", async () => {
     const fixture = createWorkspace();
     database = initializeDatabase(fixture.dbPath);
