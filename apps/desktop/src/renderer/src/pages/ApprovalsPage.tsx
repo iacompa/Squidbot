@@ -22,10 +22,14 @@ export function ApprovalsPage() {
   }, [refresh]);
 
   async function approve(item: PendingApprovalDto) {
-    if (item.kind !== "sandbox-promotion" || !item.payload.sandboxId) return;
     setBusyId(item.id);
     try {
-      await squidbotApi.approveSandbox(item.payload.sandboxId);
+      if (item.kind === "sandbox-promotion") {
+        if (!item.payload.sandboxId) return;
+        await squidbotApi.approveSandbox(item.payload.sandboxId);
+      } else if (item.kind === "connector-call") {
+        await squidbotApi.approveConnectorCall(item.id);
+      }
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -35,10 +39,14 @@ export function ApprovalsPage() {
   }
 
   async function reject(item: PendingApprovalDto) {
-    if (item.kind !== "sandbox-promotion" || !item.payload.sandboxId) return;
     setBusyId(item.id);
     try {
-      await squidbotApi.rejectSandbox(item.payload.sandboxId);
+      if (item.kind === "sandbox-promotion") {
+        if (!item.payload.sandboxId) return;
+        await squidbotApi.rejectSandbox(item.payload.sandboxId);
+      } else if (item.kind === "connector-call") {
+        await squidbotApi.rejectConnectorCall(item.id);
+      }
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

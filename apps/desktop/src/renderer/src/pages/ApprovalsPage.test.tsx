@@ -61,3 +61,50 @@ describe("ApprovalsPage", () => {
     await waitFor(() => expect(rejectSandbox).toHaveBeenCalledWith("sb_one"));
   });
 });
+
+describe("ApprovalsPage — connector-call kind", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "squidbot", {
+      configurable: true,
+      value: {
+        listPendingApprovals: vi.fn(async () => [
+          {
+            id: "ap_cc1",
+            kind: "connector-call",
+            title: "Allow github.createIssue?",
+            summary: "Args: { title: 'Bug', repo: 'foo' }",
+            riskLevel: "high",
+            createdAt: new Date().toISOString(),
+            payload: {
+              connectorName: "github",
+              operationId: "createIssue",
+              args: { title: "Bug" }
+            }
+          }
+        ]),
+        approveConnectorCall: vi.fn(async () => ({ ok: true, result: { number: 42 } })),
+        rejectConnectorCall: vi.fn(async () => ({ ok: true }))
+      }
+    });
+  });
+
+  it("renders connector-call rows and routes Approve to approveConnectorCall", async () => {
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => screen.getByText(/github\.createIssue/i));
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    await waitFor(() =>
+      expect((window as unknown as { squidbot: { approveConnectorCall: ReturnType<typeof vi.fn> } }).squidbot.approveConnectorCall).toHaveBeenCalledWith("ap_cc1")
+    );
+  });
+
+  it("routes Reject to rejectConnectorCall", async () => {
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => screen.getByText(/github\.createIssue/i));
+    fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+    await waitFor(() =>
+      expect((window as unknown as { squidbot: { rejectConnectorCall: ReturnType<typeof vi.fn> } }).squidbot.rejectConnectorCall).toHaveBeenCalledWith("ap_cc1")
+    );
+  });
+});
