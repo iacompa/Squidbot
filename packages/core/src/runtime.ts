@@ -1,7 +1,7 @@
 import type { SquidDatabase } from "@squidbot/db";
 import { affordanceGapId, createAffordanceGap, detectAffordanceGaps } from "@squidbot/reflection";
 import { parseCommandLine, SandboxManager, type Sandbox, type SandboxCreateOptions, type SandboxRunResult } from "@squidbot/sandbox";
-import { installSeedProfiles } from "./enterpriseProfile.js";
+import { getActiveProfile, installSeedProfiles, type ProfileSensitivity } from "./enterpriseProfile.js";
 import { EventLog } from "./eventLog.js";
 import { buildIdentityReport, buildSystemPrompt } from "./identity.js";
 import { ensureLegacyAccountMigrated, getActiveModelAccount } from "./modelAccounts.js";
@@ -186,7 +186,7 @@ export class AgentRuntime {
     const toolResults: ToolResult[] = [];
 
     for (const toolCall of modelResponse.toolCalls) {
-      toolResults.push(await this.executeToolCall(toolCall, append));
+      toolResults.push(await this.executeToolCall(toolCall, append, undefined, runId));
     }
 
     const responseContent = formatAssistantResponse(modelResponse.content, toolResults);
@@ -288,7 +288,8 @@ export class AgentRuntime {
           args: action.args
         },
         append,
-        action.description
+        action.description,
+        runId
       );
       toolResults.push(result);
 
@@ -436,7 +437,8 @@ export class AgentRuntime {
   private async executeToolCall(
     toolCall: ToolCall,
     append: (type: AgentEvent["type"], data: JsonObject) => void,
-    actionDescription?: string
+    actionDescription?: string,
+    runId?: string
   ): Promise<ToolResult> {
     const tool = this.toolRegistry.get(toolCall.name);
     if (!tool) {
@@ -495,7 +497,16 @@ export class AgentRuntime {
       const output = await this.toolRegistry.execute(toolCall.name, toolCall.args, {
         workspacePath: this.workspacePath,
         emitEvent: append,
-        getSetting: <T = unknown>(key: string) => this.database.getSetting<T>(key)
+        getSetting: <T = unknown>(key: string) => this.database.getSetting<T>(key),
+        // The active enterprise profile's sensitivity drives the connector
+        // sensitivity policy (execute / queue / deny). We read it per-call so
+        // operator changes to the profile during a session take effect on the
+        // next tool call without needing to rebuild the runtime.
+        getActiveProfileSensitivity: (): ProfileSensitivity =>
+          getActiveProfile(this.database)?.sensitivity ?? "standard",
+        database: this.database,
+        sessionId: this.sessionId,
+        runId
       });
       append("tool.result", {
         toolName: toolCall.name,

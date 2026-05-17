@@ -59,6 +59,8 @@ export type AgentEvent = {
     | "connector.fixture"
     | "connector.approved"
     | "connector.denied"
+    | "connector.http_call"
+    | "connector.approval-requested"
     | "connector.prDrafted"
     | "connector.issueUpdated"
     | "connector.ciTriggered"
