@@ -193,7 +193,7 @@ export type PendingApprovalDto = {
   /** One-line context about what's being approved. */
   summary: string;
   /** Risk level for visual treatment. */
-  riskLevel: "low" | "medium" | "high";
+  riskLevel: "low" | "medium" | "high" | "critical";
   /** ISO timestamp of when this entered the queue. */
   createdAt: string;
   /** Kind-specific data the page may need to drive approve/reject actions. */

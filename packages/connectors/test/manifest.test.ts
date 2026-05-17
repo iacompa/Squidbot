@@ -47,4 +47,17 @@ describe("ConnectorManifest — testEndpoint field", () => {
       validateConnectorManifest(minimalManifest({ testEndpoint: { path: "/user" } }))
     ).toThrow(/testEndpoint/i);
   });
+
+  it("rejects testEndpoint with non-string method", () => {
+    expect(() =>
+      validateConnectorManifest(minimalManifest({ testEndpoint: { method: 123, path: "/x" } }))
+    ).toThrow(/method/i);
+  });
+
+  it("normalizes method to uppercase (regression for I4)", () => {
+    const result = validateConnectorManifest(
+      minimalManifest({ testEndpoint: { method: "get", path: "/user" } })
+    );
+    expect(result.testEndpoint).toEqual({ method: "GET", path: "/user" });
+  });
 });

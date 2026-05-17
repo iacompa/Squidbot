@@ -1283,21 +1283,22 @@ export const migrations: Migration[] = [
         kind TEXT NOT NULL CHECK(kind IN ('sandbox-promotion', 'connector-call')),
         title TEXT NOT NULL,
         summary TEXT NOT NULL,
-        riskLevel TEXT NOT NULL CHECK(riskLevel IN ('low', 'medium', 'high')),
-        payload TEXT NOT NULL,
+        riskLevel TEXT NOT NULL CHECK(riskLevel IN ('low', 'medium', 'high', 'critical')),
+        payloadJson TEXT NOT NULL,
         callerSessionId TEXT,
         callerRunId TEXT,
         createdAt TEXT NOT NULL,
         resolvedAt TEXT,
         resolution TEXT CHECK(resolution IN ('approved', 'rejected') OR resolution IS NULL),
-        resultJson TEXT
+        resultJson TEXT,
+        CHECK ((resolvedAt IS NULL AND resolution IS NULL) OR (resolvedAt IS NOT NULL AND resolution IS NOT NULL))
       );
 
-      CREATE INDEX idx_pending_approvals_unresolved
+      CREATE INDEX IF NOT EXISTS idx_pending_approvals_unresolved
         ON pending_approvals (createdAt)
         WHERE resolvedAt IS NULL;
 
-      CREATE INDEX idx_pending_approvals_session
+      CREATE INDEX IF NOT EXISTS idx_pending_approvals_session
         ON pending_approvals (callerSessionId);
     `
   }

@@ -38,7 +38,7 @@ describe("pending_approvals migration", () => {
         "title",
         "summary",
         "riskLevel",
-        "payload",
+        "payloadJson",
         "callerSessionId",
         "callerRunId",
         "createdAt",
@@ -54,9 +54,76 @@ describe("pending_approvals migration", () => {
     expect(() =>
       database
         .prepare(
-          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payload, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payloadJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .run("ap_test", "bogus-kind", "title", "summary", "low", "{}", "now")
+    ).toThrow();
+  });
+
+  it("enforces the riskLevel CHECK constraint", () => {
+    const database = freshDatabase();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payloadJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run("ap_test", "sandbox-promotion", "t", "s", "extreme", "{}", "now")
+    ).toThrow();
+  });
+
+  it("enforces the resolution CHECK constraint", () => {
+    const database = freshDatabase();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payloadJson, createdAt, resolvedAt, resolution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run("ap_test", "sandbox-promotion", "t", "s", "low", "{}", "now", "now", "maybe")
+    ).toThrow();
+  });
+
+  it("accepts 'critical' as a valid riskLevel (regression for I1)", () => {
+    const database = freshDatabase();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payloadJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run("ap_test", "sandbox-promotion", "t", "s", "critical", "{}", "now")
+    ).not.toThrow();
+  });
+
+  it("creates the unresolved and session indexes", () => {
+    const database = freshDatabase();
+    const indexes = database
+      .prepare(`PRAGMA index_list(pending_approvals)`)
+      .all() as Array<{ name: string }>;
+    const names = indexes.map((i) => i.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "idx_pending_approvals_unresolved",
+        "idx_pending_approvals_session"
+      ])
+    );
+  });
+
+  it("enforces the resolvedAt/resolution correlation", () => {
+    const database = freshDatabase();
+    // resolvedAt without resolution → invalid
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payloadJson, createdAt, resolvedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run("ap_a", "sandbox-promotion", "t", "s", "low", "{}", "now", "now")
+    ).toThrow();
+    // resolution without resolvedAt → invalid
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO pending_approvals (id, kind, title, summary, riskLevel, payloadJson, createdAt, resolution) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run("ap_b", "sandbox-promotion", "t", "s", "low", "{}", "now", "approved")
     ).toThrow();
   });
 });

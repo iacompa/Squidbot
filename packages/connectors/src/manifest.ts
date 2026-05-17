@@ -161,23 +161,10 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
   const write = requireStringArray(readWrite.write, "manifest.readWrite.write", errors);
   const rateLimits = parseRateLimits(record.rateLimits, errors);
   const fixtureData = parseFixtureData(record.fixtureData, errors);
+  const testEndpoint = parseTestEndpoint(record.testEndpoint, errors);
 
   if (typeof record.fixtureMode !== "boolean") {
     errors.push("manifest.fixtureMode must be a boolean.");
-  }
-
-  if (record.testEndpoint !== undefined) {
-    const te = record.testEndpoint;
-    if (typeof te !== "object" || te === null) {
-      errors.push("manifest.testEndpoint must be an object when provided.");
-    } else {
-      if (typeof (te as Record<string, unknown>).method !== "string") {
-        errors.push("manifest.testEndpoint.method must be a string.");
-      }
-      if (typeof (te as Record<string, unknown>).path !== "string") {
-        errors.push("manifest.testEndpoint.path must be a string.");
-      }
-    }
   }
 
   if (errors.length > 0) {
@@ -201,7 +188,7 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
     fixtureMode: record.fixtureMode as boolean,
     ...(fixtureData !== undefined ? { fixtureData } : {}),
     readWrite: { read, write },
-    ...(record.testEndpoint !== undefined ? { testEndpoint: record.testEndpoint as { method: string; path: string } } : {})
+    ...(testEndpoint !== undefined ? { testEndpoint } : {})
   };
 }
 
@@ -290,6 +277,33 @@ function parseRateLimits(input: unknown, errors: string[]): ConnectorManifest["r
     }
   }
   return output;
+}
+
+function parseTestEndpoint(input: unknown, errors: string[]): { method: string; path: string } | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+  if (typeof input !== "object" || input === null) {
+    errors.push("manifest.testEndpoint must be an object when provided.");
+    return undefined;
+  }
+  const record = input as Record<string, unknown>;
+  let method: string | undefined;
+  let path: string | undefined;
+  if (typeof record.method !== "string") {
+    errors.push("manifest.testEndpoint.method must be a string.");
+  } else {
+    method = record.method.toUpperCase();
+  }
+  if (typeof record.path !== "string") {
+    errors.push("manifest.testEndpoint.path must be a string.");
+  } else {
+    path = record.path;
+  }
+  if (method === undefined || path === undefined) {
+    return undefined;
+  }
+  return { method, path };
 }
 
 function parseFixtureData(input: unknown, errors: string[]): string | JsonObject | undefined {
