@@ -61,3 +61,48 @@ describe("ConnectorManifest — testEndpoint field", () => {
     expect(result.testEndpoint).toEqual({ method: "GET", path: "/user" });
   });
 });
+
+describe("ConnectorManifest — auth.headerName field", () => {
+  function apiKeyManifest(authOverrides: Record<string, unknown> = {}) {
+    return {
+      name: "test-connector",
+      systemType: "test",
+      description: "test",
+      protocol: "rest",
+      auth: { type: "apiKey", ...authOverrides },
+      permissions: [
+        { name: "readUser", riskLevel: "low", requiresApproval: false }
+      ],
+      endpoints: [
+        {
+          operationId: "readUser",
+          method: "GET",
+          path: "/user",
+          permission: "readUser",
+          inputSchema: { type: "object", properties: {} },
+          outputSchema: { type: "object", properties: {} }
+        }
+      ],
+      dataClassifications: ["public"],
+      fixtureMode: true,
+      costOwner: "free",
+      readWrite: { read: ["readUser"], write: [] }
+    };
+  }
+
+  it("accepts an optional headerName on auth.type='apiKey'", () => {
+    const result = validateConnectorManifest(apiKeyManifest({ headerName: "X-Custom-Key" }));
+    expect(result.auth).toEqual({ type: "apiKey", headerName: "X-Custom-Key" });
+  });
+
+  it("accepts apiKey auth without a headerName (field is optional)", () => {
+    const result = validateConnectorManifest(apiKeyManifest());
+    expect(result.auth.headerName).toBeUndefined();
+  });
+
+  it("rejects a non-string headerName", () => {
+    expect(() =>
+      validateConnectorManifest(apiKeyManifest({ headerName: 42 }))
+    ).toThrow(/headerName/i);
+  });
+});

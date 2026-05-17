@@ -7,6 +7,7 @@
     "type": "bearer",
     "scopes": ["read_repository", "write_repository", "api"]
   },
+  "testEndpoint": { "method": "GET", "path": "/user" },
   "permissions": [
     { "name": "repoRead", "riskLevel": "low", "requiresApproval": false },
     { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true },

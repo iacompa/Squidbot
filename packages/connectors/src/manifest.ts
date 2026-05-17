@@ -32,6 +32,8 @@ export type ConnectorManifest = {
   auth: {
     type: ConnectorAuthType;
     scopes?: string[];
+    /** Header name for type="apiKey" connectors (default "X-API-Key"). */
+    headerName?: string;
   };
   permissions: ConnectorPermission[];
   endpoints: ConnectorEndpoint[];
@@ -75,7 +77,8 @@ export const connectorManifestJsonSchema = {
       required: ["type"],
       properties: {
         type: { enum: ["apiKey", "oauth2", "basic", "none", "bearer"] },
-        scopes: { type: "array", items: { type: "string" } }
+        scopes: { type: "array", items: { type: "string" } },
+        headerName: { type: "string" }
       }
     },
     permissions: { type: "array" },
@@ -153,6 +156,9 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
   }
 
   const scopes = optionalStringArray(authRecord.scopes, "manifest.auth.scopes", errors);
+  if (authRecord.headerName !== undefined && typeof authRecord.headerName !== "string") {
+    errors.push("manifest.auth.headerName must be a string when provided.");
+  }
   const permissions = parsePermissions(record.permissions, errors);
   const endpoints = parseEndpoints(record.endpoints, permissions, errors);
   const dataClassifications = requireStringArray(record.dataClassifications, "manifest.dataClassifications", errors);
@@ -178,7 +184,8 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
     protocol,
     auth: {
       type: authType,
-      ...(scopes ? { scopes } : {})
+      ...(scopes ? { scopes } : {}),
+      ...(typeof authRecord.headerName === "string" ? { headerName: authRecord.headerName } : {})
     },
     permissions,
     endpoints,
