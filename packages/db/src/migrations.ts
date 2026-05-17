@@ -1269,6 +1269,37 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_model_accounts_provider_kind
         ON model_accounts (providerKind);
     `
+  },
+  {
+    id: 17,
+    name: "pending_approvals",
+    // Promotes the Phase-2 listPendingApprovals façade (which read from
+    // sandbox rows) to a real persistence layer. Future approval kinds
+    // (connector-call, etc.) land here directly; sandbox-promotion rows are
+    // mirrored in by the IPC handler.
+    up: `
+      CREATE TABLE pending_approvals (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('sandbox-promotion', 'connector-call')),
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        riskLevel TEXT NOT NULL CHECK(riskLevel IN ('low', 'medium', 'high')),
+        payload TEXT NOT NULL,
+        callerSessionId TEXT,
+        callerRunId TEXT,
+        createdAt TEXT NOT NULL,
+        resolvedAt TEXT,
+        resolution TEXT CHECK(resolution IN ('approved', 'rejected') OR resolution IS NULL),
+        resultJson TEXT
+      );
+
+      CREATE INDEX idx_pending_approvals_unresolved
+        ON pending_approvals (createdAt)
+        WHERE resolvedAt IS NULL;
+
+      CREATE INDEX idx_pending_approvals_session
+        ON pending_approvals (callerSessionId);
+    `
   }
 ];
 

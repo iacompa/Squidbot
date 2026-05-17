@@ -47,6 +47,7 @@ export type ConnectorManifest = {
     read: string[];
     write: string[];
   };
+  testEndpoint?: { method: string; path: string };
 };
 
 export const connectorManifestJsonSchema = {
@@ -84,7 +85,15 @@ export const connectorManifestJsonSchema = {
     costOwner: { enum: ["userProvided", "vendor", "free"] },
     fixtureMode: { type: "boolean" },
     fixtureData: {},
-    readWrite: { type: "object" }
+    readWrite: { type: "object" },
+    testEndpoint: {
+      type: "object",
+      required: ["method", "path"],
+      properties: {
+        method: { type: "string" },
+        path: { type: "string" }
+      }
+    }
   }
 } as const;
 
@@ -157,6 +166,20 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
     errors.push("manifest.fixtureMode must be a boolean.");
   }
 
+  if (record.testEndpoint !== undefined) {
+    const te = record.testEndpoint;
+    if (typeof te !== "object" || te === null) {
+      errors.push("manifest.testEndpoint must be an object when provided.");
+    } else {
+      if (typeof (te as Record<string, unknown>).method !== "string") {
+        errors.push("manifest.testEndpoint.method must be a string.");
+      }
+      if (typeof (te as Record<string, unknown>).path !== "string") {
+        errors.push("manifest.testEndpoint.path must be a string.");
+      }
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(`Invalid connector manifest:\n- ${errors.join("\n- ")}`);
   }
@@ -177,7 +200,8 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
     costOwner,
     fixtureMode: record.fixtureMode as boolean,
     ...(fixtureData !== undefined ? { fixtureData } : {}),
-    readWrite: { read, write }
+    readWrite: { read, write },
+    ...(record.testEndpoint !== undefined ? { testEndpoint: record.testEndpoint as { method: string; path: string } } : {})
   };
 }
 
