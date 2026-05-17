@@ -570,6 +570,114 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     );
   });
 
+  ipcMain.handle("squidbot:testConnector", async (_event, connectorName: string) => {
+    const registry = new ConnectorRegistry(database);
+    installDeveloperWorkflowConnectors(registry);
+    const manifest = registry.getConnector(connectorName);
+    if (!manifest) {
+      return { ok: false, code: "not_found", message: `Connector ${connectorName} not installed.` };
+    }
+
+    // Resolve a test endpoint: explicit manifest.testEndpoint OR auto-fallback
+    // to the first low-risk no-arg GET op (no path placeholders, permission's
+    // riskLevel === "low").
+    let testEp: { method: string; path: string } | null = null;
+    if (manifest.testEndpoint) {
+      testEp = manifest.testEndpoint;
+    } else {
+      const auto = manifest.endpoints.find((ep) => {
+        const perm = manifest.permissions.find((p) => p.name === ep.permission);
+        const hasPlaceholders = /\{[^}]+\}/.test(ep.path);
+        return ep.method === "GET" && perm?.riskLevel === "low" && !hasPlaceholders;
+      });
+      if (auto) testEp = { method: auto.method, path: auto.path };
+    }
+    if (!testEp) {
+      return {
+        ok: false,
+        code: "no_test_op",
+        message: "Connector has no eligible no-arg GET; configure manifest.testEndpoint."
+      };
+    }
+
+    const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
+    const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
+    if (!baseUrl) {
+      return { ok: false, code: "not_configured", message: "Base URL not configured." };
+    }
+
+    // Synthesize a minimal ConnectorEndpoint for the test call. We don't need
+    // real schemas — executeRealHttpCall only reads method, path, and uses the
+    // manifest's auth config for headers.
+    const syntheticEp = {
+      operationId: "__test__",
+      method: testEp.method,
+      path: testEp.path,
+      description: "Connectivity test",
+      permission: "low",
+      inputSchema: {},
+      outputSchema: {},
+      dataClassifications: [] as string[]
+    };
+    const result = await executeRealHttpCall(manifest, syntheticEp, {}, { baseUrl, apiKey });
+
+    // Persist the result to settings so the UI can display status without
+    // having to re-test on every render.
+    const status = result.ok ? "ok" : result.code;
+    const at = new Date().toISOString();
+    database.setSetting(`${manifest.name}.lastTest.status`, status);
+    database.setSetting(`${manifest.name}.lastTest.at`, at);
+    if (!result.ok) {
+      database.setSetting(`${manifest.name}.lastTest.message`, result.message);
+    } else {
+      // Clear stale error message on a successful test.
+      database.deleteSetting(`${manifest.name}.lastTest.message`);
+    }
+    return result.ok
+      ? { ok: true, durationMs: result.durationMs }
+      : { ok: false, code: result.code, message: result.message, durationMs: result.durationMs };
+  });
+
+  ipcMain.handle("squidbot:approveConnectorCall", async (_event, approvalId: string) => {
+    const row = getApproval(database, approvalId);
+    if (!row) return { ok: false, error: "Approval not found" };
+    if (row.kind !== "connector-call") return { ok: false, error: `Wrong kind: ${row.kind}` };
+    if (row.resolvedAt) return { ok: false, error: `Already ${row.resolution}` };
+
+    const { connectorName, operationId, args } = row.payload as Record<string, unknown>;
+    const registry = new ConnectorRegistry(database);
+    installDeveloperWorkflowConnectors(registry);
+    const manifest = registry.getConnector(connectorName as string);
+    if (!manifest) return { ok: false, error: `Connector not found: ${String(connectorName)}` };
+    const endpoint = manifest.endpoints.find((ep) => ep.operationId === operationId);
+    if (!endpoint) return { ok: false, error: `Endpoint not found: ${String(operationId)}` };
+
+    const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
+    const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
+    if (!baseUrl) return { ok: false, error: "Base URL not configured." };
+
+    const httpResult = await executeRealHttpCall(
+      manifest,
+      endpoint,
+      (args as Record<string, unknown>) ?? {},
+      { baseUrl, apiKey }
+    );
+    resolveApproval(database, approvalId, {
+      resolution: "approved",
+      result: httpResult.ok
+        ? { status: httpResult.status, body: httpResult.body }
+        : { error: httpResult.code, message: httpResult.message }
+    });
+    return httpResult.ok
+      ? { ok: true, result: httpResult.body }
+      : { ok: false, error: `${httpResult.code}: ${httpResult.message}` };
+  });
+
+  ipcMain.handle("squidbot:rejectConnectorCall", async (_event, approvalId: string, reason?: string) => {
+    resolveApproval(database, approvalId, { resolution: "rejected", reason });
+    return { ok: true as const };
+  });
+
   ipcMain.handle("squidbot:listSkills", () => createSkillService(database, paths).listSkills(100));
 
   ipcMain.handle("squidbot:getSkill", (_event, skillId: string, version?: string) => {

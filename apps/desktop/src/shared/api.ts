@@ -963,6 +963,18 @@ export type SquidbotApi = {
   approveSandbox: (sandboxId: string) => Promise<SandboxDto>;
   rejectSandbox: (sandboxId: string) => Promise<SandboxDto>;
   listPendingApprovals: () => Promise<PendingApprovalDto[]>;
+  testConnector: (connectorName: string) => Promise<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    durationMs?: number;
+  }>;
+  approveConnectorCall: (approvalId: string) => Promise<{
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+  }>;
+  rejectConnectorCall: (approvalId: string, reason?: string) => Promise<{ ok: true }>;
   listSkills: () => Promise<SkillDto[]>;
   getSkill: (skillId: string, version?: string) => Promise<SkillDetailDto | null>;
   evaluateSkill: (skillId: string, version?: string) => Promise<SkillEvaluationResultDto>;
