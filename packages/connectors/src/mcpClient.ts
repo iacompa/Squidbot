@@ -36,7 +36,7 @@ export class McpClient {
     });
     this.client = new Client(
       { name: `squidbot-mcp-${this.config.name}`, version: "0.1.0" },
-      { capabilities: { tools: {} } }
+      { capabilities: {} }
     );
     await this.client.connect(this.transport);
     const list = await this.client.listTools();

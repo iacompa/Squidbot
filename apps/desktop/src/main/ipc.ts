@@ -6,6 +6,7 @@ import {
   getApproval,
   installDeveloperWorkflowConnectors,
   listOpenApprovals,
+  McpClientManager,
   registerConnectorTools,
   resolveApproval
 } from "@squidbot/connectors";
@@ -78,6 +79,9 @@ import type {
   ConnectorDto,
   EnterpriseProfileCreateRequestDto,
   JobCreateRequestDto,
+  McpServerDto,
+  McpServerInputDto,
+  McpServerTestResultDto,
   MemoryGraphDetailDto,
   MessagingAllowlistRuleDto,
   MessagingChannelDto,
@@ -178,6 +182,25 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
   const connectorRegistry = new ConnectorRegistry(database);
   installDeveloperWorkflowConnectors(connectorRegistry);
   registerConnectorTools(toolRegistry, connectorRegistry);
+
+  // Spawn enabled MCP servers into the same ToolRegistry. We don't await
+  // — startup shouldn't block on slow MCP servers. Tools that aren't yet
+  // registered when an agent message arrives simply aren't available;
+  // they appear on the next runtime construction.
+  const mcpManager = new McpClientManager(toolRegistry);
+  void mcpManager.spawnAll(
+    database.listMcpServers()
+      .filter((s) => s.enabled)
+      .map((s) => ({
+        name: s.name,
+        transport: "stdio" as const,
+        command: s.command,
+        args: s.args,
+        env: s.env,
+        riskLevel: s.riskLevel
+      }))
+  );
+
   return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry });
 }
 
@@ -686,6 +709,121 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   ipcMain.handle("squidbot:rejectConnectorCall", async (_event, approvalId: string, reason?: string) => {
     resolveApproval(database, approvalId, { resolution: "rejected", reason });
     return { ok: true as const };
+  });
+
+  function mcpRowToDto(row: ReturnType<SquidDatabase["getMcpServer"]>): McpServerDto | null {
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      command: row.command,
+      args: row.args,
+      env: row.env,
+      riskLevel: row.riskLevel,
+      enabled: row.enabled,
+      lastConnectedAt: row.lastConnectedAt,
+      lastError: row.lastError,
+      toolCount: 0
+    };
+  }
+
+  ipcMain.handle("squidbot:listMcpServers", (): McpServerDto[] => {
+    return database.listMcpServers().map((s) => ({
+      id: s.id,
+      name: s.name,
+      command: s.command,
+      args: s.args,
+      env: s.env,
+      riskLevel: s.riskLevel,
+      enabled: s.enabled,
+      lastConnectedAt: s.lastConnectedAt,
+      lastError: s.lastError,
+      toolCount: 0
+    }));
+  });
+
+  ipcMain.handle("squidbot:addMcpServer", async (_event, input: McpServerInputDto): Promise<McpServerDto> => {
+    const now = new Date().toISOString();
+    const saved = database.saveMcpServer({
+      id: createId("mcp"),
+      name: input.name,
+      transport: "stdio",
+      command: input.command,
+      args: input.args,
+      env: input.env,
+      riskLevel: input.riskLevel,
+      enabled: input.enabled,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    if (saved.enabled) {
+      // Spawn in a throwaway registry to validate the server is healthy.
+      // The real registration happens lazily inside createRuntime() on the
+      // next chat request — no need to share state with the persistent pool.
+      try {
+        const tempRegistry = new ToolRegistry();
+        const tempManager = new McpClientManager(tempRegistry);
+        await tempManager.spawnAll([{
+          name: saved.name,
+          transport: "stdio",
+          command: saved.command,
+          args: saved.args,
+          env: saved.env,
+          riskLevel: saved.riskLevel
+        }]);
+        database.updateMcpServer(saved.name, {
+          lastConnectedAt: new Date().toISOString(),
+          lastError: null
+        });
+        await tempManager.shutdown();
+      } catch (err) {
+        database.updateMcpServer(saved.name, {
+          lastError: err instanceof Error ? err.message : String(err)
+        });
+      }
+    }
+
+    const dto = mcpRowToDto(database.getMcpServer(saved.name));
+    if (!dto) throw new Error(`MCP server save failed: ${saved.name}`);
+    return dto;
+  });
+
+  ipcMain.handle("squidbot:updateMcpServer", async (_event, name: string, input: Partial<McpServerInputDto>): Promise<McpServerDto> => {
+    database.updateMcpServer(name, input);
+    const dto = mcpRowToDto(database.getMcpServer(name));
+    if (!dto) throw new Error(`MCP server not found: ${name}`);
+    return dto;
+  });
+
+  ipcMain.handle("squidbot:removeMcpServer", async (_event, name: string): Promise<void> => {
+    database.deleteMcpServer(name);
+  });
+
+  ipcMain.handle("squidbot:testMcpServer", async (_event, input: McpServerInputDto): Promise<McpServerTestResultDto> => {
+    const start = Date.now();
+    const tempRegistry = new ToolRegistry();
+    const manager = new McpClientManager(tempRegistry);
+    try {
+      await manager.spawnAll([{
+        name: input.name,
+        transport: "stdio",
+        command: input.command,
+        args: input.args,
+        env: input.env,
+        riskLevel: input.riskLevel
+      }]);
+      const clients = manager.clients();
+      const found = clients.find((c) => c.name === input.name);
+      if (!found) {
+        return { ok: false, code: "spawn_failed", message: "Server failed to spawn." };
+      }
+      return { ok: true, toolCount: found.tools().length, durationMs: Date.now() - start };
+    } catch (err) {
+      return { ok: false, code: "test_error", message: err instanceof Error ? err.message : String(err) };
+    } finally {
+      await manager.shutdown();
+    }
   });
 
   ipcMain.handle("squidbot:listSkills", () => createSkillService(database, paths).listSkills(100));

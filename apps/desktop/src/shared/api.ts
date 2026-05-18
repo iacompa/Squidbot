@@ -127,6 +127,32 @@ export type ConnectorDto = {
   operations: string[];
 };
 
+export type McpServerDto = {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  enabled: boolean;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  toolCount: number;
+};
+
+export type McpServerInputDto = {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  enabled: boolean;
+};
+
+export type McpServerTestResultDto =
+  | { ok: true; toolCount: number; durationMs: number }
+  | { ok: false; code: string; message: string };
+
 export type ReflectionDto = {
   id: string;
   sessionId: string;
@@ -979,6 +1005,11 @@ export type SquidbotApi = {
     error?: string;
   }>;
   rejectConnectorCall: (approvalId: string, reason?: string) => Promise<{ ok: true }>;
+  listMcpServers: () => Promise<McpServerDto[]>;
+  addMcpServer: (input: McpServerInputDto) => Promise<McpServerDto>;
+  updateMcpServer: (name: string, input: Partial<McpServerInputDto>) => Promise<McpServerDto>;
+  removeMcpServer: (name: string) => Promise<void>;
+  testMcpServer: (input: McpServerInputDto) => Promise<McpServerTestResultDto>;
   listSkills: () => Promise<SkillDto[]>;
   getSkill: (skillId: string, version?: string) => Promise<SkillDetailDto | null>;
   evaluateSkill: (skillId: string, version?: string) => Promise<SkillEvaluationResultDto>;
