@@ -20,7 +20,7 @@ import type { ProviderKind } from "./modelAccounts.js";
  *     `usage.cost` in the live response is for. The point of catalog
  *     pricing is to let users *compare* at a glance before they pick.
  *
- * Last reviewed: 2026-05. Refresh when providers ship new flagships.
+ * Last reviewed: 2026-05-17. Refresh when providers ship new flagships.
  */
 
 export type ModelTier = "flagship" | "balanced" | "fast" | "reasoning" | "legacy";
@@ -76,8 +76,8 @@ export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogE
   // ---------------- Gateway ----------------
   openrouter: [
     {
-      id: "google/gemini-2.5-flash",
-      label: "Gemini 2.5 Flash",
+      id: "google/gemini-2.5-flash-lite",
+      label: "Gemini 2.5 Flash-Lite",
       tier: "fast",
       description: "Cheap, fast, capable. The default workhorse for chat traffic.",
       pricing: { inputPerMTokens: 0.1, outputPerMTokens: 0.4 }
@@ -93,32 +93,32 @@ export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogE
       id: "anthropic/claude-haiku-4-5",
       label: "Anthropic · Claude Haiku 4.5",
       tier: "fast",
-      pricing: { inputPerMTokens: 0.8, outputPerMTokens: 4 }
+      pricing: { inputPerMTokens: 1, outputPerMTokens: 5 }
     },
     {
-      id: "anthropic/claude-sonnet-5-5",
-      label: "Anthropic · Claude Sonnet 5.5",
+      id: "anthropic/claude-sonnet-4-6",
+      label: "Anthropic · Claude Sonnet 4.6",
       tier: "balanced",
       pricing: { inputPerMTokens: 3, outputPerMTokens: 15 }
     },
     {
-      id: "anthropic/claude-opus-4-5",
-      label: "Anthropic · Claude Opus 4.5",
+      id: "anthropic/claude-opus-4-7",
+      label: "Anthropic · Claude Opus 4.7",
       tier: "flagship",
-      description: "Most capable Claude — best for hard reasoning and tools.",
-      pricing: { inputPerMTokens: 15, outputPerMTokens: 75 }
+      description: "Most capable Claude — best for hard reasoning and agentic coding.",
+      pricing: { inputPerMTokens: 5, outputPerMTokens: 25 }
     },
     {
-      id: "openai/gpt-5",
-      label: "OpenAI · GPT-5",
+      id: "openai/gpt-5.5",
+      label: "OpenAI · GPT-5.5",
       tier: "flagship",
-      pricing: { inputPerMTokens: 1.25, outputPerMTokens: 10 }
+      pricing: { inputPerMTokens: 5, outputPerMTokens: 30 }
     },
     {
-      id: "openai/gpt-4o-mini",
-      label: "OpenAI · GPT-4o Mini",
+      id: "openai/gpt-5.4-mini",
+      label: "OpenAI · GPT-5.4 Mini",
       tier: "fast",
-      pricing: { inputPerMTokens: 0.15, outputPerMTokens: 0.6 }
+      pricing: { inputPerMTokens: 0.75, outputPerMTokens: 4.5 }
     },
     {
       id: "google/gemini-2.5-pro",
@@ -135,10 +135,10 @@ export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogE
       pricing: { inputPerMTokens: 0.5, outputPerMTokens: 0.5 }
     },
     {
-      id: "x-ai/grok-4",
-      label: "xAI · Grok 4",
+      id: "x-ai/grok-4.3",
+      label: "xAI · Grok 4.3",
       tier: "flagship",
-      pricing: { inputPerMTokens: 3, outputPerMTokens: 15 }
+      pricing: { inputPerMTokens: 1.25, outputPerMTokens: 2.5 }
     }
   ],
 
@@ -149,21 +149,39 @@ export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogE
       label: "Claude Haiku 4.5",
       tier: "fast",
       description: "Cheapest + fastest Claude — great for high-volume work.",
-      pricing: { inputPerMTokens: 0.8, outputPerMTokens: 4 }
+      pricing: { inputPerMTokens: 1, outputPerMTokens: 5 }
     },
     {
-      id: "anthropic/claude-sonnet-5-5",
-      label: "Claude Sonnet 5.5",
+      id: "anthropic/claude-sonnet-4-6",
+      label: "Claude Sonnet 4.6",
       tier: "balanced",
       description: "Strong default — fast enough for chat, smart enough for code.",
       pricing: { inputPerMTokens: 3, outputPerMTokens: 15 }
     },
     {
+      id: "anthropic/claude-sonnet-4-5",
+      label: "Claude Sonnet 4.5",
+      tier: "balanced",
+      pricing: { inputPerMTokens: 3, outputPerMTokens: 15 }
+    },
+    {
+      id: "anthropic/claude-opus-4-7",
+      label: "Claude Opus 4.7",
+      tier: "flagship",
+      description: "Most capable Claude — step-change in agentic coding.",
+      pricing: { inputPerMTokens: 5, outputPerMTokens: 25 }
+    },
+    {
+      id: "anthropic/claude-opus-4-6",
+      label: "Claude Opus 4.6",
+      tier: "flagship",
+      pricing: { inputPerMTokens: 5, outputPerMTokens: 25 }
+    },
+    {
       id: "anthropic/claude-opus-4-5",
       label: "Claude Opus 4.5",
-      tier: "flagship",
-      description: "Most capable Claude — premium pricing.",
-      pricing: { inputPerMTokens: 15, outputPerMTokens: 75 }
+      tier: "legacy",
+      pricing: { inputPerMTokens: 5, outputPerMTokens: 25 }
     }
   ],
 
@@ -176,53 +194,60 @@ export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogE
       pricing: { inputPerMTokens: 0.14, outputPerMTokens: 0.28 }
     },
     {
+      id: "deepseek-v3.1",
+      label: "DeepSeek V3.1",
+      tier: "balanced",
+      description: "V3 refresh — sharper instruction-following, still cheap.",
+      pricing: { inputPerMTokens: 0.21, outputPerMTokens: 0.79 }
+    },
+    {
+      id: "deepseek-v3.2",
+      label: "DeepSeek V3.2",
+      tier: "flagship",
+      description: "Latest V3-series flagship — improved coding + reasoning.",
+      pricing: { inputPerMTokens: 0.28, outputPerMTokens: 0.42 }
+    },
+    {
       id: "deepseek-reasoner",
       label: "DeepSeek R1 (reasoning)",
       tier: "reasoning",
       description: "Open-weights reasoning model — multi-step problems, still cheap.",
       pricing: { inputPerMTokens: 0.55, outputPerMTokens: 2.19 }
-    },
-    {
-      id: "deepseek-coder",
-      label: "DeepSeek Coder",
-      tier: "balanced",
-      description: "Tuned for code generation specifically.",
-      pricing: { inputPerMTokens: 0.14, outputPerMTokens: 0.28 }
     }
   ],
 
   gemini: [
     {
-      id: "gemini-2.5-flash",
-      label: "Gemini 2.5 Flash",
+      id: "gemini-2.5-flash-lite",
+      label: "Gemini 2.5 Flash-Lite",
       tier: "fast",
-      description: "Cheap, fast, strong default for chat traffic.",
+      description: "The cheapest + fastest Gemini — great for very high-volume work.",
       pricing: { inputPerMTokens: 0.1, outputPerMTokens: 0.4 }
     },
     {
-      id: "gemini-2.0-flash",
-      label: "Gemini 2.0 Flash",
+      id: "gemini-2.5-flash",
+      label: "Gemini 2.5 Flash",
       tier: "fast",
-      description: "Even cheaper — for very high-volume or simple tasks.",
-      pricing: { inputPerMTokens: 0.075, outputPerMTokens: 0.3 }
+      description: "Best price-performance Gemini — strong default for chat traffic.",
+      pricing: { inputPerMTokens: 0.3, outputPerMTokens: 2.5 }
     },
     {
       id: "gemini-2.5-pro",
       label: "Gemini 2.5 Pro",
       tier: "flagship",
-      description: "Long-context flagship. Strong on reasoning.",
+      description: "Long-context flagship. Strong on reasoning and complex tasks.",
       pricing: { inputPerMTokens: 1.25, outputPerMTokens: 10 }
+    },
+    {
+      id: "gemini-2.0-flash",
+      label: "Gemini 2.0 Flash",
+      tier: "legacy",
+      description: "Deprecated — shuts down June 2026. Migrate to 2.5 Flash.",
+      pricing: { inputPerMTokens: 0.1, outputPerMTokens: 0.4 }
     }
   ],
 
   groq: [
-    {
-      id: "llama-3.3-70b-versatile",
-      label: "Llama 3.3 70B Versatile",
-      tier: "flagship",
-      description: "Sub-second time-to-first-byte. Great when latency matters.",
-      pricing: { inputPerMTokens: 0.59, outputPerMTokens: 0.79 }
-    },
     {
       id: "llama-3.1-8b-instant",
       label: "Llama 3.1 8B Instant",
@@ -231,92 +256,165 @@ export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogE
       pricing: { inputPerMTokens: 0.05, outputPerMTokens: 0.08 }
     },
     {
-      id: "mixtral-8x7b-32768",
-      label: "Mixtral 8x7B (32K context)",
+      id: "openai/gpt-oss-20b",
+      label: "GPT OSS 20B",
+      tier: "fast",
+      description: "OpenAI's open-weight 20B served on Groq — ~1000 tok/sec.",
+      pricing: { inputPerMTokens: 0.075, outputPerMTokens: 0.3 }
+    },
+    {
+      id: "llama-3.3-70b-versatile",
+      label: "Llama 3.3 70B Versatile",
+      tier: "flagship",
+      description: "Sub-second time-to-first-byte. Great when latency matters.",
+      pricing: { inputPerMTokens: 0.59, outputPerMTokens: 0.79 }
+    },
+    {
+      id: "openai/gpt-oss-120b",
+      label: "GPT OSS 120B",
       tier: "balanced",
-      pricing: { inputPerMTokens: 0.24, outputPerMTokens: 0.24 }
+      description: "OpenAI's open-weight 120B — strong + still fast.",
+      pricing: { inputPerMTokens: 0.15, outputPerMTokens: 0.6 }
     }
   ],
 
   openai: [
     {
-      id: "gpt-4o-mini",
-      label: "GPT-4o Mini",
+      id: "gpt-5.4-nano",
+      label: "GPT-5.4 Nano",
       tier: "fast",
-      description: "Cheap and fast — good default for routine tasks and tool calls.",
-      pricing: { inputPerMTokens: 0.15, outputPerMTokens: 0.6 }
+      description: "Cheapest GPT — good default for routine tasks and tool calls.",
+      pricing: { inputPerMTokens: 0.2, outputPerMTokens: 1.25 }
     },
     {
-      id: "gpt-5-mini",
-      label: "GPT-5 Mini",
+      id: "gpt-5.4-mini",
+      label: "GPT-5.4 Mini",
+      tier: "fast",
+      description: "Mid-tier GPT — fast enough for chat, smart enough for code.",
+      pricing: { inputPerMTokens: 0.75, outputPerMTokens: 4.5 }
+    },
+    {
+      id: "gpt-5.4",
+      label: "GPT-5.4",
       tier: "balanced",
-      description: "Cheaper / faster GPT-5 variant for most chat workloads.",
-      pricing: { inputPerMTokens: 0.25, outputPerMTokens: 2 }
+      description: "Recommended production default — strong on most workloads.",
+      pricing: { inputPerMTokens: 2.5, outputPerMTokens: 15 }
     },
     {
-      id: "gpt-5",
-      label: "GPT-5",
+      id: "gpt-5.5",
+      label: "GPT-5.5",
       tier: "flagship",
-      description: "Flagship general-purpose model.",
-      pricing: { inputPerMTokens: 1.25, outputPerMTokens: 10 }
+      description: "Flagship general-purpose model — most capable GPT.",
+      pricing: { inputPerMTokens: 5, outputPerMTokens: 30 }
+    },
+    {
+      id: "gpt-5.5-pro",
+      label: "GPT-5.5 Pro",
+      tier: "flagship",
+      description: "Maximum-capability GPT — research-grade problems, premium pricing.",
+      pricing: { inputPerMTokens: 30, outputPerMTokens: 180 }
+    },
+    {
+      id: "o3",
+      label: "o3",
+      tier: "reasoning",
+      description: "Reasoning-focused model — strong on multi-step problems.",
+      pricing: { inputPerMTokens: 2, outputPerMTokens: 8 }
     },
     {
       id: "gpt-4o",
       label: "GPT-4o",
-      tier: "balanced",
-      description: "Multimodal — text + image + audio in one model.",
+      tier: "legacy",
+      description: "Previous-generation multimodal — text + image + audio.",
       pricing: { inputPerMTokens: 2.5, outputPerMTokens: 10 }
     },
     {
-      id: "o3-mini",
-      label: "o3-mini",
-      tier: "reasoning",
-      description: "Reasoning model — slower but stronger on multi-step problems.",
-      pricing: { inputPerMTokens: 1.1, outputPerMTokens: 4.4 }
+      id: "gpt-4o-mini",
+      label: "GPT-4o Mini",
+      tier: "legacy",
+      description: "Previous-generation cheap variant.",
+      pricing: { inputPerMTokens: 0.15, outputPerMTokens: 0.6 }
     }
   ],
 
   together: [
     {
-      id: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-      label: "Llama 3.3 70B Turbo",
-      tier: "flagship",
-      pricing: { inputPerMTokens: 0.88, outputPerMTokens: 0.88 }
-    },
-    {
       id: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
       label: "Llama 3.1 8B Turbo",
       tier: "fast",
+      description: "Cheap + fast — good default for high-volume work.",
       pricing: { inputPerMTokens: 0.18, outputPerMTokens: 0.18 }
     },
     {
-      id: "deepseek-ai/deepseek-coder-33b-instruct",
-      label: "DeepSeek Coder 33B",
+      id: "openai/gpt-oss-120b",
+      label: "GPT OSS 120B",
       tier: "balanced",
-      description: "Strong on code generation.",
-      pricing: { inputPerMTokens: 0.8, outputPerMTokens: 0.8 }
+      description: "OpenAI's open-weight 120B served on Together.",
+      pricing: { inputPerMTokens: 0.15, outputPerMTokens: 0.6 }
+    },
+    {
+      id: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      label: "Llama 3.3 70B Turbo",
+      tier: "flagship",
+      description: "Open-weights flagship — strong on most workloads.",
+      pricing: { inputPerMTokens: 0.88, outputPerMTokens: 0.88 }
+    },
+    {
+      id: "Qwen/Qwen2.5-72B-Instruct-Turbo",
+      label: "Qwen 2.5 72B Turbo",
+      tier: "balanced",
+      description: "Strong on multilingual + reasoning.",
+      pricing: { inputPerMTokens: 1.2, outputPerMTokens: 1.2 }
+    },
+    {
+      id: "deepseek-ai/DeepSeek-V3",
+      label: "DeepSeek V3",
+      tier: "balanced",
+      description: "Strong on code generation + general reasoning.",
+      pricing: { inputPerMTokens: 1.25, outputPerMTokens: 1.25 }
     }
   ],
 
   xai: [
     {
+      id: "grok-4-1-fast",
+      label: "Grok 4.1 Fast",
+      tier: "fast",
+      description: "Cheapest Grok — great for high-volume work.",
+      pricing: { inputPerMTokens: 0.2, outputPerMTokens: 0.5 }
+    },
+    {
+      id: "grok-4.3",
+      label: "Grok 4.3",
+      tier: "flagship",
+      description: "xAI's latest flagship — strong on real-time / current-events knowledge.",
+      pricing: { inputPerMTokens: 1.25, outputPerMTokens: 2.5 }
+    },
+    {
+      id: "grok-4.20",
+      label: "Grok 4.20 (2M context)",
+      tier: "balanced",
+      description: "Long-context variant — 2M tokens for big-document workloads.",
+      pricing: { inputPerMTokens: 2, outputPerMTokens: 6 }
+    },
+    {
       id: "grok-4",
       label: "Grok 4",
-      tier: "flagship",
-      description: "xAI's flagship — strong on real-time / current-events knowledge.",
+      tier: "legacy",
+      description: "Previous-generation flagship.",
       pricing: { inputPerMTokens: 3, outputPerMTokens: 15 }
     },
     {
       id: "grok-3",
       label: "Grok 3",
-      tier: "balanced",
-      pricing: { inputPerMTokens: 2, outputPerMTokens: 10 }
+      tier: "legacy",
+      pricing: { inputPerMTokens: 3, outputPerMTokens: 15 }
     },
     {
       id: "grok-3-mini",
       label: "Grok 3 Mini",
-      tier: "fast",
-      description: "Cheap workhorse Grok variant.",
+      tier: "legacy",
+      description: "Previous-generation cheap variant.",
       pricing: { inputPerMTokens: 0.3, outputPerMTokens: 0.5 }
     }
   ],
