@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Cpu, MessageCircle, Plug } from "lucide-react";
 import { ModelAccountsSection } from "../components/ModelAccountsSection";
 import { ConnectorsSection } from "../components/ConnectorsSection";
+import { McpServersSection } from "../components/McpServersSection";
 import { MessagingSection } from "../components/MessagingSection";
 import { squidbotApi } from "../lib/api";
 import type { EnterpriseProfileDto, SettingsDto } from "../../../shared/api";
@@ -91,11 +92,14 @@ export function IntegrationsPage({ initialTab = "models" }: IntegrationsPageProp
       <div className="integrations-tab-content">
         {tab === "models" && <ModelAccountsSection />}
         {tab === "connectors" && settings && (
-          <ConnectorsSection
-            settings={settings}
-            onSettingsChange={setSettings}
-            activeProfileSensitivity={activeProfile?.sensitivity}
-          />
+          <>
+            <ConnectorsSection
+              settings={settings}
+              onSettingsChange={setSettings}
+              activeProfileSensitivity={activeProfile?.sensitivity}
+            />
+            <McpServersSection />
+          </>
         )}
         {tab === "connectors" && !settings && <div className="muted">Loading…</div>}
         {tab === "messaging" && <MessagingSection />}
