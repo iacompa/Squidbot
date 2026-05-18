@@ -17,7 +17,7 @@
   ],
   "dataClassifications": ["public"],
   "costOwner": "free",
-  "fixtureMode": true,
+  "fixtureMode": false,
   "fixtureData": "../../docs/demoData/devIntegration/jenkins.json",
   "readWrite": {
     "read": ["getBuildStatus", "fetchBuildLogs"],

@@ -67,6 +67,7 @@ describe("installDeveloperWorkflowConnectors", () => {
     // checking that endpoints (the real manifest has 22) replaced the empty
     // stub above:
     expect((github?.endpoints.length ?? 0)).toBeGreaterThan(5);
+    expect(github?.fixtureMode).toBe(false);
     database.close();
   });
 });

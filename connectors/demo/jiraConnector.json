@@ -19,7 +19,7 @@
   ],
   "dataClassifications": ["public"],
   "costOwner": "free",
-  "fixtureMode": true,
+  "fixtureMode": false,
   "fixtureData": "../../docs/demoData/devIntegration/jira.json",
   "readWrite": {
     "read": ["listIssues"],
