@@ -87,10 +87,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     description:
       "Universal gateway — one key, hundreds of models. Includes Anthropic Claude, OpenAI GPT, Google Gemini, xAI Grok, DeepSeek, Meta Llama, and more. Reports real per-call cost in usage.cost.",
     commonModels: [
-      { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (cheap, fast)" },
-      { id: "deepseek/deepseek-chat", label: "DeepSeek Chat (very cheap)" },
+      { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (cheap, fast)" },
+      { id: "deepseek/deepseek-chat", label: "DeepSeek V3 (very cheap)" },
       { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5" },
-      { id: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
+      { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
       { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct" }
     ]
   },
@@ -103,8 +103,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       "Anthropic's native /v1/messages schema isn't yet wired in SquidBot, so Claude accounts route through OpenRouter. The apiModel field takes `anthropic/claude-…` ids. Direct Anthropic API support is a tracked TODO.",
     commonModels: [
       { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5 (cheap)" },
-      { id: "anthropic/claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
-      { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5 (flagship)" }
+      { id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+      { id: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7 (flagship)" }
     ]
   },
   {
@@ -113,11 +113,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     defaultApiUrl: "https://api.deepseek.com/v1/chat/completions",
     requiresApiKey: true,
     description:
-      "Direct DeepSeek API. Industry-leading prices — deepseek-chat is ~$0.14 per million input tokens, around 1/100th the cost of GPT-5. Great default for cost-conscious workloads.",
+      "Direct DeepSeek API. Industry-leading prices — deepseek-chat is ~$0.14 per million input tokens, around 1/100th the cost of the GPT-5 family. Great default for cost-conscious workloads.",
     commonModels: [
       { id: "deepseek-chat", label: "DeepSeek V3 (very cheap, balanced)" },
-      { id: "deepseek-reasoner", label: "DeepSeek R1 (reasoning)" },
-      { id: "deepseek-coder", label: "DeepSeek Coder" }
+      { id: "deepseek-v3.2", label: "DeepSeek V3.2 (flagship)" },
+      { id: "deepseek-reasoner", label: "DeepSeek R1 (reasoning)" }
     ]
   },
   {
@@ -126,10 +126,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     defaultApiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     requiresApiKey: true,
     description:
-      "Google's OpenAI-compatible Gemini endpoint. Gemini 2.5 Flash is one of the cheapest flagship-quality models available; Gemini 2.5 Pro is competitive on long-context reasoning.",
+      "Google's OpenAI-compatible Gemini endpoint. Gemini 2.5 Flash-Lite is one of the cheapest flagship-quality models available; Gemini 2.5 Pro is competitive on long-context reasoning.",
     commonModels: [
-      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (cheap, fast)" },
-      { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (cheapest)" },
+      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (cheapest)" },
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (balanced)" },
       { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (flagship)" }
     ]
   },
@@ -152,9 +152,9 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     requiresApiKey: true,
     description: "Direct OpenAI API. Use when you have OpenAI credits or an org-paid key.",
     commonModels: [
-      { id: "gpt-4o-mini", label: "GPT-4o Mini (cheap)" },
-      { id: "gpt-5-mini", label: "GPT-5 Mini" },
-      { id: "gpt-5", label: "GPT-5 (flagship)" }
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini (cheap)" },
+      { id: "gpt-5.4", label: "GPT-5.4 (balanced)" },
+      { id: "gpt-5.5", label: "GPT-5.5 (flagship)" }
     ]
   },
   {
@@ -175,9 +175,9 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     requiresApiKey: true,
     description: "Direct xAI API. Grok models excel at real-time / current-events knowledge and conversational style. Note: this is xAI's Grok, NOT Groq the LPU host — different companies.",
     commonModels: [
-      { id: "grok-4", label: "Grok 4 (flagship)" },
-      { id: "grok-3-mini", label: "Grok 3 Mini (cheap)" },
-      { id: "grok-3", label: "Grok 3" }
+      { id: "grok-4-1-fast", label: "Grok 4.1 Fast (cheap)" },
+      { id: "grok-4.3", label: "Grok 4.3 (flagship)" },
+      { id: "grok-4.20", label: "Grok 4.20 (2M context)" }
     ]
   },
   {
@@ -189,7 +189,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     commonModels: [
       { id: "llama3.3:latest", label: "Llama 3.3" },
       { id: "qwen2.5", label: "Qwen 2.5" },
-      { id: "mistral", label: "Mistral 7B" },
+      { id: "mistral:latest", label: "Mistral 7B" },
       { id: "phi3:latest", label: "Phi 3 (tiny)" }
     ]
   },
