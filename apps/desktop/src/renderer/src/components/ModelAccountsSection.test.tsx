@@ -234,6 +234,36 @@ describe("ModelAccountsSection", () => {
     });
   });
 
+  it("calls discoverModels when the user changes provider with a key already set", async () => {
+    const discover = vi.fn(async () => ({
+      success: true,
+      models: ["claude-opus-4-7"],
+      merged: [{ id: "claude-opus-4-7", label: "Claude Opus 4.7", tier: "flagship" }]
+    }));
+    mount({ discoverModels: discover });
+    const { ModelAccountsSection } = await import("./ModelAccountsSection");
+    const { getByText, getByLabelText } = render(<ModelAccountsSection forceOpenForm />);
+
+    // Wait for the form to be fully populated with the first preset's
+    // defaults — the useEffect that pre-fills the URL fires asynchronously
+    // after presets load, and we don't want that effect to fire AFTER our
+    // key-change below and wipe the apiKey we just typed.
+    await waitFor(() => expect(getByLabelText(/API key/i)).toBeTruthy());
+    await waitFor(() =>
+      expect((getByLabelText(/API URL/i) as HTMLInputElement).value).toMatch(/openrouter/i)
+    );
+
+    fireEvent.change(getByLabelText(/API key/i), { target: { value: "sk-test" } });
+
+    fireEvent.change(getByLabelText(/Provider/i), { target: { value: "anthropic" } });
+
+    await waitFor(() => {
+      expect(discover).toHaveBeenCalledWith(
+        expect.objectContaining({ providerKind: "anthropic", apiKey: "sk-test" })
+      );
+    });
+  });
+
   it("clicking Switch on an inactive account calls activateModelAccount with that name", async () => {
     const activateModelAccount = vi.fn(async (name: string) => ({ name }));
     mount({
