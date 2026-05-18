@@ -264,6 +264,49 @@ describe("ModelAccountsSection", () => {
     });
   });
 
+  it("debounces and calls discoverModels 300ms after API key entry stops", async () => {
+    vi.useFakeTimers();
+    const discover = vi.fn(async () => ({
+      success: true,
+      models: ["claude-opus-4-7"],
+      merged: [{ id: "claude-opus-4-7", label: "Claude Opus 4.7", tier: "flagship" }]
+    }));
+    mount({ discoverModels: discover });
+    const { ModelAccountsSection } = await import("./ModelAccountsSection");
+    const { getByLabelText } = render(<ModelAccountsSection forceOpenForm />);
+
+    // waitFor needs real timers to advance, so flush microtasks manually
+    // until the API key field is in the DOM.
+    await vi.waitFor(() => expect(getByLabelText(/API key/i)).toBeTruthy());
+    await vi.waitFor(() =>
+      expect((getByLabelText(/API URL/i) as HTMLInputElement).value).toMatch(/openrouter/i)
+    );
+
+    // Type the key over multiple keystrokes.
+    fireEvent.change(getByLabelText(/API key/i), { target: { value: "s" } });
+    fireEvent.change(getByLabelText(/API key/i), { target: { value: "sk" } });
+    fireEvent.change(getByLabelText(/API key/i), { target: { value: "sk-" } });
+    fireEvent.change(getByLabelText(/API key/i), { target: { value: "sk-test" } });
+
+    // Before 300ms passes, the effect hasn't fired.
+    expect(discover).not.toHaveBeenCalled();
+
+    // Advance 250ms — still not fired.
+    vi.advanceTimersByTime(250);
+    expect(discover).not.toHaveBeenCalled();
+
+    // Cross the 300ms threshold — fires once.
+    vi.advanceTimersByTime(100);
+    await vi.waitFor(() => {
+      expect(discover).toHaveBeenCalledTimes(1);
+      expect(discover).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "sk-test" })
+      );
+    });
+
+    vi.useRealTimers();
+  });
+
   it("clicking Switch on an inactive account calls activateModelAccount with that name", async () => {
     const activateModelAccount = vi.fn(async (name: string) => ({ name }));
     mount({
