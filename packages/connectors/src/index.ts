@@ -4,6 +4,7 @@ export * from "./devIntegration.js";
 export * from "./httpTransport.js";
 export * from "./manifest.js";
 export * from "./mcpClient.js";
+export * from "./mcpManager.js";
 export * from "./openApiImporter.js";
 export * from "./registry.js";
 export * from "./tools.js";
