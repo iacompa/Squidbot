@@ -307,7 +307,7 @@ async function main(): Promise<void> {
       if (subcommand === "install") {
         const manifestPath = parts[1];
         if (!manifestPath) {
-          throw new Error("Usage: npm run connectors -- install ./connectors/demo/salesConnector.json");
+          throw new Error("Usage: npm run connectors -- install ./connectors/demo/githubConnector.json");
         }
 
         const manifest = registry.installManifest(resolveFromInvocationCwd(manifestPath));
@@ -323,7 +323,7 @@ async function main(): Promise<void> {
         const nameFlagIndex = parts.indexOf("--name");
         const connectorName = nameFlagIndex >= 0 ? parts[nameFlagIndex + 1] : undefined;
         if (!specPath || !connectorName) {
-          throw new Error("Usage: npm run connectors -- import-openapi ./specs/petstore.yaml --name petstore");
+          throw new Error("Usage: npm run connectors -- import-openapi ./packages/connectors/test/fixtures/petstore.json --name petstore");
         }
 
         const result = importOpenApi({
@@ -604,8 +604,8 @@ async function main(): Promise<void> {
     console.log("  npm run memory -- list");
     console.log("  npm run memory -- approve <reflection-id> <candidate-index>");
     console.log("  npm run memory -- graph search --hybrid \"calculator bug\" --top 5");
-    console.log("  npm run connectors -- install ./connectors/demo/salesConnector.json");
-    console.log("  npm run connectors -- import-openapi ./specs/petstore.yaml --name petstore");
+    console.log("  npm run connectors -- install ./connectors/demo/githubConnector.json");
+    console.log("  npm run connectors -- import-openapi ./packages/connectors/test/fixtures/petstore.json --name petstore");
     console.log("  npm run onboarding                                     # 6-question interview that configures SquidBot for your business");
     console.log("  npm run onboarding -- --answers ./examples/onboarding-acme.json --yes  # non-interactive (for tests + scripted setup)");
     console.log("  npm run onboarding -- --dry-run                        # show what would be created without saving");
