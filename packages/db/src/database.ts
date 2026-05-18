@@ -156,6 +156,43 @@ export type ConnectorRecord = {
   createdAt: string;
 };
 
+export type McpServerRiskLevel = "low" | "medium" | "high" | "critical";
+
+export type StoredMcpServer = {
+  id: string;
+  name: string;
+  transport: "stdio";
+  command: string;
+  argsJson: string;
+  envJson: string;
+  riskLevel: McpServerRiskLevel;
+  enabled: number;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type McpServerRecord = {
+  id: string;
+  name: string;
+  transport: "stdio";
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  riskLevel: McpServerRiskLevel;
+  enabled: boolean;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type McpServerInput = Omit<McpServerRecord, "lastConnectedAt" | "lastError"> & {
+  lastConnectedAt?: string | null;
+  lastError?: string | null;
+};
+
 export type StoredModelUsage = {
   id: string;
   provider: string;
@@ -1292,6 +1329,77 @@ export class SquidDatabase {
     return row ? parseConnector(row) : null;
   }
 
+  saveMcpServer(input: McpServerInput): McpServerRecord {
+    this.db
+      .prepare(
+        `INSERT INTO mcp_servers
+         (id, name, transport, command, argsJson, envJson, riskLevel, enabled, lastConnectedAt, lastError, createdAt, updatedAt)
+         VALUES (@id, @name, @transport, @command, @argsJson, @envJson, @riskLevel, @enabled, @lastConnectedAt, @lastError, @createdAt, @updatedAt)
+         ON CONFLICT(name) DO UPDATE SET
+           command = excluded.command,
+           argsJson = excluded.argsJson,
+           envJson = excluded.envJson,
+           riskLevel = excluded.riskLevel,
+           enabled = excluded.enabled,
+           lastConnectedAt = excluded.lastConnectedAt,
+           lastError = excluded.lastError,
+           updatedAt = excluded.updatedAt`
+      )
+      .run({
+        id: input.id,
+        name: input.name,
+        transport: input.transport,
+        command: input.command,
+        argsJson: JSON.stringify(input.args),
+        envJson: JSON.stringify(input.env),
+        riskLevel: input.riskLevel,
+        enabled: input.enabled ? 1 : 0,
+        lastConnectedAt: input.lastConnectedAt ?? null,
+        lastError: input.lastError ?? null,
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt
+      });
+
+    const saved = this.getMcpServer(input.name);
+    if (!saved) {
+      throw new Error(`MCP server was not saved: ${input.name}`);
+    }
+    return saved;
+  }
+
+  listMcpServers(): McpServerRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM mcp_servers ORDER BY name ASC")
+      .all() as StoredMcpServer[];
+    return rows.map(parseMcpServer);
+  }
+
+  getMcpServer(name: string): McpServerRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM mcp_servers WHERE name = ?")
+      .get(name) as StoredMcpServer | undefined;
+    return row ? parseMcpServer(row) : null;
+  }
+
+  updateMcpServer(
+    name: string,
+    updates: Partial<Pick<McpServerInput, "enabled" | "lastConnectedAt" | "lastError" | "command" | "args" | "env" | "riskLevel">>
+  ): void {
+    const existing = this.getMcpServer(name);
+    if (!existing) {
+      throw new Error(`MCP server not found: ${name}`);
+    }
+    this.saveMcpServer({
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  deleteMcpServer(name: string): void {
+    this.db.prepare("DELETE FROM mcp_servers WHERE name = ?").run(name);
+  }
+
   getModelUsage(provider: string, usageDate: string): ModelUsageRecord | null {
     const row = this.db
       .prepare(
@@ -1400,6 +1508,23 @@ function parseConnector(row: StoredConnector): ConnectorRecord {
     name: row.name,
     manifest: JSON.parse(row.manifest) as unknown,
     createdAt: row.created_at
+  };
+}
+
+function parseMcpServer(row: StoredMcpServer): McpServerRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    transport: row.transport,
+    command: row.command,
+    args: JSON.parse(row.argsJson) as string[],
+    env: JSON.parse(row.envJson) as Record<string, string>,
+    riskLevel: row.riskLevel,
+    enabled: row.enabled === 1,
+    lastConnectedAt: row.lastConnectedAt,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 

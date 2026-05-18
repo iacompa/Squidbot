@@ -1301,6 +1301,35 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_pending_approvals_session
         ON pending_approvals (callerSessionId);
     `
+  },
+  {
+    id: 18,
+    name: "mcp_servers",
+    // Stores configured Model Context Protocol servers. Each row spawns
+    // a child process on app start via McpClientManager. Tools the server
+    // exposes register in the ToolRegistry as mcp.<name>.<toolName>.
+    // transport is currently CHECK'd to 'stdio' only; HTTP / SSE / WebSocket
+    // defer to a future migration. riskLevel mirrors connector permissions.
+    up: `
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        transport TEXT NOT NULL CHECK (transport IN ('stdio')),
+        command TEXT NOT NULL,
+        argsJson TEXT NOT NULL DEFAULT '[]',
+        envJson TEXT NOT NULL DEFAULT '{}',
+        riskLevel TEXT NOT NULL CHECK (riskLevel IN ('low', 'medium', 'high', 'critical')),
+        enabled INTEGER NOT NULL DEFAULT 1,
+        lastConnectedAt TEXT,
+        lastError TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled
+        ON mcp_servers (enabled)
+        WHERE enabled = 1;
+    `
   }
 ];
 
