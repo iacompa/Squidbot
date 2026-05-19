@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // In-memory localStorage shim — Node 25 + jsdom about:blank otherwise blocks
@@ -128,6 +128,14 @@ describe("App — sidebar badges", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByLabelText(/pending/i)).toBeNull();
   });
+
+  it("renders BriefingPage as the default landing", async () => {
+    const { App } = await import("./App");
+    const { container } = render(<App />);
+    await waitFor(() => {
+      expect(container.querySelector(".briefing-page")).toBeTruthy();
+    });
+  });
 });
 
 // The navigation smoke test is the bulwark against "open page with nothing
@@ -216,7 +224,11 @@ describe("App — navigation smoke test", () => {
 
   it("every primary nav item lands on a page with at least one interactive element", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    const { container } = render(<App />);
+    // Scope nav lookups to the sidebar so that BriefingPage's CTA buttons
+    // (e.g. "Open chat", "Open jobs") don't collide with the sidebar nav
+    // items by accessible name.
+    const sidebar = container.querySelector(".sidebar") as HTMLElement;
     const primaryLabels = ["Chat", "Integrations", "Approvals", "Trust", "History", "Settings"];
     for (const label of primaryLabels) {
       // Use `^Label\b` instead of `^Label$` so the regex still matches when the
@@ -225,7 +237,7 @@ describe("App — navigation smoke test", () => {
       // boundary so we still don't match unrelated buttons whose names start
       // with the same prefix.
       const navButton = await waitFor(() =>
-        screen.getByRole("button", { name: new RegExp(label, "i") })
+        within(sidebar).getByRole("button", { name: new RegExp(label, "i") })
       );
       fireEvent.click(navButton);
       // Each page must contribute SOMETHING interactive — pure empty shells fail.
@@ -243,15 +255,18 @@ describe("App — navigation smoke test", () => {
 
   it("expanding Advanced and clicking each advanced item lands on a page with at least one interactive", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    const { container } = render(<App />);
+    // Scope nav lookups to the sidebar so that BriefingPage's CTA buttons
+    // (e.g. "Open jobs") don't collide with the sidebar nav items.
+    const sidebar = container.querySelector(".sidebar") as HTMLElement;
     // Find and click the Advanced toggle to expand the section.
-    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /advanced/i })));
+    fireEvent.click(await waitFor(() => within(sidebar).getByRole("button", { name: /advanced/i })));
     const advancedLabels = ["Jobs", "Teams", "Evals", "Sandboxes", "Gaps"];
     for (const label of advancedLabels) {
       // Same word-boundary pattern as the primary test, in case any Advanced
       // item ever gains a badge.
       const navButton = await waitFor(() =>
-        screen.getByRole("button", { name: new RegExp(label, "i") })
+        within(sidebar).getByRole("button", { name: new RegExp(label, "i") })
       );
       fireEvent.click(navButton);
       const interactives = await waitFor(

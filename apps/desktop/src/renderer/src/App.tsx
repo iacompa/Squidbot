@@ -9,6 +9,7 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  Sunrise,
   UsersRound
 } from "lucide-react";
 import { BurgerButton } from "./components/BurgerButton";
@@ -18,6 +19,7 @@ import { squidbotApi } from "./lib/api";
 import { resolveNav } from "./lib/navRedirects";
 import { GapsPage } from "./pages/GapsPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
+import { BriefingPage } from "./pages/BriefingPage";
 import { ChatPage } from "./pages/ChatPage";
 import { EvaluationLabPage } from "./pages/EvaluationLabPage";
 import { HistoryPage } from "./pages/HistoryPage";
@@ -34,6 +36,7 @@ import type { SettingsDto } from "../../shared/api";
 type NavItem = { id: PageId; label: string; icon: typeof MessageSquare };
 
 const primaryPages: NavItem[] = [
+  { id: "briefing", label: "Briefing", icon: Sunrise },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "approvals", label: "Approvals", icon: ShieldCheck },
@@ -53,7 +56,7 @@ const advancedPages: NavItem[] = [
 const ADVANCED_OPEN_KEY = "sidebar.advancedOpen";
 
 export function App() {
-  const [activePage, setActivePage] = useState<PageId>("chat");
+  const [activePage, setActivePage] = useState<PageId>("briefing");
   const [settings, setSettings] = useState<SettingsDto | null>(null);
   const [, setLatestTrace] = useState<TraceDto | null>(null);
   const [, setTraces] = useState<TraceDto[]>([]);
@@ -196,6 +199,10 @@ export function App() {
   const renderPage = () => {
     if (!settings) {
       return <main className="page-panel skeleton-panel" />;
+    }
+
+    if (activePage === "briefing") {
+      return <BriefingPage onNavigate={handleNavigate} />;
     }
 
     if (activePage === "chat") {
