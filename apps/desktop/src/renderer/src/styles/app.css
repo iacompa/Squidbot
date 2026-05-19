@@ -3682,3 +3682,25 @@ pre {
   left: -2px;
   font-size: 9px;
 }
+
+.burger-button {
+  display: none;
+  background: transparent;
+  border: 0;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+
+@media (hover: hover) {
+  .burger-button:hover {
+    background: var(--surface-2);
+  }
+}
+
+@media (max-width: 767px) {
+  .burger-button { display: inline-flex; align-items: center; justify-content: center; }
+}
