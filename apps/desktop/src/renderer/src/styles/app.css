@@ -3704,3 +3704,20 @@ pre {
 @media (max-width: 767px) {
   .burger-button { display: inline-flex; align-items: center; justify-content: center; }
 }
+
+.mobile-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 21, 0.55);
+  z-index: 99;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+@media (min-width: 768px) {
+  .mobile-nav-backdrop { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav-backdrop { transition-duration: 0ms !important; }
+}
