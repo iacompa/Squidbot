@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   Boxes,
@@ -11,6 +11,9 @@ import {
   ShieldCheck,
   UsersRound
 } from "lucide-react";
+import { BurgerButton } from "./components/BurgerButton";
+import { MobileNavBackdrop } from "./components/MobileNavBackdrop";
+import { useBreakpoint } from "./hooks/useBreakpoint";
 import { squidbotApi } from "./lib/api";
 import { resolveNav } from "./lib/navRedirects";
 import { GapsPage } from "./pages/GapsPage";
@@ -71,6 +74,42 @@ export function App() {
   // destination page gets it as `initialTab`).
   const [pendingTab, setPendingTab] = useState<string | null>(null);
 
+  // Mobile drawer state — sidebar slides off-canvas below --bp-mobile and
+  // toggles back in via the burger button. The .nav-open class on the
+  // outer .app-shell drives the CSS transform (see app.css).
+  const [isMobileNavOpen, setMobileNavOpen] = useState(false);
+  const breakpoint = useBreakpoint();
+  const burgerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Auto-close drawer when window grows past mobile — otherwise the user
+  // ends up in a "drawer-open on desktop" state that has no visual cue.
+  useEffect(() => {
+    if (breakpoint !== "mobile" && isMobileNavOpen) {
+      setMobileNavOpen(false);
+    }
+  }, [breakpoint, isMobileNavOpen]);
+
+  // Close drawer on Escape — matches the established a11y idiom for
+  // dismissible overlays.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape" && isMobileNavOpen) setMobileNavOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isMobileNavOpen]);
+
+  // Restore focus to the burger button when the drawer closes (WCAG 2.4.3).
+  // Tracking the prior open state in a ref means we only fire on the
+  // open→closed edge, not on the initial mount.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (wasOpenRef.current && !isMobileNavOpen) {
+      burgerRef.current?.focus();
+    }
+    wasOpenRef.current = isMobileNavOpen;
+  }, [isMobileNavOpen]);
+
   async function refreshSettings(): Promise<void> {
     const nextSettings = await squidbotApi.getSettings();
     setSettings(nextSettings);
@@ -106,6 +145,9 @@ export function App() {
   }
 
   function handleNavigate(pageId: PageId, payload?: { tab?: string }): void {
+    // Route change always dismisses the mobile drawer — the user has
+    // selected their destination, so the drawer's job is done.
+    setMobileNavOpen(false);
     const resolved = resolveNav(pageId);
     setActivePage(resolved.pageId);
     const tab = payload?.tab ?? resolved.tab ?? null;
@@ -216,8 +258,19 @@ export function App() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div
+      className={`app-shell${isMobileNavOpen ? " nav-open" : ""}`}
+      data-bp={breakpoint}
+    >
+      <BurgerButton
+        ref={burgerRef}
+        onClick={() => setMobileNavOpen((v) => !v)}
+        expanded={isMobileNavOpen}
+      />
+      <aside
+        className="sidebar"
+        inert={breakpoint === "mobile" && !isMobileNavOpen ? true : undefined}
+      >
         <div className="brand-block">
           <div className="brand-mark">SB</div>
           <div>
@@ -298,6 +351,11 @@ export function App() {
       </aside>
 
       <section className="content-shell">{renderPage()}</section>
+
+      <MobileNavBackdrop
+        visible={isMobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+      />
     </div>
   );
 }

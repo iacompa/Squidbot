@@ -143,6 +143,60 @@ describe("App — sidebar badges", () => {
 // and TrustPage is in the primary nav. The intent is "did the page
 // produce at least one thing the user can click," not "is the root a
 // main element."
+describe("App shell drawer (Task A.6)", () => {
+  // Force mobile breakpoint so the auto-close-on-resize effect (which fires
+  // when breakpoint !== "mobile") doesn't immediately slam the drawer shut
+  // after we open it in these assertions.
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-width: 767px") || query.includes("max-width: 1023px"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {}
+      })
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "matchMedia");
+  });
+
+  it("renders the burger button", async () => {
+    const { App } = await import("./App");
+    const { container } = render(<App />);
+    expect(container.querySelector(".burger-button")).not.toBeNull();
+  });
+
+  it("toggles nav-open class on .app-shell when burger is tapped", async () => {
+    const { App } = await import("./App");
+    const { container } = render(<App />);
+    const shell = container.querySelector(".app-shell")!;
+    expect(shell.classList.contains("nav-open")).toBe(false);
+    fireEvent.click(container.querySelector(".burger-button")!);
+    expect(shell.classList.contains("nav-open")).toBe(true);
+  });
+
+  it("closes drawer when backdrop is tapped", async () => {
+    const { App } = await import("./App");
+    const { container } = render(<App />);
+    fireEvent.click(container.querySelector(".burger-button")!);
+    expect(container.querySelector(".app-shell")!.classList.contains("nav-open")).toBe(true);
+    fireEvent.click(container.querySelector(".mobile-nav-backdrop")!);
+    expect(container.querySelector(".app-shell")!.classList.contains("nav-open")).toBe(false);
+  });
+
+  it("closes drawer when Escape is pressed", async () => {
+    const { App } = await import("./App");
+    const { container } = render(<App />);
+    fireEvent.click(container.querySelector(".burger-button")!);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(container.querySelector(".app-shell")!.classList.contains("nav-open")).toBe(false);
+  });
+});
+
 describe("App — navigation smoke test", () => {
   // Pages render inside `<section className="content-shell">` per App.tsx;
   // this selector matches every interactive element in the page area

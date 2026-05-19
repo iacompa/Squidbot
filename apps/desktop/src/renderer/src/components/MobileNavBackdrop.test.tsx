@@ -7,21 +7,32 @@ import { MobileNavBackdrop } from "./MobileNavBackdrop";
 afterEach(cleanup);
 
 describe("MobileNavBackdrop", () => {
-  it("renders nothing when not visible", () => {
+  it("renders backdrop element without .open class when not visible", () => {
     const { container } = render(<MobileNavBackdrop visible={false} onClose={() => {}} />);
-    expect(container.querySelector(".mobile-nav-backdrop")).toBeNull();
+    const el = container.querySelector(".mobile-nav-backdrop");
+    expect(el).not.toBeNull();
+    expect(el!.classList.contains("open")).toBe(false);
   });
 
-  it("renders backdrop element when visible", () => {
+  it("renders backdrop with .open class when visible", () => {
     const { container } = render(<MobileNavBackdrop visible={true} onClose={() => {}} />);
-    expect(container.querySelector(".mobile-nav-backdrop")).not.toBeNull();
+    const el = container.querySelector(".mobile-nav-backdrop");
+    expect(el).not.toBeNull();
+    expect(el!.classList.contains("open")).toBe(true);
   });
 
-  it("calls onClose when tapped", () => {
+  it("calls onClose when tapped while visible", () => {
     const fn = vi.fn();
     const { container } = render(<MobileNavBackdrop visible={true} onClose={fn} />);
     fireEvent.click(container.querySelector(".mobile-nav-backdrop")!);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT call onClose when tapped while hidden", () => {
+    const fn = vi.fn();
+    const { container } = render(<MobileNavBackdrop visible={false} onClose={fn} />);
+    fireEvent.click(container.querySelector(".mobile-nav-backdrop")!);
+    expect(fn).not.toHaveBeenCalled();
   });
 
   it("has aria-hidden true (decorative)", () => {
