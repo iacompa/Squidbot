@@ -195,6 +195,16 @@ describe("App shell drawer (Task A.6)", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(container.querySelector(".app-shell")!.classList.contains("nav-open")).toBe(false);
   });
+
+  it("adds no-scroll class to body when drawer opens, removes on close", async () => {
+    const { App } = await import("./App");
+    const { container } = render(<App />);
+    expect(document.body.classList.contains("no-scroll")).toBe(false);
+    fireEvent.click(container.querySelector(".burger-button")!);
+    expect(document.body.classList.contains("no-scroll")).toBe(true);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.body.classList.contains("no-scroll")).toBe(false);
+  });
 });
 
 describe("App — navigation smoke test", () => {

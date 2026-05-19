@@ -110,6 +110,15 @@ export function App() {
     wasOpenRef.current = isMobileNavOpen;
   }, [isMobileNavOpen]);
 
+  // Body scroll lock when drawer is open — prevents the page-behind from
+  // scrolling. CSS rule (body.no-scroll { overflow: hidden }) lives in app.css.
+  useEffect(() => {
+    if (isMobileNavOpen) {
+      document.body.classList.add("no-scroll");
+      return () => document.body.classList.remove("no-scroll");
+    }
+  }, [isMobileNavOpen]);
+
   async function refreshSettings(): Promise<void> {
     const nextSettings = await squidbotApi.getSettings();
     setSettings(nextSettings);
