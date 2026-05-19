@@ -60,6 +60,7 @@ import type {
 } from "../../shared/api";
 
 export type PageId =
+  | "briefing"
   | "chat"
   | "onboarding"
   | "integrations"      // NEW — top-level home for AI models / connectors / messaging

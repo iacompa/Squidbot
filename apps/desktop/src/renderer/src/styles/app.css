@@ -3755,3 +3755,45 @@ pre {
 body.no-scroll {
   overflow: hidden;
 }
+
+.briefing-page { display: flex; flex-direction: column; gap: 24px; }
+.briefing-header h2 { font-size: clamp(20px, 4vw, 28px); }
+.briefing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.briefing-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.briefing-card h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.briefing-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.briefing-list strong { font-size: 22px; }
+.briefing-jobs, .briefing-actions {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+}
+.briefing-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+@media (max-width: 1023px) {
+  .briefing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .briefing-grid { grid-template-columns: 1fr; }
+  .briefing-actions { flex-direction: column; align-items: stretch; }
+  .briefing-actions button { width: 100%; }
+}
