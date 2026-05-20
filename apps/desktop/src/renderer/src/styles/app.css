@@ -1348,6 +1348,30 @@ pre {
   grid-template-columns: 112px minmax(0, 1fr) 88px minmax(150px, 0.7fr);
 }
 
+/* C.5 — Below 768px, the .affordance-table pattern (used by Gaps, Jobs,
+   Eval Lab and any sandbox / skill variants thereof) collapses into a
+   vertical stack. The header row disappears (it's column labels that
+   wouldn't render usefully when columns become rows), and each
+   .affordance-row becomes a single-column flex layout where its child
+   cells stack with comfortable spacing — same as the iOS/Android "list
+   card" pattern. The selected/active row keeps its teal border. */
+@media (max-width: 767px) {
+  .affordance-table-head {
+    display: none;
+  }
+  .affordance-row,
+  .sandbox-table .affordance-row,
+  .skill-table .affordance-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 12px;
+    min-height: 0;
+  }
+  .affordance-row > * {
+    overflow-wrap: anywhere;
+  }
+}
+
 .job-table .affordance-table-head,
 .job-table .affordance-row {
   grid-template-columns: 112px minmax(0, 1fr) 76px minmax(140px, 0.9fr) 108px;
