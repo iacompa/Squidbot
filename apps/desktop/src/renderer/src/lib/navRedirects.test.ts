@@ -4,6 +4,7 @@ import type { PageId } from "../types";
 
 describe("resolveNav — redirect map for deprecated PageIds", () => {
   it("passes through current PageIds unchanged", () => {
+    expect(resolveNav("briefing")).toEqual({ pageId: "briefing" });
     expect(resolveNav("chat")).toEqual({ pageId: "chat" });
     expect(resolveNav("integrations")).toEqual({ pageId: "integrations" });
     expect(resolveNav("history")).toEqual({ pageId: "history" });
@@ -31,7 +32,7 @@ describe("resolveNav — redirect map for deprecated PageIds", () => {
 
   it("never sets tab for current (non-deprecated) PageIds", () => {
     const currentPageIds: PageId[] = [
-      "chat", "onboarding", "integrations", "history",
+      "briefing", "chat", "onboarding", "integrations", "history",
       "approvals", "trust", "settings",
       "jobs", "teams", "evals", "sandboxes", "gaps"
     ];
