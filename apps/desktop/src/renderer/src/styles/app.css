@@ -3805,4 +3805,14 @@ body.no-scroll {
   .briefing-grid { grid-template-columns: 1fr; }
   .briefing-actions { flex-direction: column; align-items: stretch; }
   .briefing-actions button { width: 100%; }
+
+  /* C.1 — Trust + Identity 2-column grids collapse to 1-column on mobile.
+     Below 768px the cards stack vertically instead of getting cramped
+     into 2 narrow columns. Governance has no dedicated grid (renders
+     via GovernanceSection inside an eval-page wrapper) — nothing to
+     collapse there. */
+  .identity-grid,
+  .trust-grid {
+    grid-template-columns: 1fr;
+  }
 }
