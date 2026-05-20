@@ -3713,6 +3713,36 @@ pre {
   font-weight: 600;
 }
 
+/* C.6 — Approvals + Trust audit ledger mobile treatment.
+   - .approval-row collapses from horizontal flex to vertical stack so the
+     row__main and row__actions don't fight for ~360px of width. Action
+     buttons go full-width so Approve / Reject are reachable single-handed.
+   - .spend-table (TrustPage's per-provider spend) wraps in a horizontal
+     scroll container — the columns are too data-dense to card-stack
+     usefully; a swipe-to-scroll is the better UX. */
+@media (max-width: 767px) {
+  .approval-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+  .approval-row__actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .approval-row__actions button {
+    width: 100%;
+    min-block-size: 44px;
+  }
+  .spend-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .connector-status-row {
   display: flex;
   align-items: center;
