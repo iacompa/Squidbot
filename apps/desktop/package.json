@@ -14,7 +14,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "web:serve": "tsx scripts/serve-web.mjs",
-    "test:web": "playwright test"
+    "test:web": "playwright test",
+    "audit:renderer-imports": "node scripts/audit-renderer-imports.mjs"
   },
   "dependencies": {
     "@squidbot/connectors": "0.1.0",
