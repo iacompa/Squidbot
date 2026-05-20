@@ -384,6 +384,64 @@ pre {
   .message-bubble { max-width: 92%; }
 }
 
+/* C.8 — Universal mobile form treatment + touch-target enforcement.
+   Below 768px: form labels block-above-inputs, inputs full-width,
+   action button rows stack vertically with full-width buttons.
+   Above OR below the breakpoint, any (pointer: coarse) device gets
+   44x44 minimums on interactive elements — this is the touch-input
+   guarantee even on a tablet held in landscape (>768px wide).
+   Hover styles get guarded by (hover: hover) so they don't stick
+   after a tap on touch devices that report both pointer types.
+   Scope note: many specific forms already have their own mobile
+   rules (e.g. .model-account-form__row in the existing 767px block
+   at line ~3391). This rule is the catch-all for forms that didn't
+   get explicit attention. */
+@media (max-width: 767px) {
+  form label {
+    display: block;
+    margin-bottom: 12px;
+  }
+  form label > span {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  form input:not([type="checkbox"]):not([type="radio"]),
+  form select,
+  form textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-block-size: 44px;
+  }
+  form .form-actions,
+  form .button-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  form .form-actions button,
+  form .button-row button {
+    width: 100%;
+    min-block-size: 44px;
+  }
+}
+
+/* Touch-target enforcement: (pointer: coarse) covers any touch device
+   regardless of viewport width; (max-width: 767px) catches mobile-sized
+   browser windows on hover-capable hardware (the Electron app being
+   resized for a phone-width preview, or the web bundle in a phone-sim
+   browser tab). All interactive elements get 44x44 minimums. */
+@media (pointer: coarse), (max-width: 767px) {
+  button,
+  a,
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-block-size: 44px;
+    min-inline-size: 44px;
+  }
+}
+
 .error-strip {
   margin: 0 24px 12px;
   border: 1px solid rgba(212, 93, 76, 0.35);
