@@ -3476,6 +3476,25 @@ pre {
   border-bottom-color: var(--teal);
 }
 
+/* C.4 — Integrations + History top tab bars become horizontally
+   scrollable below 768px. Both pages share this class. min-block-size
+   on the tab buttons enforces touch targets; min-inline-size:max-content
+   keeps tab labels from getting truncated under flex-shrink. */
+@media (max-width: 767px) {
+  .integrations-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    flex-wrap: nowrap;
+  }
+  .integrations-tabs button[role="tab"] {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-block-size: 44px;
+    min-inline-size: max-content;
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * Settings page — left-rail tab shell (Task 1.7)
  * Four-tab destination: General / Profile / Skills / Governance. The rail
