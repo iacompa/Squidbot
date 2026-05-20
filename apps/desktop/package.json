@@ -13,7 +13,8 @@
     "preview": "node ../../scripts/ensure-electron-native.mjs && electron-vite preview",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "web:serve": "tsx scripts/serve-web.mjs"
+    "web:serve": "tsx scripts/serve-web.mjs",
+    "test:web": "playwright test"
   },
   "dependencies": {
     "@squidbot/connectors": "0.1.0",
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
+    "@playwright/test": "^1.60.0",
     "@testing-library/react": "^16.3.2",
     "@types/express": "^5.0.6",
     "@types/react": "^19.1.2",
