@@ -430,15 +430,21 @@ pre {
    regardless of viewport width; (max-width: 767px) catches mobile-sized
    browser windows on hover-capable hardware (the Electron app being
    resized for a phone-width preview, or the web bundle in a phone-sim
-   browser tab). All interactive elements get 44x44 minimums. */
+   browser tab). All interactive elements get 44x44 minimums.
+
+   !important is used deliberately here: this is the accessibility floor
+   for touch targets, and any class-targeted rule (e.g. `.secondary-button
+   { min-height: 38px }`) would otherwise win on specificity (0,1,0 beats
+   0,0,1 regardless of source order). E.1's Playwright audit locks this
+   in so any regression below 44x44 fails CI. */
 @media (pointer: coarse), (max-width: 767px) {
   button,
   a,
   [role="button"],
   input[type="checkbox"],
   input[type="radio"] {
-    min-block-size: 44px;
-    min-inline-size: 44px;
+    min-block-size: 44px !important;
+    min-inline-size: 44px !important;
   }
 }
 
