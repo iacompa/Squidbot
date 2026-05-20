@@ -3816,3 +3816,13 @@ body.no-scroll {
     grid-template-columns: 1fr;
   }
 }
+
+/* C.2 — HistoryPage 2-pane (run list + run detail) stacks below 1024px.
+   The default min(540px) left column doesn't fit alongside a 1.4fr right
+   pane below ~1100px without crushing both. Collapse to 1fr (stack) so
+   the user reads the list, taps a run, then reads the detail. */
+@media (max-width: 1023px) {
+  .run-dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+}
