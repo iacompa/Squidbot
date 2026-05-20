@@ -304,6 +304,7 @@ export function App() {
                 key={item.id}
                 type="button"
                 className={`nav-item ${isActive ? "active" : ""}`}
+                aria-label={item.label}
                 onClick={() => handleNavigate(item.id)}
               >
                 <Icon size={18} aria-hidden />
@@ -340,6 +341,7 @@ export function App() {
                   key={item.id}
                   type="button"
                   className={`nav-item ${isActive ? "active" : ""}`}
+                  aria-label={item.label}
                   onClick={() => handleNavigate(item.id)}
                 >
                   <Icon size={15} aria-hidden />
