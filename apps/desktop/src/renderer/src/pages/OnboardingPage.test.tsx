@@ -199,3 +199,91 @@ describe("OnboardingPage wizard", () => {
     });
   });
 });
+
+describe("OnboardingPage success screen", () => {
+  it("shows an 'Open Briefing' button on the success screen that calls onNavigate('briefing')", async () => {
+    // Stub commitOnboarding so the wizard transitions into the committed
+    // success state. The shape mirrors the real IPC contract — see
+    // CommittedOnboardingDto in shared/api.ts.
+    commitMock.mockResolvedValue({
+      inference: {
+        profile: {
+          industry: "saas",
+          displayName: "Acme",
+          businessUnit: null,
+          role: null,
+          primarySystems: [],
+          primaryChannels: [],
+          sensitivity: "standard",
+          vocabulary: { project: "feature" },
+          branding: { productName: "SquidBot for Acme" },
+          policyPacks: ["developer-safe-default", "secrets-redaction"],
+          defaultSkills: [],
+          defaultConnectors: [],
+          readOnlyByDefault: false,
+          metadata: {}
+        },
+        memories: [],
+        rationale: ["Inferred industry: saas."],
+        nextActions: []
+      },
+      committed: {
+        profile: {
+          id: "profile_acme",
+          industry: "saas",
+          displayName: "Acme",
+          businessUnit: null,
+          role: null,
+          primarySystems: [],
+          primaryChannels: [],
+          sensitivity: "standard",
+          vocabulary: {},
+          branding: { productName: "SquidBot for Acme" },
+          policyPacks: [],
+          defaultSkills: [],
+          defaultConnectors: [],
+          readOnlyByDefault: false,
+          isActive: true,
+          seeded: false,
+          metadata: {},
+          createdAt: "now",
+          updatedAt: "now"
+        },
+        memories: [],
+        syntheticRunId: "run_test"
+      }
+    });
+
+    const navigate = vi.fn();
+    const { OnboardingPage } = await import("./OnboardingPage");
+    render(<OnboardingPage onNavigate={navigate} />);
+
+    await skipModelStep();
+    await waitFor(() => screen.getByText("In one sentence, what does your business do?"));
+
+    // Q1
+    fireEvent.change(
+      screen.getByLabelText("In one sentence, what does your business do?"),
+      { target: { value: "Acme is a small SaaS." } }
+    );
+    fireEvent.click(screen.getByText("Next"));
+
+    // Q2 — pick a choice, then Next to reach the Confirm step.
+    await waitFor(() => screen.getByText("How sensitive is the data you work with?"));
+    fireEvent.click(screen.getByText("Standard"));
+    fireEvent.click(screen.getByText("Next"));
+
+    // Confirm step — click Save & finish to invoke commitOnboarding.
+    await waitFor(() => screen.getByText("Ready to save"));
+    fireEvent.click(screen.getByText("Save & finish"));
+
+    // After commit resolves the success screen renders.
+    await waitFor(() => {
+      expect(screen.getByText(/Onboarding complete/i)).toBeTruthy();
+    });
+
+    const openBriefing = screen.getByRole("button", { name: /open briefing/i });
+    fireEvent.click(openBriefing);
+    expect(navigate).toHaveBeenCalledWith("briefing");
+  });
+});

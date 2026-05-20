@@ -212,6 +212,15 @@ pre {
   letter-spacing: 0;
 }
 
+/* Right-aligned action cluster inside a page-header. Used on the onboarding
+   success screen where a primary CTA ("Open Briefing") sits next to a ghost
+   "Re-run onboarding" button. */
+.page-header__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .secondary-button,
 .primary-icon-button {
   display: inline-flex;

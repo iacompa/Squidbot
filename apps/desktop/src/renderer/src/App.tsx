@@ -240,7 +240,7 @@ export function App() {
     }
 
     if (activePage === "onboarding") {
-      return <OnboardingPage />;
+      return <OnboardingPage onNavigate={handleNavigate} />;
     }
 
     if (activePage === "jobs") {

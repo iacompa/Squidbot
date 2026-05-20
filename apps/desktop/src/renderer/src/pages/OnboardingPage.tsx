@@ -10,8 +10,18 @@ import type {
   ModelAccountSummaryDto,
   OnboardingAnswerDto,
   OnboardingInferenceDto,
-  OnboardingQuestionDto
+  OnboardingQuestionDto,
+  PageId
 } from "../types";
+
+type OnboardingPageProps = {
+  /**
+   * Optional navigation callback. When provided, the post-onboarding success
+   * screen exposes an "Open Briefing" CTA that routes the user to the
+   * Briefing home — wiring up Section 5.3 of the responsive-ui design.
+   */
+  onNavigate?: (pageId: PageId) => void;
+};
 
 /**
  * AI-assisted onboarding wizard.
@@ -28,7 +38,7 @@ import type {
  * `inferOnboarding` IPC handler. Inference is sub-millisecond locally, so the
  * preview feels instant.
  */
-export function OnboardingPage() {
+export function OnboardingPage({ onNavigate }: OnboardingPageProps = {}) {
   const [questions, setQuestions] = useState<OnboardingQuestionDto[]>([]);
   const [answers, setAnswers] = useState<Record<string, OnboardingAnswerDto>>({});
   // `currentIndex` is now offset by one to make room for the chat-style
@@ -251,9 +261,20 @@ export function OnboardingPage() {
               SquidBot is now configured for <strong>{committed.profile.displayName}</strong>.
             </p>
           </div>
-          <button type="button" className="ghost-button" onClick={handleRestart}>
-            Re-run onboarding
-          </button>
+          <div className="page-header__actions">
+            {onNavigate && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => onNavigate("briefing")}
+              >
+                <Sparkles size={14} aria-hidden /> Open Briefing
+              </button>
+            )}
+            <button type="button" className="ghost-button" onClick={handleRestart}>
+              Re-run onboarding
+            </button>
+          </div>
         </header>
 
         <section className="onboarding-success">
