@@ -3536,10 +3536,24 @@ pre {
   .settings-shell {
     grid-template-columns: 1fr;
   }
+  /* C.3 — settings rail becomes a horizontal scrollable bar instead of
+     a multi-line wrapped row. Single-line keeps the page header tidy and
+     matches the iOS/Android tab pattern users expect on touch. Scroll-snap
+     locks each tap to a tab boundary. */
   .settings-rail {
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     position: static;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 6px;
+  }
+  .settings-rail button[role="tab"] {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-block-size: 44px;
+    min-inline-size: max-content;
   }
 }
 
