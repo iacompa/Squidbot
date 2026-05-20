@@ -366,6 +366,24 @@ pre {
   box-shadow: 0 0 0 3px rgba(21, 127, 116, 0.14);
 }
 
+/* C.7 — ChatPage mobile tweaks. The composer's send button is the 44px
+   second grid column — its flex-shrink:0 prevents it from collapsing
+   if the input grows. The message bubble's max-width drops to 92% so
+   bubbles use the available width on narrow screens; assistant/user
+   distinguish via background+alignment, not just narrower max-width.
+   Composer side padding tightens since the page already has tight
+   side padding at mobile width.
+   Note: .memory-graph-grid 1fr collapse already lives in the existing
+   1023px block (line ~1721) — not re-stated here. */
+@media (max-width: 767px) {
+  .chat-form {
+    padding: 12px;
+  }
+  .chat-form input { min-height: 44px; }
+  .chat-form > button { flex-shrink: 0; min-block-size: 44px; min-inline-size: 44px; }
+  .message-bubble { max-width: 92%; }
+}
+
 .error-strip {
   margin: 0 24px 12px;
   border: 1px solid rgba(212, 93, 76, 0.35);
