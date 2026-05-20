@@ -1348,13 +1348,14 @@ pre {
   grid-template-columns: 112px minmax(0, 1fr) 88px minmax(150px, 0.7fr);
 }
 
-/* C.5 — Below 768px, the .affordance-table pattern (used by Gaps, Jobs,
-   Eval Lab and any sandbox / skill variants thereof) collapses into a
-   vertical stack. The header row disappears (it's column labels that
-   wouldn't render usefully when columns become rows), and each
-   .affordance-row becomes a single-column flex layout where its child
-   cells stack with comfortable spacing — same as the iOS/Android "list
-   card" pattern. The selected/active row keeps its teal border. */
+/* C.5 — Below 768px, extends the existing 1023px collapse of the
+   .affordance-table pattern (Gaps, Jobs, Eval Lab + sandbox/skill
+   variants) with mobile-specific polish:
+   - hide the column-label head (labels don't apply once rows stack)
+   - tighter padding / gap that suits single-column cards
+   - overflow-wrap so long ids/paths break instead of forcing scroll
+   The grid-template-columns: 1fr collapse itself is inherited from
+   the parent 1023px rule (line ~1731) — not re-stated here. */
 @media (max-width: 767px) {
   .affordance-table-head {
     display: none;
@@ -1362,7 +1363,6 @@ pre {
   .affordance-row,
   .sandbox-table .affordance-row,
   .skill-table .affordance-row {
-    grid-template-columns: 1fr;
     gap: 6px;
     padding: 12px;
     min-height: 0;
@@ -3892,24 +3892,12 @@ body.no-scroll {
   .briefing-grid { grid-template-columns: 1fr; }
   .briefing-actions { flex-direction: column; align-items: stretch; }
   .briefing-actions button { width: 100%; }
-
-  /* C.1 — Trust + Identity 2-column grids collapse to 1-column on mobile.
-     Below 768px the cards stack vertically instead of getting cramped
-     into 2 narrow columns. Governance has no dedicated grid (renders
-     via GovernanceSection inside an eval-page wrapper) — nothing to
-     collapse there. */
-  .identity-grid,
-  .trust-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
-/* C.2 — HistoryPage 2-pane (run list + run detail) stacks below 1024px.
-   The default min(540px) left column doesn't fit alongside a 1.4fr right
-   pane below ~1100px without crushing both. Collapse to 1fr (stack) so
-   the user reads the list, taps a run, then reads the detail. */
-@media (max-width: 1023px) {
-  .run-dashboard-layout {
-    grid-template-columns: 1fr;
-  }
-}
+/* Note: C.1 (.identity-grid + .trust-grid mobile collapse) and C.2
+   (.run-dashboard-layout tablet collapse) were originally landed here but
+   were pure duplicates — the existing 1023px block at line ~1659 already
+   collapses .run-dashboard-layout, and the existing 1023px block at line
+   ~2909 already collapses .identity-grid + .trust-grid. Both rules cascade
+   down to mobile via the inclusive max-width matching, so the dedicated
+   767px rules were redundant. Removed during cleanup. */
