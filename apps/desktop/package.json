@@ -15,6 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "web:serve": "tsx scripts/serve-web.mjs",
     "test:web": "playwright test",
+    "test:visual": "playwright test test/visual.spec.ts",
+    "test:touch": "playwright test test/touch-targets.spec.ts",
+    "test:a11y": "playwright test test/a11y.spec.ts",
+    "test:responsive": "npm run audit:renderer-imports && npm run test && npm run test:web",
     "audit:renderer-imports": "node scripts/audit-renderer-imports.mjs"
   },
   "dependencies": {
