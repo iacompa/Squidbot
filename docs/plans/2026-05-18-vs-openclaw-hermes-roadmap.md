@@ -1,174 +1,415 @@
-# SquidBot vs OpenClaw vs Hermes Agent — Strategic Roadmap
+# SquidBot Strategic Roadmap — Reconciled Against Future-Ready Agent Reference
 
-**Date:** 2026-05-18
-**Status:** Strategic positioning + phased plan. Each phase has its own design doc + implementation plan to follow.
-**Mission frame:** "Your audit-first AI CEO — a single agent that handles the operations of running a one-person business, with a tamper-evident trail of every decision."
-**Primary user:** Solo founder / business-of-one. The agent IS their operations team.
+**Date:** 2026-05-18 (created), 2026-05-21 (reconciled v2)
+**Status:** Strategic positioning + phased plan reconciled against the authoritative reference docs in `~/Projects/SquidBot 2/docs/FUTURE_READY_AGENT_REFERENCE.md` (3,250 lines) and `FUTURE_READY_AGENT_EXECUTION_PLAN.md` (3,524 lines).
+**Mission frame:** "The agent operating system you can trust, inspect, govern, and improve. Built for individuals, teams, and organizations — without project-side spend, without vendor lock-in, and with a tamper-evident trail of every decision."
+**Primary differentiation statement (from reference §21):** "OpenClaw is the assistant everywhere. Hermes is the agent that learns. SquidBot is the agent operating system you can trust, inspect, govern, and improve."
+
+---
+
+## 0. Why this v2 reconciliation exists
+
+The v1 roadmap (2026-05-18 original) framed SquidBot's competitive position as **"audit-first AI CEO for a solo founder"** — a personal-user lens. It proposed 7 phases: responsive UI / AI CEO operations / autonomy loop / beyond-parity safety / voice & menu-bar / deployment / messaging.
+
+Re-reading the reference docs (which predate the v1 roadmap by 3 weeks) revealed the v1 was **narrower than your stated vision**. The reference doc frames SquidBot as an **agent operating system for individuals, teams, *and* organizations** — with explicit demands for:
+
+- **AI Studio + Blueprint Center** (reference §6.15) — centralized hub for designing, testing, approving, deploying, and measuring agents. **Neither OpenClaw nor Hermes ships this.** PwC research (§5.10) confirms it's the enterprise adoption pattern.
+- **Vertical Blueprint Library** (§5.12) — business-ready packages for sales, support, finance, HR, healthcare, automotive dealerships, government, aviation, regulated finance, etc.
+- **Universal Integration Fabric** (§6.13) — connector builder that imports API specs, infers resources, generates manifests + mock servers + tests + approval gates.
+- **Enterprise Profile + Adaptive UI** (§6.16) — UI that adapts based on industry, with admin-reviewable generated dashboards/reports.
+- **Responsible AI Center** (§16.8) — policy packs, red-team tests, prompt-injection tests, fairness review, regulatory evidence collection.
+- **Digital Twins + Scenario Analysis** (§12.4) — "what if" simulations of business operations.
+- **Federated governance** (§19.3.1) — shared skill libraries / policy packs with local approval, air-gapped update bundles.
+
+None of these were on the v1 roadmap.
+
+**This v2 reconciles the gap.** It is not a feature dump — it's the explicit mapping of (a) every reference doc capability, (b) what's already in the code, (c) what's missing, (d) the new phase ordering that closes the gap with the smallest possible scope expansion.
 
 ---
 
 ## 1. Positioning
 
-SquidBot's identity is **"your audit-first AI CEO."** A single agent a solo founder can grant broad authority to — handling email, calendar, briefings, financial monitoring, project follow-through, vendor outreach — because every action lands in a tamper-evident audit trail.
+SquidBot's identity is **"the agent operating system you can trust, inspect, govern, and improve."**
+
+Defensible against both competitors:
+- **Hermes can't add chained-hash audit + RBAC + compliance packets + AI Studio + Blueprint catalog** without a 6+ month detour from its research focus.
+- **OpenClaw explicitly disclaims hostile multi-tenant isolation** (per its docs) and lacks the eval/canary/promote pipeline + AI Studio that would make managed enterprise rollout possible.
 
 Three dimensions where SquidBot is — or will be — demonstrably #1 of the three:
 
-1. **AI CEO operations layer.** Email triage + calendar management + scheduled briefings + proactive task initiation. Neither OpenClaw nor Hermes ships this as the primary experience — they're chat tools that *can* do email if you wire connectors.
-2. **Audit-first.** Every action recorded with chained-hash audit. Every tool call has a "why". Pre-flight dry-run shows what an upcoming task will touch *before it runs*. Sandboxed per tool call, not just per patch.
-3. **Self-improving + auditable.** Hermes-style autonomy (skill self-improvement, memory nudges, MCP server mode) where every improvement *itself* lands in the audit trail. The agent gets smarter without sacrificing accountability.
+1. **Inspectable autonomy.** Every action recorded with chained-hash audit. Every tool call has a "why." Pre-flight dry-run shows what an upcoming task will touch *before it runs*. Sandboxed per tool call, not just per patch.
+2. **Self-improving + auditable.** Hermes-style autonomy (skill self-improvement, memory nudges, MCP server mode) where every improvement *itself* lands in the audit trail.
+3. **AI Studio + Blueprint Library for organizations.** Centralized hub for authoring, testing, approving, deploying, and measuring workflows — with built-in vertical blueprints for sales, support, finance, HR, healthcare, automotive, etc.
 
-The reason this works: **a CEO can delegate broadly because there's accountability.** SquidBot's existing audit ledger + sensitivity profiles + approval queue IS that accountability. So "give the agent broad authority" stops being scary.
+---
 
-This positioning is **defensible**:
-- **Hermes can't add chained-hash audit + RBAC + compliance packets** without a 6-month detour from their research focus.
-- **OpenClaw explicitly disclaims hostile multi-tenant isolation** and lacks the eval/canary/promote pipeline that makes auditable self-improvement possible.
-- **SquidBot already has the foundation** (governance, audit ledger, eval suite, compliance packets, sensitivity profiles, sandbox staging). What's missing is the connective tissue and the **outward-facing surface** that lets the agent learn while staying auditable.
+## 2. Capability mapping — reference doc → current code
 
-We are not trying to match every Hermes/OpenClaw feature. We close enough parity gaps to be evaluable side-by-side, then we **stretch the lead** on audit + self-improvement.
+The reference doc names 16 capability domains. The execution plan names 17 modules (16 + AI Studio as Module 17). This is the honest mapping of what's built today.
 
-## 2. Capability comparison (one-line per row)
+| Ref § | Capability | Status | Lives in / why |
+|---|---|---|---|
+| 6.1 | Conversation + interface layer | ✅ **Done** | Electron desktop + CLI + web bundle (Phase 1 work landed 2026-05-21) |
+| 6.2 | Model router | ✅ **Done** | `@squidbot/models` — 9 providers + live discovery + budget enforcement + fallback chain |
+| 6.3 | Tool registry + execution | ✅ **Done** | `@squidbot/core` (ToolRegistry) + `@squidbot/connectors` (manifest connectors + sensitivity-gated approval queue + MCP client) |
+| 6.4 | Structured semantic memory | ✅ **Done** | `@squidbot/memory` (typed graph w/ FTS5 + deterministic pseudo-embeds, hybrid retrieval, memory bulletins) |
+| 6.5 | Reflection + learning loop | ⚠ **Partial** | `@squidbot/reflection` (affordance detector, failure taxonomy) exists; **no auto-trigger from reflection → mutation proposer → benchmark → canary** |
+| 6.6 | Skills + workflow system | ⚠ **Partial** | `@squidbot/skills` (manifest + loader + versioning) + `@squidbot/evals` (evaluator + canary + promote/rollback); **no visual workflow editor** |
+| 6.7 | Planning + world modeling | ⚠ **Partial** | Planning happens inside the runtime; `@squidbot/sandbox` provides staging; **no digital twin / scenario analysis layer** |
+| 6.8 | Multi-agent coordination | ✅ **Done** | `@squidbot/team` (blackboard, broker, coordinator, conflict detector, handoff, role registry, synthesis) |
+| 6.9 | Developer instrumentation | ✅ **Done** | trace event taxonomy + History page in desktop + CLI `npm run traces` |
+| 6.10 | Integrations + messaging | ⚠ **Partial** | 13 messaging adapters (need 9 more for OpenClaw parity); 4 manifest connectors (github/gitlab/jira/jenkins) shipped real-mode; **no business-system connectors yet (Salesforce, HubSpot, Stripe, Shopify, etc.)** |
+| 6.11 | Governance + safety + compliance | ✅ **Done** | `@squidbot/governance` — RBAC + ABAC + chained-hash audit ledger + SOC2/GDPR compliance packets + retention + redaction + n8nBridge + 8 sensitivity profiles incl. air-gapped + identity store |
+| 6.12 | Business + enterprise operating layer | ⚠ **Partial** | Identity store + 8 enterprise profile templates exist; **no AI Studio surface tying the pieces together** |
+| **6.13** | **Universal Integration Fabric** | ❌ **Missing UI** | OpenAPI import works in `@squidbot/connectors` backend; **no connector builder UI in desktop app** — admins can't visually import an API spec, infer resources, configure permissions, generate mocks |
+| 6.14 | Competitor mention policy | ✅ **Done** | Internal docs reference; product UI never names OpenClaw/Hermes |
+| **6.15** | **AI Studio + Blueprint Center** | ❌ **Not built** | Reference's centerpiece capability. **Doesn't exist.** Should host: blueprint catalog, workflow canvas, agent role builder, connector selector, data source selector, policy/approval builder, fixture/test data manager, benchmark runner, KPI dashboard, ROI dashboard, deployment readiness checklist, pilot/canary controls, user feedback collection, skill leaderboards, promotion/rollback |
+| **6.16** | **Enterprise Profile + Adaptive Native Experience** | ⚠ **Profile data yes, no adaptive UI** | 8 profile templates exist; **no UI that adapts dashboards / workflows / reports based on industry** |
+| 16.8 | Responsible AI Center | ⚠ **Policies yes, no center** | Policy packs in governance package; **no dedicated UI surface for policy management, red-team tests, prompt-injection tests, fairness review, regulatory evidence collection** |
 
-| Category | OpenClaw | Hermes Agent | SquidBot today | SquidBot after roadmap |
-|---|---|---|---|---|
-| Model providers | 5 + Ollama | 200+ via OpenRouter + direct | 9 providers + live discovery | unchanged (already strong) |
-| Connectors / tools | 1st-class tools, MCP CLI (shallow) | 70+ built-ins + MCP server mode | manifests + MCP client + OpenAPI import | **+ MCP server mode** |
-| Memory | LanceDB plugin, Honcho, QMD | FTS5 + LLM summarization + Honcho | typed-edge graph + FTS5 + pseudo-embeds | **+ autonomous memory nudges** |
-| Skills | SKILL.md + ClawHub | SKILL.md + autonomous self-improvement + Hub | manifest + eval + canary + promote | **+ self-improvement loop tied to eval** |
-| Multi-agent | Multi-agent routing, sub-agents | `delegation` + `kanban` | Teams (blackboard/broker/conflict/handoff/synthesis) | unchanged (already strong) |
-| Scheduling | Cron + webhooks + heartbeat | `cronjob` tool | Scheduler w/ pause/resume/run-now | unchanged |
-| Eval / observability | **Prometheus + OTel** | Atropos RL trajectories | full eval suite + trace taxonomy | **+ Prometheus + OTLP exporter** |
-| Messaging | **22+ channels** | 17+ channels | 13 channels | **+ 9 channels** (LINE, Google Chat, IRC, Nostr, Synology, Tlon, Twitch, Zalo, Nextcloud Talk) |
-| Governance | DM pairing + per-agent policies + MITRE ATLAS | DM pairing + container isolation | **RBAC + ABAC + chained-hash audit + compliance packets + retention + redaction + n8nBridge** | **+ pre-flight audit + sandboxed per tool call + hostile-tenant isolation** |
-| Identity | single-operator-per-gateway | messaging allowlists only | **8 profile templates incl. air-gapped** | **+ HIPAA + PCI + ISO 27001 profile packs** |
-| Surfaces | CLI + menu-bar + iOS/Android + Voice Wake + Live Canvas | TUI + browser dashboard + `computer_use` + Termux | Electron desktop + CLI | **+ responsive UI + web dashboard + menu-bar + Voice Wake** |
-| Deployment | Docker / K8s / Ansible / Nix / cloud + daemon | Local + VPS + Modal + Vercel Sandbox | Local Electron only | **+ Docker / docker-compose** |
-| Self-improvement | manual skill curation | **autonomous skill creation + improvement** | manual + eval pipeline | **+ autonomous trigger loop** |
+**Summary:** 8 capabilities fully built. 6 partial (backend strong, frontend/glue missing). **2 entirely missing — AI Studio and Connector Builder UI.** Plus Responsible AI Center which exists as primitives but lacks the centralized surface.
 
-## 3. Seven-phase roadmap
+---
 
-Each phase ships as a self-contained design doc + implementation plan + executable commits. Sequencing optimized for the **AI CEO identity** — close active pain points, then build the operations layer that makes "AI CEO" real, then layer in safety + autonomy + breadth.
+## 3. What's done since v1 of this roadmap
 
-### Phase 1 — Responsive UI + Briefing home screen + Web reach  *(current pain + foundation)*
+**Phase 1 — Responsive UI + Briefing home + Web reach** shipped in 31 commits (2026-05-18 → 2026-05-21):
 
-The reported issue: "the UI is not right for all screens." Fix it with a 3-tier breakpoint system (mobile <768px hamburger drawer / tablet 768-1023px icon rail / desktop ≥1024px current). Adds `useBreakpoint()` hook, drawer state, focus trap, body-scroll-lock, per-page audit covering shell, headers, multi-column grids, tabs, tables, forms, chat composer, memory graph.
+- Three-tier responsive system (mobile <768px / tablet 768–1023px / desktop ≥1024px)
+- Hamburger drawer + focus trap + `inert` off-canvas + `prefers-reduced-motion` + body scroll lock
+- New Briefing home screen (default landing) wired to real `listPendingApprovals` + `listJobs` IPCs; placeholder slots for Phase 2 email/calendar/financial data
+- Web bundle: `apiTransport` (ipc / http auto-detect via Proxy) + `webApiBridge` (Express POST `/api/<method>`) + `serve-web.mjs` at localhost:8080
+- 5-layer responsive test suite: 435 Vitest + 20 Playwright (web-smoke 3 / touch-targets 9 / a11y 3 / visual baselines 5)
+- Audit trail: `audit-renderer-imports` script enforces no `electron`/`node:*` in renderer
 
-**Also in scope (newly elevated):** redesign the home screen from "Chat" to **"Briefing"** — the default landing page becomes a daily digest of (a) what the AI CEO handled overnight, (b) what needs the founder's attention, (c) what's planned for today, (d) running jobs. The chat surface stays accessible but is no longer the default entry point. This reframe is the visible difference between "AI agent" and "AI CEO."
+Acceptance: 44/47 criteria fully met, 3 deviations documented inline (`docs/plans/2026-05-21-phase-1-acceptance-verification.md`).
 
-Critically, the same responsive React tree, behind an Express server, also becomes the **web dashboard** Hermes ships and OpenClaw doesn't. One workstream, three wins: UI fix, AI CEO front door, web reach.
+---
 
-**Acceptance:** Electron app renders correctly from 400px → 4K. Default landing shows Briefing, not Chat. Same bundle served as web dashboard at `localhost:8080`. Touch targets ≥44px on coarse pointers.
+## 4. Revised phase ordering (v2 — 10 phases)
 
-### Phase 2 — AI CEO operations layer  *(headline experience — NEW)*
+Phases reordered for **leverage** and **dependency**. Each phase ships as a self-contained design + plan + commits.
 
-The phase that makes "AI CEO" real. Four workstreams under one design:
+### Phase 1 — Responsive UI + Briefing home + Web reach ✅ DONE
 
-1. **Email triage + drafting connector** — Gmail / Outlook / IMAP via OAuth. AI CEO reads incoming mail, categorizes (auto-reply / draft for review / escalate / archive), drafts replies for routine, sends auto-replies for known patterns, escalates the rest via the Briefing.
-2. **Calendar management connector** — Google Calendar / Outlook Calendar. AI CEO schedules meetings, reschedules conflicts, sends invites, prepares pre-meeting briefs (pull memory graph + recent emails on attendee + last meeting notes).
-3. **Daily / weekly briefing scheduler** — on configured cadence (default: 8am daily, Sunday 6pm weekly), AI CEO writes a summary delivered via the Briefing home screen + optionally pushed to messaging adapters (Slack DM, Telegram, email). Format: what I handled, what I drafted, what needs you, what's coming up.
-4. **Proactive task initiation** — extension of reflection: when the AI CEO notices a recurring pattern (e.g., invoice from same vendor monthly), it proposes a new scheduled job. Operator approves once; recurring task lands in the scheduler.
+(See section 3 above. Done.)
 
-Every action is recorded in the audit ledger with reasoning. Sensitivity profiles gate what the AI CEO can do unilaterally vs what gets escalated.
+### Phase 2 — **AI Studio v1** *(NEW headline — replaces v1 Phase 2)*
 
-**Acceptance:** A solo founder can connect Gmail + Google Cal, set a daily briefing time, and within 24 hours receive a digest showing the AI CEO categorized N emails, drafted M replies, scheduled K meetings, with a tamper-evident audit trail of every decision.
+The reference doc's centerpiece. A unified control plane that ties together every existing backend (skills, evals, connectors, governance, teams, scheduler) into one workflow-design surface. **Neither OpenClaw nor Hermes ships this.**
 
-### Phase 3 — Autonomy loop  *(the AI CEO learns over time)*
+Surfaces:
+- **Blueprint catalog** — list of installed blueprints (vertical packages + user-created workflows)
+- **Workflow canvas** — visual editor for assembling agents + tools + connectors + policies + data sources
+- **Agent role builder** — define role manifests with permissions, memory domains, autonomy levels (uses existing `@squidbot/team`)
+- **Connector selector** — pick from installed manifest connectors + MCP servers (uses existing registry)
+- **Policy/approval builder** — assemble policy packs from existing governance primitives
+- **Fixture/test data manager** — local fixtures for offline blueprint development
+- **Benchmark runner** — runs the existing `@squidbot/evals` benchmark suite against the blueprint
+- **KPI definition + ROI dashboard** — measurable business value per blueprint
+- **Deployment readiness checklist** — gates promotion from draft → pilot → stable
+- **Pilot/canary rollout controls** — uses existing canary pipeline
+- **User feedback collection** — ratings, suggestions, issues per blueprint run
+- **Skill leaderboards** — best-performing variants
+- **Promotion/rollback** — uses existing `@squidbot/evals` workflow
 
-Three Hermes-parity items wired together via SquidBot's eval pipeline so every improvement is audit-tracked:
+**Acceptance:** A founder/admin can open AI Studio → pick a blueprint or create from scratch → assemble agents/tools/connectors → run against fixtures → benchmark → pilot → promote. Every step is auditable. Zero project-side spend.
 
-1. **MCP server mode** — expose SquidBot as an MCP server so Hermes / Claude Desktop / any MCP client can call SquidBot skills. Every external call enters the same audit ledger. Also lets the AI CEO delegate to specialist external agents.
-2. **Skill self-improvement trigger loop** — when reflection identifies a failed/slow skill, automatically propose mutations via the existing `mutationProposer`, evaluate them via the existing benchmark suite, canary them, promote if they win. Audit log records every step.
-3. **Memory write nudges** — periodic deterministic prompt: "Anything worth remembering from the last N interactions?" Proposed memories enter the existing approval flow. For an AI CEO: remembering vendor quirks, meeting preferences, personal context — automatically.
+**Why this is the highest-leverage next phase:**
+- It's where every other capability becomes *visible and governable*
+- It packages everything — Phase 2 (AI CEO ops), Phase 3 (autonomy), Phase 4 (safety), Phase 7 (messaging) all consume the Studio
+- It's the PwC-research-backed enterprise adoption pattern (reference §5.10)
+- It's a clean **differentiator vs OpenClaw + Hermes** — neither ships this
 
-**Acceptance:** A skill the AI CEO uses (e.g., "draft a polite decline to a sales pitch") improves over time without manual intervention, with every change traceable. External agents can call SquidBot via MCP.
+### Phase 3 — **Vertical Blueprint Library v1**
 
-### Phase 4 — Beyond-parity enterprise features  *(the "is it safe to trust?" layer)*
+Pre-packaged blueprints that ship with the app and run in fixture mode out of the box. From reference §5.12:
 
-For an AI CEO with email + calendar authority, trust matters more, not less. These five close the loop:
+- **Customer support** — ticket triage, SLA risk, suggested replies, knowledge base improvement, escalation routing
+- **Sales** — lead qualification, account research, follow-up drafts, CRM hygiene, pipeline summaries
+- **Finance** — invoice review, expense triage, budget variance, month-end checklist
+- **HR/recruiting** — candidate packets, interview prep, onboarding checklists, policy Q&A
+- **Engineering** — PR review, CI failure diagnosis, incident response, release notes (overlaps with the alpha killer demo from reference §20.2)
+- **AI CEO operations** — email triage, calendar mgmt, daily briefing scheduler, proactive task initiation (was Phase 2 in v1 roadmap; now a blueprint)
 
-1. **Pre-flight audit mode** — before a task runs, the AI CEO dry-runs the trace and shows: every tool it will call, every secret it will need, every email it will send, every estimated cost. Operator can edit, deny, or approve as a whole.
-2. **Sandboxed per tool call** — extend the existing sandbox-staging pattern from "before a patch promotes" to "before every write tool call" — every outbound email, every calendar change, every connector write. Reversible-by-default. Until approved, the AI CEO produces *drafts* rather than committing.
-3. **Auditable autonomy log** — a dedicated "improvement ledger" tracking every self-improvement. For an AI CEO: when it learned a new vendor pattern, when it changed its email-triage heuristic, when it promoted a new skill. The operator can replay why the AI behaves the way it does.
-4. **HIPAA + PCI DSS + ISO 27001 compliance packets** — three more frameworks added to the existing SOC2 + GDPR packet generator.
-5. **Hostile multi-tenant isolation** — close the gap OpenClaw explicitly disclaims. Tenant boundaries enforced at every layer. Less critical for a solo founder, but unlocks future multi-user deploys.
+Each blueprint includes:
+- Business goal + target users
+- Required data sources + connectors
+- Agent roles + human approval points
+- Policy + risk profile
+- Offline fixture dataset
+- Evaluation suite
+- KPI dashboard
+- Rollout checklist
+- Failure/escalation plan
 
-**Acceptance:** Founder can run `squidbot preflight "answer my emails"` and see the full action plan before approving. A draft mode toggles on `email.send` requiring confirmation per message.
+**Rule (reference §5.12):** Every blueprint runs in fixture mode with no project-side spend, no paid vendor credentials. High-stakes blueprints (healthcare, gov, finance) default to read-only until org enables writes.
 
-### Phase 5 — Voice + Menu-bar shell  *(quick access)*
+**Acceptance:** All 6 blueprints installable from AI Studio. Each runs end-to-end with fixture data. Each has a working benchmark suite. AI CEO ops blueprint can be activated with user-provided Gmail/Calendar credentials.
 
-Push-to-talk overlay using Web Speech API in the renderer (no cloud STT — keeps zero-spend posture). macOS menu-bar variant of the Electron app — tray icon, popover window, quick "what's on my plate" shortcut. Out of scope: continuous "Voice Wake" hot-word detection.
+### Phase 4 — **Autonomy loop** *(unchanged from v1 Phase 3)*
 
-**Acceptance:** Holding ⌘+Space opens a tiny floating chat panel that responds to voice. Tray icon menu shows today's briefing summary + approval count.
+Three Hermes-parity items wired together via the existing eval pipeline so every improvement is audit-tracked:
 
-### Phase 6 — Deployment + Observability  *(later — for shipping to others)*
+1. **MCP server mode** — expose SquidBot as an MCP server so Hermes / Claude Desktop / any MCP client can call SquidBot skills + blueprints. Every external call enters the audit ledger.
+2. **Skill self-improvement trigger loop** — wire reflection events to existing `mutationProposer` → benchmark suite → canary → promote/rollback. Audit log records every step.
+3. **Memory write nudges** — periodic deterministic prompt: "Anything worth remembering from the last N interactions?" Proposed memories enter the existing approval flow.
 
-Dockerfile + docker-compose.yml for headless runtime. Prometheus `/metrics` endpoint mapping existing trace events. OTLP exporter for traces. New `npm run audit` command running all governance checks with severity + remediation. **Less urgent for a solo founder running locally**, but gates eventual sale to other businesses.
+**Critical Claude-testability:** this is the phase that lets *you* test SquidBot through Claude (you asked about this last message). Once MCP server mode lands, Claude.app can add SquidBot as a connector and you can drive it end-to-end as a quality check.
 
-**Acceptance:** `docker compose up squidbot` runs the headless agent + dashboard. `npm run audit` exits 0 on a clean install.
+### Phase 5 — **Connector Builder UI + Universal Integration Fabric**
 
-### Phase 7 — Messaging adapter expansion  *(breadth — interleavable)*
+Surface the existing OpenAPI import backend through a proper admin UI. From reference §6.13:
 
-Add LINE, Google Chat, IRC, Nostr, Synology Chat, Tlon, Twitch, Zalo, Nextcloud Talk. ~300 lines each, mostly copy-and-adapt from existing Slack/Discord/Telegram. Can be interleaved with other phases since each adapter is independent.
+- Import API spec (OpenAPI / Swagger / GraphQL / sample payloads)
+- Infer resources, actions, scopes, data classifications
+- Generate draft connector manifest
+- Generate read-only tools first (write actions require explicit enable + policy)
+- Generate mock server / fixture responses
+- Generate schema validation tests
+- Generate approval gates for writes
+- Generate data lineage rules + redaction defaults
+- Generate cost-owner labels
+- Generate admin documentation
+- Require human review before activation
 
-**Acceptance:** All 9 channels appear in Integrations → Messaging with the same allowlist + delivery-rule treatment.
+**Rule (reference §6.13):** Healthcare, aviation, government, public safety, regulated finance, legal, critical infrastructure connectors **default to read-only** until org explicitly enables writes with policies, approvals, testing, and domain-owner signoff.
 
-## 4. Phase ordering rationale
+**Acceptance:** Admin can import the Salesforce / HubSpot / Stripe / Shopify OpenAPI spec, generate a connector, run it against fixtures, then promote to production with policies attached. Generated connector is auditable end-to-end.
+
+### Phase 6 — **Beyond-parity safety** *(unchanged from v1 Phase 4)*
+
+Five features neither competitor has:
+
+1. **Pre-flight audit mode** — dry-run trace showing every tool/secret/email/cost an upcoming task will touch *before it runs*. Operator approves wholesale or edits.
+2. **Sandboxed per tool call** — extend the existing sandbox-staging pattern from "before patches" to "before every write tool call." Reversible by default.
+3. **Auditable autonomy log** — dedicated "improvement ledger" tracking every self-improvement (skill mutation, memory addition, learned preference). Auditors can replay.
+4. **HIPAA + PCI DSS + ISO 27001 compliance packets** — three frameworks added to the SOC2/GDPR generator.
+5. **Hostile multi-tenant isolation** — close the gap OpenClaw explicitly disclaims.
+
+### Phase 7 — **Responsible AI Center**
+
+Centralize the existing governance primitives into a single admin surface (reference §16.8):
+
+- Policy pack management (visual editor + version history)
+- Risk taxonomy builder
+- Sensitive topic registry
+- Bias and fairness review workflows
+- Model/provider approval lists per profile
+- Data classification rules
+- Human approval rules per workflow
+- **Red-team test suites** (prompt-injection, tool-injection, data-exfil)
+- Data-flow inspection
+- Generated artifact provenance
+- AI usage disclosures (where required)
+- Regulatory evidence collection (auto-builds compliance packets)
+- Responsible AI dashboard (per-tenant, per-blueprint)
+
+**Acceptance:** Compliance officer can open Responsible AI Center → see all policy packs → run red-team suite against a blueprint → review fairness check results → export regulatory evidence packet (SOC2/GDPR/HIPAA/PCI/ISO 27001).
+
+### Phase 8 — **Adaptive Enterprise Profile UI**
+
+Use the existing 8 enterprise profile templates to drive *adaptive UI generation* (reference §6.16):
+
+- Generate role-specific home screens (e.g., "Compliance Officer" sees Responsible AI Center as default; "Sales Manager" sees CRM blueprint)
+- Generate dashboard suggestions from connected systems + business KPIs
+- Generate workflow suggestions from observed manual processes
+- Generate approval flows from role + risk policies
+- Generate report templates from business KPIs
+- Generate connector onboarding checklists
+- **Keep generated UI explainable, editable, versioned, and reversible** (rule from §6.16)
+- AI-generated configuration must be reviewable before activation
+
+**Acceptance:** Admin onboards a new tenant → picks "Automotive Dealership" profile → SquidBot generates a draft dashboard + workflow set + connector list for review → admin tweaks + activates → tenant users see the customized surface.
+
+### Phase 9 — **Voice + Menu-bar shell** *(unchanged from v1 Phase 5)*
+
+Push-to-talk via Web Speech API (no cloud STT — zero-spend). macOS menu-bar tray variant of the Electron app. Quick "what's on my plate?" shortcut.
+
+### Phase 10 — **Digital Twins + Scenario Analysis**
+
+From reference §12.4. Extend the existing sandbox into business-shaped simulations:
+
+- Supply chain networks
+- Inventory flows
+- Finance forecasts
+- Customer support queues
+- Sales pipelines
+- Workforce capacity
+- IT incident response
+
+Start simple: deterministic simulations + local spreadsheets + business rules. Probabilistic/ML forecasting can be added behind the same contract later.
+
+### Phase 11 — **Deployment + Observability** *(was v1 Phase 6)*
+
+Docker + docker-compose + Prometheus `/metrics` + OTLP exporter + `npm run audit` command. Required for any business deploy beyond a laptop.
+
+### Phase 12 — **Messaging Adapter Expansion** *(was v1 Phase 7)*
+
+9 missing channels (LINE, Google Chat, IRC, Nostr, Synology Chat, Tlon, Twitch, Zalo, Nextcloud Talk). Pattern is uniform; can be interleaved with other phases.
+
+### Phase 13 — **Federated Governance**
+
+From reference §19.3.1. Multi-installation deployments with shared skill libraries + policy packs, signed package distribution, air-gapped update bundles, trust-scoped federation. For organizations running SquidBot across departments, regions, or subsidiaries.
+
+---
+
+## 5. Phase ordering rationale
 
 ```
-Phase 1 (UI + Briefing home + Web reach)
+Phase 1 (UI + Briefing + Web reach) ✅ DONE
      │
      ▼
-Phase 2 (AI CEO operations — email/cal/briefings/proactive)
+Phase 2 (AI Studio v1) ←─── the control plane that hosts everything below
      │
      ▼
-Phase 3 (Autonomy loop — CEO learns over time)
+Phase 3 (Vertical Blueprint Library) ←─── consumes Studio; includes AI CEO ops
      │
      ▼
-Phase 4 (Beyond-parity safety — pre-flight, draft mode, autonomy log)
+Phase 4 (Autonomy loop — MCP server + self-improvement + memory nudges)
+     │   └─── enables Claude.app testing of SquidBot via MCP connector
+     ▼
+Phase 5 (Connector Builder UI) ←─── enables business systems integration
      │
      ▼
-Phase 5 (Voice + Menu-bar) →  Phase 6 (Deployment) →  Phase 7 (Messaging breadth)
+Phase 6 (Beyond-parity safety — pre-flight audit, sandboxed-per-tool-call, autonomy ledger, HIPAA/PCI/ISO27001)
+     │
+     ▼
+Phase 7 (Responsible AI Center) ←─── compliance officer surface
+     │
+     ▼
+Phase 8 (Adaptive Enterprise Profile UI) ←─── industry-tailored experience
+     │
+     ▼
+Phase 9 (Voice + menu-bar) → Phase 10 (Digital twins) → Phase 11 (Deployment + observability) → Phase 12 (Messaging breadth) → Phase 13 (Federation)
 ```
 
 Why this order:
-- **Phase 1 first** because it's the reported active pain AND the Briefing home screen is the visible difference between "AI agent" and "AI CEO" — without it, Phase 2 has nowhere to surface.
-- **Phase 2 second** because it makes "AI CEO" real. Email + calendar + briefings are the highest-leverage operations for a solo founder. Without it, SquidBot is still just a chat tool with extra trust features.
-- **Phase 3 third** because once the AI CEO is operating, *learning from operation* is what makes it durable. Hermes-style autonomy without our audit layer is reckless; with it, it's a differentiator.
-- **Phase 4 fourth** because by now the AI CEO has email-send authority and that needs explicit safety mechanisms (pre-flight, draft mode, autonomy ledger). Trust scales with action authority.
-- **Phase 5 fifth** — quick-access surfaces. Useful but not gating.
-- **Phase 6 sixth** — only matters when you ship to others.
-- **Phase 7 last/interleavable** — each messaging adapter is independent; can be slotted between other phases as filler.
+- **Phase 2 first** because the AI Studio is the surface every other capability becomes visible through. Without it, every business-facing feature is fragmented across pages.
+- **Phase 3 second** because blueprints make the Studio tangible — without them it's an empty control plane. The AI CEO ops "phase" from v1 becomes a blueprint here, not a standalone workstream.
+- **Phase 4 third** because once the Studio + blueprints exist, autonomy compounds on them. MCP server mode also unlocks Claude-driven testing.
+- **Phase 5 fourth** because connector builder UI is what enables every business-system blueprint (CRM, ERP, commerce, finance) to be added without engineering.
+- **Phase 6 fifth** because by now SquidBot has email-send / calendar-write / connector-write authority and needs explicit safety mechanisms. Trust scales with action authority.
+- **Phase 7 sixth** because compliance officers need a dedicated surface once enterprise blueprints are in production.
+- **Phases 8–13** are polish + breadth + scale items that compound on the core.
 
-## 5. What we are explicitly NOT doing
+---
+
+## 6. What's explicitly out of scope (per reference §3.3 + §20.3)
 
 YAGNI ruthlessly:
-- **Mobile native apps** (iOS Swift / Android Kotlin) — deferred indefinitely. The responsive web bundle from Phase 1 covers mobile reach via PWA install. Native apps are 6+ months of effort per platform.
-- **Continuous Voice Wake hot-word detection** — push-to-talk only in Phase 2. Hot-word listening is a battery/privacy concern that warrants its own design.
-- **`computer_use` GUI control** — Hermes ships this; we don't. The audit-first identity actively *conflicts* with "agent moves your mouse." Not adding.
-- **`execute_code` arbitrary Python tool** — same reason. We sandbox tool calls, not arbitrary code.
-- **Hermes-style trajectory export for RL training** — niche to the Nous Research use case; not part of the audit-first identity.
-- **LanceDB / external vector DBs** — the FTS5 + pseudo-embedding pipeline is intentional (zero-spend, local-first). Plug-in points exist if a future customer demands it.
-- **OpenClaw's "Live Canvas"** — interesting feature but not aligned with audit-first identity. The chat surface is the canvas.
-- **Termux Android support** — covered by web bundle via PWA. Real Android shell defers.
 
-## 6. Success metrics
+- Native mobile apps (iOS Swift / Android Kotlin) — PWA via responsive web bundle covers it
+- Continuous Voice Wake hot-word detection — push-to-talk only in Phase 9
+- `computer_use` GUI control (Hermes ships this; we don't — conflicts with audit-first identity)
+- `execute_code` arbitrary Python tool — same reason
+- Hermes-style trajectory export for RL training — niche to Nous Research
+- LanceDB / external vector DBs — local-first FTS5 + pseudo-embeddings is intentional
+- OpenClaw "Live Canvas" — chat surface IS the canvas
+- Termux Android support — PWA covers this
+- Decorative dashboard before traces/approvals/memory/task state are useful (reference §3.3)
+- Self-improvement that auto-promotes without evaluation gates (reference §3.3)
+- Unrestricted host access by default (reference §3.3)
 
-How we know the roadmap landed:
+---
 
-- **Phase 1:** Electron app renders cleanly at 400 / 768 / 1024 / 1440 / 2560 px. Web dashboard reachable at `localhost:8080`.
-- **Phase 2:** Push-to-talk recognized in <1 second; menu-bar app opens in <300ms.
-- **Phase 3:** A failed skill auto-improves within 24 hours with full audit trail. External agents call SquidBot via MCP successfully.
-- **Phase 4:** `docker compose up` produces a working headless instance. Grafana shows metrics. `npm run audit` exits 0 on a clean install.
-- **Phase 5:** All 9 new messaging adapters pass the same test fixture as the existing 13.
-- **Phase 6:** A regulated buyer can execute the full compliance procurement workflow (download packet, verify audit ledger, view RBAC report) from the UI without engineering help.
+## 7. Success metrics
 
-## 7. Out of scope for this roadmap (cross-cutting)
+Per reference §18, every phase reports against these categories:
 
-- **Localization / i18n** — English-only for now. Adding later doesn't change architecture.
-- **Themes / dark mode polish** — exists in skeletal form; deferred.
-- **Performance profiling** — only address if Phase 1's responsive shell reveals real issues.
+| Phase | Primary metric (reference §) | Target |
+|---|---|---|
+| 1 ✅ | Responsive coverage | 5-tier baselines + 9 surfaces × 44×44 + zero serious/critical a11y violations |
+| 2 | Studio adoption (§18.7) | First blueprint authored end-to-end in <30 min |
+| 3 | Blueprint benchmark pass rate (§18.7) | All 6 blueprints pass their fixture benchmark |
+| 4 | Autonomy + Hermes parity | Skill auto-improves within 24h of failure detection w/ full audit trail; Claude.app can drive SquidBot via MCP |
+| 5 | Universal integration (§6.13) | Salesforce/HubSpot/Stripe/Shopify each importable in <10 min |
+| 6 | Beyond-parity safety | `npm run preflight "send email"` shows action plan before any side effect |
+| 7 | Compliance (§18.6) | One-click export of SOC2/GDPR/HIPAA/PCI/ISO 27001 packet |
+| 8 | Adaptive UI explainability | Every generated UI element shows source data + reviewability |
+| 9 | Voice latency | <1s recognition; menu-bar opens in <300ms |
+| 10 | Digital twin coverage | 3 business scenarios simulatable end-to-end |
+| 11 | Deploy parity (§19.3.1) | `docker compose up squidbot` → healthy + observable |
+| 12 | Messaging breadth | All 22+ channels match OpenClaw's matrix |
+| 13 | Federation (§19.11) | 2-tenant deployment shares skills with trust scoping |
 
-## 8. Next step
+---
 
-Resume Phase 1 brainstorm with two additions to scope: (a) the Briefing home screen replaces Chat as the default landing page, (b) the responsive shell is designed from day one to also serve as a web bundle behind Express. Sections 3 (state flow) and 4 (testing + acceptance) follow, then write the implementation plan and execute.
+## 8. The Twenty-Year Durability Scorecard
 
-The other 6 phases each get their own brainstorm → design → plan cycle in the sequence above.
+Per reference §19.11, SquidBot grades itself periodically. As of 2026-05-21:
+
+| Area | Question | Today's grade |
+|---|---|---|
+| Portability | Can a user export data and run elsewhere? | ⚠ Partial — SQLite + manifest connectors export; no full snapshot tool yet |
+| Compatibility | Do old skills/memories survive upgrades? | ✅ — migrations versioned in `@squidbot/db` |
+| Extensibility | Can users add capabilities without forking? | ✅ — manifest connectors + MCP client (server mode pending Phase 4) |
+| Inspectability | Can users see why the agent acted? | ✅ — trace events + History page + audit ledger |
+| Safety | Are high-risk actions staged/permissioned/logged? | ✅ — sensitivity profiles + approval queue + sandbox staging |
+| Evolvability | Can skills improve without uncontrolled drift? | ⚠ — eval pipeline exists; auto-trigger pending Phase 4 |
+| Accessibility | Can people use it across language/ability/device? | ⚠ Partial — responsive + touch + a11y done; multilingual deferred |
+| Governance | Can teams define policy/retention/roles? | ✅ — RBAC + ABAC + policy packs + retention |
+| Future models | Can new providers/modalities be added cleanly? | ✅ — ModelRouter abstracts; capability contracts in place |
+| Community | Can outsiders contribute safely? | ⚠ Partial — open source but no plugin signing yet |
+| Onboarding | Can new users get value quickly? | ⚠ Partial — Briefing home is the start; zero-spend quickstart needs docs |
+| Feedback | Can real-world usage improve the roadmap? | ⚠ — affordance gaps captured; no rating UI yet |
+| Benchmarks | Can claims be reproduced? | ✅ — eval suite + fixtures + leaderboards |
+| Efficiency | Does the system respect limited hardware? | ⚠ Partial — local-first by default; no hardware profile system yet |
+| Federation | Can organizations share safely without centralizing data? | ❌ — pending Phase 13 |
+
+**Net: 6/15 ✅, 7/15 ⚠, 1/15 ❌.** Honest baseline. Phases 2–13 progressively raise grades.
+
+---
+
+## 9. Zero-spend audit
+
+Per reference §4.2 and §2.7, SquidBot must build/test/run without project-side spend. As of 2026-05-21:
+
+| Concern | Status |
+|---|---|
+| LLM | ✅ Mock provider + local Ollama path; BYOK paid providers optional w/ budget enforcement |
+| Embeddings | ✅ Deterministic local pseudo-embeddings in `@squidbot/memory`; no hosted embedding API |
+| Memory | ✅ SQLite + FTS5; no managed DB |
+| Sandbox | ✅ Local process / temp workspace; no hosted sandbox |
+| Browser automation | ✅ Playwright local; no hosted browser |
+| Search | ✅ Local FTS5; no paid search API |
+| Speech-to-text | N/A (Phase 9) |
+| Text-to-speech | N/A (Phase 9) |
+| Image generation | N/A — out of scope |
+| Scheduler | ✅ Local in `@squidbot/scheduler` |
+| Logs/metrics | ⚠ — local SQLite + trace events; Prometheus/OTLP pending Phase 11 |
+| Messaging | ✅ Self-hostable adapters (email, IRC, Matrix, generic webhook); paid platform APIs are BYOK |
+| CI | ✅ No hosted services required for tests |
+
+**Net: zero-spend defaults respected.** Phase 11 adds optional Prometheus/OTLP exporters; they remain optional.
+
+---
+
+## 10. Open questions to resolve before Phase 2 design
+
+Per reference §22, these are worth picking up before writing the Phase 2 (AI Studio) design doc:
+
+1. **First vertical blueprint to ship in Phase 3?** Engineering (matches existing alpha killer demo) or Customer Support (highest business leverage) or AI CEO Operations (matches v1 framing)?
+2. **AI Studio default sub-page on open?** Blueprint catalog or workflow canvas?
+3. **Should workflow canvas be node-graph (React Flow) or stepper (linear list of stages)?** Node-graph is more powerful but heavier; stepper is faster to ship.
+4. **Should benchmarks run client-side (in renderer) or server-side (in main process)?** Server-side is more capable but limits the web bundle.
+5. **Should AI CEO operations stay as a Phase 3 blueprint or split into a separate workstream?** Reframing it as a blueprint reduces special-case code.
+
+These get answered in the Phase 2 brainstorming pass.
+
+---
+
+## 11. Comparison statement (revised for v2)
+
+| Question | Answer |
+|---|---|
+| Is SquidBot better than OpenClaw + Hermes today? | **Mixed.** Wins on governance/compliance/identity/audit + structured memory + multi-agent. Behind on autonomy, voice, deployment breadth, messaging breadth, **and lacks the AI Studio + Blueprint Library that the reference doc identifies as the centerpiece capability.** |
+| Will SquidBot be better after the full 13-phase v2 roadmap? | **Yes — in the chosen identity.** "Trust + inspect + govern + improve" with an AI Studio + Blueprint Library that neither competitor ships. |
+| What's the **minimum** to flip the answer to "yes"? | **Phase 2 + Phase 3 + Phase 4.** AI Studio v1 + Vertical Blueprint Library v1 + Autonomy loop. That's roughly 6–8 weeks of focused work. Phase 1 is the prerequisite that made all three viable. |
+| What's the recommended next phase? | **Phase 2 — AI Studio v1.** Without it, Phase 3's blueprints have nowhere coherent to live. |
+
+---
+
+## 12. Next step
+
+Brainstorm Phase 2 (AI Studio v1) using `superpowers:brainstorming`. The design doc should explicitly cite reference §6.15 + §5.10 (PwC pattern) + §6.12 (business operating layer requirements) as the input. Output is `docs/plans/<date>-ai-studio-v1-design.md` and the corresponding implementation plan.
