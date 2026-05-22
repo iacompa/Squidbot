@@ -1,6 +1,6 @@
 # Phase 2 (AI Studio v1) — Brainstorm Progress / Session Handoff
 
-**Date:** 2026-05-21
+**Date:** 2026-05-21 (created), 2026-05-22 (Section 3 added)
 **Purpose:** This document captures the exact state of an in-progress brainstorming session so a fresh Claude Code session can resume without re-asking questions or re-reading prior context.
 **Worktree:** `~/Projects/SquidBot 2/.claude/worktrees/frosty-williamson-817c25`
 **Branch:** `claude/frosty-williamson-817c25`
@@ -16,11 +16,13 @@ You're mid-brainstorm on **Phase 2 (AI Studio v1)** of the SquidBot roadmap. The
 | 1. Explore project context | ✅ Done |
 | 2. Ask clarifying questions | ✅ Done (2 key questions answered) |
 | 3. Propose 2-3 approaches | ✅ Done (Approach A picked) |
-| 4. Present design in sections | ⚠ **In progress — Sections 1 + 2 approved, Sections 3-5 pending** |
+| 4. Present design in sections | ⚠ **In progress — Sections 1 + 2 + 3 approved, Sections 4-5 pending** |
 | 5. Write design doc | ⏳ Pending — output goes to `docs/plans/2026-05-21-ai-studio-v1-design.md` |
 | 6. Hand off to `superpowers:writing-plans` | ⏳ Pending |
 
-**Your next action when you resume:** Present Section 3 (data flow + new entities) to the user. Then Section 4 (testing) and Section 5 (out of scope). Then write the design doc and invoke writing-plans.
+**Your next action when you resume:** Present Section 4 (testing strategy) to the user. Then Section 5 (out of scope). Then write the design doc and invoke writing-plans.
+
+**NEW REQUIREMENT (added 2026-05-22):** the user wants SquidBot to be **trainable to do whatever user(s) want — customizable UI + functionality + adaptive over time**. This maps to existing v2 roadmap phases (functional customization = Phase 2 / 3 / 5; UI customization = Phase 8 Adaptive Enterprise Profile UI; adapt-over-time = Phase 4 Autonomy loop). Section 3's Blueprint manifest schema was designed with **three forward-compatible field groups** (`uiContributions`, `trainability`, `adaptivity`) so Phases 4 + 8 plug in without breaking schema migrations.
 
 ---
 
@@ -177,6 +179,294 @@ The work splits into **7 sub-phases (2A–2G)** each shipping in ~1–1.5 weeks.
 
 **Total Phase 2:** ~46 commits across 7 sub-phases. ~7-9 weeks of focused work. Subagent-driven cycle same as Phase 1.
 
+### Section 3 — Data flow + new entities *(approved 2026-05-22)*
+
+#### 3.1 Three new entity types
+
+| Entity | Lifetime | Stored where | Mutable? |
+|---|---|---|---|
+| **`Blueprint`** | Conceptual identity (slug, display name, owner) | `blueprints` table | Yes (status, current version, scope) |
+| **`BlueprintVersion`** | Immutable snapshot of the manifest at a point in time | `blueprint_versions` table | **No** — every save creates a new version |
+| **`BlueprintRun`** | One execution (benchmark / pilot / production / reflection) | `blueprint_runs` table | Result only; not retroactively edited |
+
+Same pattern eval pipeline already uses (skill / skill_version / skill_evaluation).
+
+#### 3.2 Blueprint manifest schema (stable contract for Phases 2 / 4 / 8)
+
+```typescript
+type BlueprintManifest = {
+  // Identity
+  name: string;
+  slug: string;
+  version: string;                        // semver
+  description: string;
+  owner: string;                          // user id or "system"
+  tags: string[];
+
+  // The graph (canvas state)
+  graph: {
+    nodes: GraphNode[];                   // AgentNode | ToolNode | ConnectorNode | PolicyNode | DatasetNode | BenchmarkNode
+    edges: GraphEdge[];                   // DataFlowEdge | ControlFlowEdge | ApprovalGateEdge
+    layout?: Record<string, {x: number, y: number}>;
+  };
+
+  // References to existing entities
+  agentRoles: AgentRoleRef[];             // @squidbot/team role manifests
+  tools: ToolRef[];                       // ToolRegistry entries
+  connectors: ConnectorRef[];             // @squidbot/connectors manifests
+  policies: PolicyRef[];                  // @squidbot/governance policy packs
+  datasets: DatasetRef[];                 // fixture/eval datasets
+
+  // Benchmarks + KPIs (Phase 2F)
+  benchmarks: BenchmarkTarget[];          // { datasetId, metric, threshold, baseline? }
+  kpis: KpiTarget[];                      // { name, target, unit, businessValuePerUnit }
+
+  // Rollout state (Phase 2F)
+  rollout: {
+    status: "draft" | "pilot" | "stable" | "archived";
+    canaryPercent?: number;               // 0–100
+    haltOnFailure: boolean;
+    previousVersion?: string;
+  };
+
+  // Scope (Phase 2G — uses existing identity store)
+  scope: {
+    tenants?: string[];
+    departments?: string[];
+    roles?: string[];
+    users?: string[];
+  };
+
+  // ─── STABLE-CONTRACT FIELDS for Phases 4 + 8 (stored now, consumed later) ───
+
+  // UI contributions (Phase 8 consumes; Phase 2 only stores)
+  uiContributions?: {
+    dashboardWidgets?: WidgetRef[];       // additive widgets on Briefing
+    sidebarItems?: SidebarItemRef[];      // additive nav items
+    pageOverlays?: PageOverlayRef[];      // tabs/sections contributed to existing pages
+    themes?: ThemeRef[];                  // color/density preferences
+    homeScreen?: string;                  // override Briefing for users scoped here
+  };
+
+  // Trainability hooks (Phase 4 consumes; Phase 2 only stores)
+  trainability?: {
+    feedbackTargets: string[];            // which agent outputs collect ratings
+    mutationCandidates: string[];         // skill ids autonomy loop may mutate
+    promotionGate: "manual" | "auto-with-benchmark" | "auto-with-eval+rollback";
+    rollbackOnBenchmarkRegression: boolean;
+  };
+
+  // Adaptive behavior (Phase 4 consumes; Phase 2 only stores)
+  adaptivity?: {
+    reflectionTrigger: ReflectionTriggerPolicy;
+    memoryNudgeFrequency?: string;        // "daily" | "weekly" | "manual" | "after_N_runs"
+    affordanceGapPolicy: "log-only" | "auto-propose-skill" | "block-on-detection";
+  };
+
+  // Audit ledger
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  auditTrail: BlueprintAuditEntry[];      // chained-hash entries
+};
+```
+
+**Why the three forward-compatible field groups matter:**
+- **Trainable** — `trainability` tells Phase 4's autonomy loop what's safe to mutate. Without it, autonomy is reckless.
+- **Customizable UI** — `uiContributions` lets a Blueprint add sidebar items, widgets, page overlays. Phase 8 reads these to generate adaptive UI. Phase 2 only stores them.
+- **Adaptive over time** — `adaptivity` controls reflection fire policy, memory nudges, affordance gap handling. Phase 4 consumes.
+
+#### 3.3 Data flow — install through promote
+
+```
+1.  User opens Studio → Catalog tab
+2.  User clicks "Install AI CEO Ops Blueprint"
+3.  Studio reads bundled manifest from blueprints/builtin/ai-ceo-ops/manifest.json
+4.  @squidbot/blueprints.BlueprintRegistry.install()
+        ├── validates manifest against JSON schema
+        ├── checks for collisions (slug already installed?)
+        ├── resolves references (do all agentRoles + tools + connectors + policies + datasets exist?)
+        ├── installs missing dependencies (e.g. gmail-fixture connector)
+        ├── creates row in `blueprints` table (status="draft")
+        ├── creates version 1.0.0 in `blueprint_versions` (immutable)
+        ├── emits audit event: `blueprint.installed`
+        └── returns the Blueprint record
+5.  User navigates to Editor tab → canvas loads the manifest's graph
+6.  User edits a node (e.g. tweaks email-triager agent's policy)
+7.  User clicks "Save"
+        ├── canvas state serialized to a new manifest
+        ├── new version 1.0.1 created in `blueprint_versions`
+        ├── `blueprints.currentVersion` updated to "1.0.1"
+        ├── audit event: `blueprint.edited`
+        └── canvas reloads (round-trip verified)
+8.  User clicks "Run benchmarks"
+        ├── @squidbot/blueprints calls @squidbot/evals.benchmarkRunner
+        ├── reads BenchmarkTarget[] from manifest
+        ├── runs the agent team against each dataset
+        ├── produces BlueprintRun row in `blueprint_runs`
+        ├── compares against baseline (previous version's results)
+        └── displays pass/fail per metric in Benchmarks tab
+9.  All benchmarks pass → "Promote to pilot" button enables
+10. User clicks "Promote to pilot (canary 10%)"
+        ├── @squidbot/blueprints calls @squidbot/evals.canary
+        ├── rollout.status = "pilot", canaryPercent = 10
+        ├── audit event: `blueprint.promoted`
+        ├── for users scoped, 10% of new sessions use the pilot version
+        └── ROI dashboard accumulates real KPI values
+11. Canary metrics meet criteria after threshold
+        ├── auto-promote to stable (or manual gate per trainability.promotionGate)
+        ├── rollout.status = "stable", canaryPercent = 100
+        └── audit event: `blueprint.stable`
+```
+
+Failure paths at every step emit audit events + rollback flows wired via `@squidbot/evals.rollback`.
+
+#### 3.4 BlueprintRun → existing trace events
+
+Every Blueprint execution emits standard SquidBot trace events. Nothing new:
+- `agent.task.started` / `completed`
+- `tool.called` / `completed`
+- `model.invoked` / `completed`
+- `memory.read` / `written`
+- `policy.checked` / `denied`
+- `audit.entry` — but new event_type values: `blueprint.installed`, `blueprint.edited`, `blueprint.promoted`, `blueprint.rolled_back`, `blueprint.benchmark_run`, `blueprint.canary_metric`
+
+**Why this matters:** every Blueprint run is auditable via the existing audit-ledger infrastructure. Compliance officers (Phase 7) don't need a new ledger — they query the same one.
+
+#### 3.5 Audit ledger integration
+
+Every Blueprint state change creates a chained-hash audit entry (already supported by `@squidbot/governance`):
+
+```typescript
+type BlueprintAuditEntry = {
+  id: string;
+  blueprintSlug: string;
+  blueprintVersion: string;
+  eventType: "installed" | "edited" | "benchmark_run" | "promoted" | "rolled_back" | "uninstalled" | "scope_changed";
+  actor: string;                          // user id
+  timestamp: string;
+  prevHash: string;                       // links to previous entry
+  hash: string;                           // sha256(prevHash + this entry's fields)
+  payload: Record<string, unknown>;
+};
+```
+
+**Tamper-evident:** retroactive edit invalidates every subsequent hash. Existing audit-export tools verify the chain.
+
+#### 3.6 Scope integration with existing ABAC
+
+The `scope` field plugs into the existing `@squidbot/governance` ABAC engine:
+
+```typescript
+function visibleBlueprints(user: User, allBlueprints: Blueprint[]): Blueprint[] {
+  return allBlueprints.filter(bp => {
+    if (bp.scope.users?.length && !bp.scope.users.includes(user.id)) return false;
+    if (bp.scope.tenants?.length && !bp.scope.tenants.includes(user.tenantId)) return false;
+    if (bp.scope.departments?.length && !bp.scope.departments.includes(user.department)) return false;
+    if (bp.scope.roles?.length && !user.roles.some(r => bp.scope.roles!.includes(r))) return false;
+    return true;
+  });
+}
+```
+
+Studio Catalog shows only visible Blueprints. Studio Editor refuses to load a Blueprint outside scope. Trace events log scope checks.
+
+#### 3.7 UI contribution hooks (stored now, consumed by Phase 8)
+
+When a Blueprint installs with `uiContributions.sidebarItems`, the renderer **could** display those items. Phase 2 stores the data; Phase 8 consumes it via the UI generator.
+
+```json
+{
+  "uiContributions": {
+    "dashboardWidgets": [
+      { "id": "ai-ceo-overnight", "label": "Overnight activity", "source": "blueprint:ai-ceo-ops", "position": "briefing.overnight" }
+    ],
+    "sidebarItems": [
+      { "id": "ai-ceo-inbox", "label": "Inbox triage", "icon": "Inbox", "blueprint": "ai-ceo-ops", "requiresRole": ["admin", "user"] }
+    ],
+    "pageOverlays": [
+      { "page": "settings", "tab": "blueprints", "blueprint": "ai-ceo-ops" }
+    ]
+  }
+}
+```
+
+**Phase 2 commitment:** store + validate. **Phase 8 will:** read from all installed Blueprints + active enterprise profile + current user's role, generate the adapted sidebar / dashboard / overlays. Per reference §6.16: AI-generated UI is reviewable + editable + versioned + reversible.
+
+#### 3.8 Trainability hooks (stored now, consumed by Phase 4)
+
+Phase 4 autonomy loop consults `blueprint.trainability` to know what's allowed:
+
+```typescript
+async function maybeMutateSkill(skillId: string, reflection: Reflection): Promise<void> {
+  const owningBlueprints = await blueprintsContainingSkill(skillId);
+  for (const bp of owningBlueprints) {
+    if (!bp.trainability) continue;
+    if (!bp.trainability.mutationCandidates.includes(skillId)) continue;
+    if (reflection.failureMode === "irrecoverable") continue;
+    if (bp.trainability.promotionGate === "auto-with-eval+rollback") {
+      const mutation = await mutationProposer.propose(skillId, reflection);
+      const benchmark = await benchmarkRunner.compare(skillId, mutation);
+      if (benchmark.passed) {
+        await promote(skillId, mutation.version);
+      } else if (bp.trainability.rollbackOnBenchmarkRegression) {
+        await rollback(skillId);
+      }
+    }
+  }
+}
+```
+
+#### 3.9 Adaptive behavior hooks (stored now, consumed by Phase 4)
+
+```typescript
+function shouldFireReflection(blueprintRun: BlueprintRun, blueprint: Blueprint): boolean {
+  if (!blueprint.adaptivity) return defaultReflectionPolicy(blueprintRun);
+  const policy = blueprint.adaptivity.reflectionTrigger;
+  // per reference §10.1: fire on multi-tool task, long runtime, plan revision,
+  // repeated failure, user correction, high-risk op, scheduled job complete, PR/deploy
+  return /* applies policy */;
+}
+```
+
+#### 3.10 Per-Blueprint affordance gaps + memory partitioning
+
+Each Blueprint gets:
+- Own affordance gap log (existing `@squidbot/reflection` partitioned by blueprintSlug)
+- Optional memory domain (subset of memory graph visible only when this Blueprint runs)
+
+Cross-Blueprint memory access requires explicit user grant (audit-logged).
+
+#### 3.11 Summary diagram
+
+```
+                    ┌─────────────────────────────────────┐
+                    │       Blueprint Manifest            │
+                    │  ┌─────────────────────────────┐    │
+                    │  │ Graph (nodes + edges)       │    │
+                    │  │ References (agents, tools,  │    │
+                    │  │   connectors, policies)     │    │
+                    │  │ Benchmarks + KPIs           │    │
+                    │  │ Rollout state + scope       │    │
+                    │  │ uiContributions (Ph. 8)     │    │
+                    │  │ trainability (Ph. 4)        │    │
+                    │  │ adaptivity (Ph. 4)          │    │
+                    │  └─────────────────────────────┘    │
+                    └─────────────────────────────────────┘
+                                  │
+                ┌─────────────────┼─────────────────┐
+                ▼                 ▼                 ▼
+         BlueprintVersion   BlueprintRun    Audit ledger
+         (immutable)        (per execution) (chained-hash)
+                │                 │                 │
+                ▼                 ▼                 ▼
+         @squidbot/evals  Existing trace   @squidbot/governance
+         benchmarkRunner  event taxonomy   (existing)
+         canary
+         rollback
+```
+
 ---
 
 ## 4. Pre-design verification (done 2026-05-21, all green)
@@ -201,15 +491,6 @@ Before writing the design doc, I verified the Phase 2 plan fits the existing cod
 ## 5. Sections still pending (resume here)
 
 When you resume this brainstorm in a fresh session, **present these to the user in order**:
-
-### Section 3 — Data flow + new entities (pending)
-
-Cover:
-- How a Blueprint manifest gets composed in the canvas → saved to DB → version-bumped → benchmarked → canaried → promoted
-- The 3 new entity types (Blueprint, BlueprintVersion, BlueprintRun) with field shapes
-- How Blueprint runs link to existing trace events
-- How the audit ledger captures every Blueprint state change
-- How Blueprint scope (tenant/department) integrates with existing ABAC
 
 ### Section 4 — Testing strategy (pending)
 
