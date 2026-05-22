@@ -156,3 +156,7 @@ export type BlueprintManifest = {
   updatedBy: string;
   auditTrail: BlueprintAuditEntry[];
 };
+
+// --- Blueprint run types ---
+// Keep in sync with the CHECK constraint in DB migration 19 (run_type column).
+export type BlueprintRunType = "benchmark" | "pilot" | "production" | "reflection";
