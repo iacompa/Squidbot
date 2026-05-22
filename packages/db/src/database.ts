@@ -448,7 +448,7 @@ export type BlueprintInput = {
   slug: string;
   name: string;
   manifest_json: string;
-  status: BlueprintStatus | string;
+  status: BlueprintStatus;
   current_version: string;
 };
 

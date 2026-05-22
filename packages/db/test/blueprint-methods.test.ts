@@ -74,4 +74,33 @@ describe("SquidDatabase Blueprint methods", () => {
     const list = db.listBlueprints();
     expect(list.map((bp) => bp.slug)).toEqual(["b", "a"]);
   });
+
+  it("saveBlueprint with unchanged current_version updates identity row without duplicating version", () => {
+    const id = db.saveBlueprint({
+      slug: "test-bp",
+      name: "Original Name",
+      manifest_json: manifestJson,
+      status: "draft",
+      current_version: "1.0.0"
+    }, "user-1");
+
+    // Save again with same version but different name + status (e.g. user edits metadata
+    // without bumping version).
+    db.saveBlueprint({
+      slug: "test-bp",
+      name: "Renamed",
+      manifest_json: JSON.stringify({ slug: "test-bp", version: "1.0.0", name: "Renamed" }),
+      status: "pilot",
+      current_version: "1.0.0"
+    }, "user-2");
+
+    // Identity row reflects the update
+    const bp = db.getBlueprint("test-bp");
+    expect(bp).toMatchObject({ name: "Renamed", status: "pilot" });
+
+    // But version history is NOT duplicated (UNIQUE constraint silently swallowed)
+    const versions = db.listBlueprintVersions(id);
+    expect(versions).toHaveLength(1);
+    expect(versions[0]?.version).toBe("1.0.0");
+  });
 });
