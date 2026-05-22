@@ -1,24 +1,23 @@
+import { SEMVER_PATTERN, SLUG_PATTERN } from "./schema.js";
 import type { BlueprintManifest } from "./types.js";
 
 export type ValidationResult =
   | { ok: true; manifest: BlueprintManifest }
   | { ok: false; errors: string[] };
 
-const SEMVER = /^\d+\.\d+\.\d+(?:-[\w.]+)?$/;
-const SLUG = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 const ALLOWED_ROLLOUT = new Set(["draft", "pilot", "stable", "archived"]);
 const ALLOWED_PROMOTION = new Set(["manual", "auto-with-benchmark", "auto-with-eval+rollback"]);
 
 export function validateManifest(input: unknown): ValidationResult {
   const errors: string[] = [];
 
-  if (!input || typeof input !== "object") {
-    return { ok: false, errors: ["Manifest must be an object"] };
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, errors: ["Manifest must be an object, not an array or primitive"] };
   }
 
   const m = input as Record<string, unknown>;
 
-  function assertField(field: string, type: string): void {
+  function assertField(field: string, type: "string" | "array" | "object"): void {
     const v = m[field];
     if (v === undefined || v === null) errors.push(`Missing required field: ${field}`);
     else if (type === "string" && typeof v !== "string") errors.push(`${field} must be a string`);
@@ -48,10 +47,10 @@ export function validateManifest(input: unknown): ValidationResult {
   assertField("updatedBy", "string");
   assertField("auditTrail", "array");
 
-  if (typeof m.slug === "string" && !SLUG.test(m.slug)) {
+  if (typeof m.slug === "string" && !SLUG_PATTERN.test(m.slug)) {
     errors.push("slug must be lowercase kebab-case (e.g. 'ai-ceo-ops')");
   }
-  if (typeof m.version === "string" && !SEMVER.test(m.version)) {
+  if (typeof m.version === "string" && !SEMVER_PATTERN.test(m.version)) {
     errors.push(`version "${m.version}" is not valid semver (expected major.minor.patch)`);
   }
 
