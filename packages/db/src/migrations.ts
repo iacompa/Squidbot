@@ -1330,6 +1330,52 @@ export const migrations: Migration[] = [
         ON mcp_servers (enabled)
         WHERE enabled = 1;
     `
+  },
+  {
+    id: 19,
+    name: "blueprints",
+    // AI Studio v1 — Phase 2 of vs-openclaw-hermes roadmap.
+    // Three new tables: identity row, immutable version history, per-run results.
+    // Cascades enforce referential integrity; ON DELETE CASCADE on blueprint_versions
+    // and blueprint_runs so deleting a Blueprint cleans up its history.
+    up: `
+      CREATE TABLE IF NOT EXISTS blueprints (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'pilot', 'stable', 'archived')),
+        current_version TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS blueprint_versions (
+        id TEXT PRIMARY KEY,
+        blueprint_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        createdBy TEXT NOT NULL,
+        UNIQUE (blueprint_id, version),
+        FOREIGN KEY (blueprint_id) REFERENCES blueprints(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS blueprint_runs (
+        id TEXT PRIMARY KEY,
+        blueprint_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        run_type TEXT NOT NULL CHECK (run_type IN ('benchmark', 'pilot', 'production', 'reflection')),
+        result_json TEXT NOT NULL,
+        startedAt TEXT NOT NULL,
+        completedAt TEXT,
+        FOREIGN KEY (blueprint_id) REFERENCES blueprints(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_blueprint_versions_bp ON blueprint_versions(blueprint_id);
+      CREATE INDEX IF NOT EXISTS idx_blueprint_runs_bp ON blueprint_runs(blueprint_id);
+      CREATE INDEX IF NOT EXISTS idx_blueprint_runs_type ON blueprint_runs(run_type);
+    `
   }
 ];
 
