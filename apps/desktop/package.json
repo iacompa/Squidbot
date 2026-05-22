@@ -22,6 +22,7 @@
     "audit:renderer-imports": "node scripts/audit-renderer-imports.mjs"
   },
   "dependencies": {
+    "@squidbot/blueprints": "0.1.0",
     "@squidbot/connectors": "0.1.0",
     "@squidbot/core": "0.1.0",
     "@squidbot/db": "0.1.0",

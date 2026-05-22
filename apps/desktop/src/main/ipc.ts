@@ -1,5 +1,6 @@
 import path from "node:path";
 import { dialog, ipcMain } from "electron";
+import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
   ConnectorRegistry,
   executeRealHttpCall,
@@ -1254,6 +1255,50 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   ipcMain.handle("squidbot:mergeMemoryGraphNodes", (_event, targetNodeId: string, sourceNodeId: string) =>
     new MemoryGraphStore(database).mergeNodes(targetNodeId, sourceNodeId)
   );
+
+  // ---------------- Blueprints ----------------
+  // Phase 2 AI Studio Blueprints: install / get / list / export / delete /
+  // listVersions. The registry wraps SquidDatabase via the structural
+  // BlueprintStore interface — no nominal coupling — so future stores can
+  // implement the same shape (e.g. a remote registry sync) without changing
+  // these handlers.
+  const blueprintRegistry = new BlueprintRegistry(database);
+
+  ipcMain.handle("squidbot:listBlueprints", () => {
+    return { blueprints: blueprintRegistry.list() };
+  });
+
+  ipcMain.handle("squidbot:getBlueprint", (_event, slug: string) => {
+    const manifest = blueprintRegistry.get(slug);
+    if (!manifest) throw new Error(`Blueprint not found: ${slug}`);
+    return { manifest };
+  });
+
+  ipcMain.handle("squidbot:installBlueprint", (_event, manifest: unknown, actor?: string) => {
+    const result = blueprintRegistry.install(
+      manifest as Parameters<BlueprintRegistry["install"]>[0],
+      actor ?? "user"
+    );
+    if (!result.ok) {
+      throw new Error(`Invalid Blueprint: ${result.errors.join("; ")}`);
+    }
+    return { id: result.id, slug: result.manifest.slug };
+  });
+
+  ipcMain.handle("squidbot:exportBlueprint", (_event, slug: string) => {
+    const manifest = blueprintRegistry.get(slug);
+    if (!manifest) throw new Error(`Blueprint not found: ${slug}`);
+    return { json: JSON.stringify(manifest, null, 2) };
+  });
+
+  ipcMain.handle("squidbot:deleteBlueprint", (_event, slug: string, actor?: string) => {
+    blueprintRegistry.uninstall(slug, actor ?? "user");
+    return { ok: true };
+  });
+
+  ipcMain.handle("squidbot:listBlueprintVersions", (_event, slug: string) => {
+    return { versions: blueprintRegistry.versions(slug) };
+  });
 
   // ---------------- Identity / Profile / Trust / Onboarding ----------------
 

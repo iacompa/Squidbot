@@ -1111,6 +1111,19 @@ export type SquidbotApi = {
   deleteMemoryGraphNode: (nodeId: string) => Promise<MemoryGraphNodeDto>;
   mergeMemoryGraphNodes: (targetNodeId: string, sourceNodeId: string) => Promise<MemoryGraphNodeDto>;
 
+  // ---------------- Blueprints (AI Studio Phase 2) ----------------
+  // The manifest type is intentionally `unknown` here — the renderer parses
+  // it via the @squidbot/blueprints types when it actually consumes manifests
+  // (in StudioPage etc.), keeping this shared API surface self-contained and
+  // free of cross-package type imports, the same convention as the rest of
+  // this file.
+  listBlueprints: () => Promise<{ blueprints: unknown[] }>;
+  getBlueprint: (slug: string) => Promise<{ manifest: unknown }>;
+  installBlueprint: (manifest: unknown, actor?: string) => Promise<{ id: string; slug: string }>;
+  exportBlueprint: (slug: string) => Promise<{ json: string }>;
+  deleteBlueprint: (slug: string, actor?: string) => Promise<{ ok: boolean }>;
+  listBlueprintVersions: (slug: string) => Promise<{ versions: unknown[] }>;
+
   // ---------------- Identity / Trust / Profile / Onboarding ----------------
   getIdentityReport: () => Promise<IdentityReportDto>;
   listEnterpriseProfiles: () => Promise<EnterpriseProfileDto[]>;

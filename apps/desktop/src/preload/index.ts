@@ -104,6 +104,14 @@ const api: SquidbotApi = {
   deleteMemoryGraphNode: (nodeId) => ipcRenderer.invoke("squidbot:deleteMemoryGraphNode", nodeId),
   mergeMemoryGraphNodes: (targetNodeId, sourceNodeId) => ipcRenderer.invoke("squidbot:mergeMemoryGraphNodes", targetNodeId, sourceNodeId),
 
+  // Blueprints (AI Studio Phase 2)
+  listBlueprints: () => ipcRenderer.invoke("squidbot:listBlueprints"),
+  getBlueprint: (slug) => ipcRenderer.invoke("squidbot:getBlueprint", slug),
+  installBlueprint: (manifest, actor) => ipcRenderer.invoke("squidbot:installBlueprint", manifest, actor),
+  exportBlueprint: (slug) => ipcRenderer.invoke("squidbot:exportBlueprint", slug),
+  deleteBlueprint: (slug, actor) => ipcRenderer.invoke("squidbot:deleteBlueprint", slug, actor),
+  listBlueprintVersions: (slug) => ipcRenderer.invoke("squidbot:listBlueprintVersions", slug),
+
   // Identity / Trust / Profile / Onboarding / Terminal-in-app
   getIdentityReport: () => ipcRenderer.invoke("squidbot:getIdentityReport"),
   listEnterpriseProfiles: () => ipcRenderer.invoke("squidbot:listEnterpriseProfiles"),
