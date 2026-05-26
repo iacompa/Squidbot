@@ -233,14 +233,15 @@
 - Fixture JSON in `docs/demoData/devIntegration/` (GitHub, GitLab, Jira, Jenkins)
 - OpenAPI importer exists (used for petstore demo)
 - Real GitHub *read* path wired: `executeGithubReadRequest` in `packages/connectors/src/httpTransport.ts` (activates when `github.apiToken` setting is present)
-- Full GitHub manifest with write endpoints (createIssue, openDraftPullRequest, mergePullRequest, etc.) in `connectors/demo/githubConnector.json`, gated by `fixtureMode: true` by default
+- Generic real-HTTP path (`executeRealHttpCall`) handles any connector with bearer/basic/apiKey auth
+- GitHub manifest with `fixtureMode: false` post-merge — writes still gated by sensitivity policy + approval queue
+- CI log parser (`packages/connectors/src/ciLogParser.ts`) — vitest / jest / pytest / github-actions / generic, 11 tests
 
 **Gaps:**
-- GitHub *write* path stays in fixture mode by default; no real PR creation flow yet
+- GitHub *write* flow: defined in manifest, gated by approval queue, but no end-to-end PR creation UX yet
 - No GitLab / Jira / Jenkins connector beyond fixtures
-- No CI log parser
 
-**Next Action:** Promote GitHub write endpoints out of fixture mode behind approval gates; add real PR creation flow.
+**Next Action:** Build end-to-end PR creation UX wiring approval queue → executeRealHttpCall for github write endpoints.
 
 ---
 
@@ -386,9 +387,12 @@
 
 **Gaps:**
 - No standalone docs site (in-app FAQ covers basics only)
-- No feedback mechanism or plugin SDK (`packages/productization/` is empty)
+- No plugin SDK (`packages/productization/` is empty)
 
 **Next Action:** Build the plugin SDK scaffold in `packages/productization/`.
+
+**Key Evidence (continued):**
+- In-app feedback widget (`apps/desktop/src/renderer/src/components/FeedbackButton.tsx`) — sidebar trigger, modal with sentiment, persists as `user.feedback.submitted` events on the local trace log (no new DB schema; reuses redaction + retention)
 
 ---
 
@@ -420,8 +424,9 @@
    - Sweep non-governance packages for tenant scoping (primitives exist; not every callsite uses them)
 
 3. **P2 — Developer integrations (Phase 9)**
-   - Promote GitHub write endpoints out of fixture mode behind approval gates; build PR creation flow
-   - Add CI log parser
+   - ~~Add CI log parser~~ ✅ done 2026-05-25 (`packages/connectors/src/ciLogParser.ts`)
+   - Promote GitHub write endpoints to end-to-end PR creation flow (approval queue → executeRealHttpCall)
+   - Build GitLab / Jira / Jenkins real connectors beyond fixtures
 
 4. **P3 — Runtime polish (Phase 1 + 10)**
    - Add streaming tool output to the runtime
@@ -429,7 +434,7 @@
 
 5. **P4 — Plugin SDK + feedback (Phase 16)**
    - Build the plugin SDK scaffold in `packages/productization/`
-   - Add in-app feedback widget
+   - ~~Add in-app feedback widget~~ ✅ done 2026-05-25 (`apps/desktop/src/renderer/src/components/FeedbackButton.tsx`)
 
 ---
 
@@ -440,7 +445,7 @@
 3. Re-evaluate the “Next Action” for the top 3 incomplete phases.
 4. Keep the Executive Summary percentages honest — they are the single source of truth for stakeholders.
 
-**Last updated by:** AI analysis on 2026-05-25 (audit pass — verified Key Evidence / Gaps claims against actual code; corrected stale counts, removed/rewrote stale gaps for Phase 1/6/7/9/12/16, refreshed Recommendations P0–P4)
+**Last updated by:** AI analysis on 2026-05-25 (audit pass + worktree merge + bounded P2/P4 wins). Audit corrected stale Key Evidence / Gaps for Phase 1/6/7/9/12/16; deleted orphan TracesPage; deleted stale `docs copy/`; merged `claude/frosty-williamson-817c25` (105 commits — blueprints + AI Studio v1 + a11y); landed CI log parser (Phase 9) and in-app feedback widget (Phase 16).
 
 ---
 
