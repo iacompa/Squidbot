@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
-import { validateProviderApiUrl } from "./urlGuards.js";
+import { validateModelAccountApiUrl, validateProviderApiUrl } from "./urlGuards.js";
 import { replaceMcpManager } from "./mcpPool.js";
 import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
@@ -297,6 +297,17 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       (key === "model.apiKey" || key === "model.apiUrl" || key === "model.apiModel")
     ) {
       database.deleteSetting(key);
+    } else if (key === "model.apiUrl") {
+      // Strict guard: api key would travel to this URL on the next chat
+      // turn, so we require https and reject private/loopback hosts.
+      if (typeof value !== "string") {
+        throw new Error("model.apiUrl must be a string.");
+      }
+      const urlError = validateProviderApiUrl(value);
+      if (urlError) {
+        throw new Error(urlError);
+      }
+      database.setSetting(key, value.trim());
     } else if (key === "workspacePath") {
       if (typeof value !== "string" || !value.trim()) {
         throw new Error("workspacePath must be a non-empty string.");
@@ -1745,15 +1756,11 @@ function coerceModelAccountInput(raw: unknown): ModelAccountInput {
     }
     const trimmed = source.apiUrl.trim();
     if (trimmed) {
-      try {
-        const parsed = new URL(trimmed);
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-          throw new Error("apiUrl must use http or https protocol.");
-        }
-        out.apiUrl = trimmed;
-      } catch {
-        throw new Error(`Invalid apiUrl: ${trimmed}`);
+      const err = validateModelAccountApiUrl(trimmed);
+      if (err) {
+        throw new Error(err);
       }
+      out.apiUrl = trimmed;
     }
   }
   if (source.apiKey === null) {
