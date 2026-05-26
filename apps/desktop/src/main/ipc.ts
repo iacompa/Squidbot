@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import { validateProviderApiUrl } from "./urlGuards.js";
+import { replaceMcpManager } from "./mcpPool.js";
 import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
   ConnectorRegistry,
@@ -186,12 +187,14 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
   installDeveloperWorkflowConnectors(connectorRegistry);
   registerConnectorTools(toolRegistry, connectorRegistry);
 
-  // Spawn enabled MCP servers into the same ToolRegistry. We don't await
-  // — startup shouldn't block on slow MCP servers. Tools that aren't yet
-  // registered when an agent message arrives simply aren't available;
-  // they appear on the next runtime construction.
-  const mcpManager = new McpClientManager(toolRegistry);
-  void mcpManager.spawnAll(
+  // Spawn enabled MCP servers into the same ToolRegistry via the pool. The
+  // pool shuts down the previous generation before the new one — without
+  // that, every chat message orphaned a subprocess tree (createRuntime is
+  // called per-message). We still don't await: startup shouldn't block on
+  // slow servers; tools not yet registered when an agent message arrives
+  // simply aren't available until the next runtime construction.
+  void replaceMcpManager(
+    toolRegistry,
     database.listMcpServers()
       .filter((s) => s.enabled)
       .map((s) => ({

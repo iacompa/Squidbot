@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { initializeDatabase, type SquidDatabase } from "@squidbot/db";
 import { getDesktopAppPaths } from "./appPaths.js";
 import { registerIpcHandlers } from "./ipc.js";
+import { shutdownMcpPool } from "./mcpPool.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let database: SquidDatabase | null = null;
@@ -77,6 +78,14 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
-  database?.close();
+let shuttingDown = false;
+app.on("before-quit", (event) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  event.preventDefault();
+  void (async () => {
+    await shutdownMcpPool();
+    database?.close();
+    app.exit(0);
+  })();
 });
