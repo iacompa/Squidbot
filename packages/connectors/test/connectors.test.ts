@@ -295,10 +295,11 @@ describe("developer workflow connectors", () => {
     expect(events.map((event) => event.type)).toContain("connector.issueUpdated");
   });
 
-  it("uses real GitHub HTTP for read operations when github.apiToken is configured", async () => {
+  it("uses real GitHub HTTP for read operations when github settings are configured", async () => {
     const fixture = createWorkspace();
     database = initializeDatabase(fixture.dbPath);
-    database.setSetting("github.apiToken", "ghp_test_token");
+    database.setSetting("github.baseUrl", "https://api.github.com");
+    database.setSetting("github.apiKey", "ghp_test_token");
     const registry = new ConnectorRegistry(database);
     installDeveloperWorkflowConnectors(registry);
     const github = registry.getConnector("github");
@@ -306,6 +307,8 @@ describe("developer workflow connectors", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => [{ number: 1, title: "Bug" }],
       text: async () => JSON.stringify([{ number: 1, title: "Bug" }])
     }));
     vi.stubGlobal("fetch", fetchMock);
