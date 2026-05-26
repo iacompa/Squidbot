@@ -1,4 +1,5 @@
 export * from "./approvalQueue.js";
+export * from "./ciLogParser.js";
 export * from "./fixture.js";
 export * from "./devIntegration.js";
 export * from "./httpTransport.js";
