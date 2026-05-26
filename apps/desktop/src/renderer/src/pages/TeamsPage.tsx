@@ -57,18 +57,42 @@ export function TeamsPage() {
   useEffect(() => {
     if (!selectedTeam) {
       setRuns([]);
+      setSelectedRunId(null);
+      setDetail(null);
       return;
     }
+
+    // When the user switches teams, immediately blank the runs+detail panes
+    // so the previous team's data never shows under the new team's heading.
+    // The cancelled flag drops any late responses from the previous team's
+    // fetch chain (which would otherwise race past the new fetch and
+    // overwrite it).
+    setRuns([]);
+    setSelectedRunId(null);
+    setDetail(null);
+    let cancelled = false;
+
     void squidbotApi
       .listTeamRuns(selectedTeam.id)
       .then((nextRuns) => {
+        if (cancelled) return null;
         setRuns(nextRuns);
         const nextRunId = nextRuns[0]?.id ?? null;
         setSelectedRunId(nextRunId);
         return nextRunId ? squidbotApi.getTeamRun(nextRunId) : Promise.resolve(null);
       })
-      .then(setDetail)
-      .catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : "Unable to load team runs."));
+      .then((nextDetail) => {
+        if (cancelled) return;
+        setDetail(nextDetail);
+      })
+      .catch((nextError: unknown) => {
+        if (cancelled) return;
+        setError(nextError instanceof Error ? nextError.message : "Unable to load team runs.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedTeam?.id]);
 
   useEffect(() => {
@@ -76,10 +100,20 @@ export function TeamsPage() {
       setDetail(null);
       return;
     }
+    let cancelled = false;
     void squidbotApi
       .getTeamRun(selectedRun.id)
-      .then(setDetail)
-      .catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : "Unable to load team run."));
+      .then((nextDetail) => {
+        if (cancelled) return;
+        setDetail(nextDetail);
+      })
+      .catch((nextError: unknown) => {
+        if (cancelled) return;
+        setError(nextError instanceof Error ? nextError.message : "Unable to load team run.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRun?.id]);
 
   async function createTeam(): Promise<void> {

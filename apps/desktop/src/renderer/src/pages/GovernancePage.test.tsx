@@ -19,7 +19,12 @@ beforeEach(() => {
         retentionPolicies: 0,
         legalHolds: 0,
         n8nIntegrations: 1,
-        policyPacks: 8
+        policyPacks: 8,
+        tenantIsolation: { enabled: true, defaultTenantId: "local-tenant" },
+        ssoProviders: [
+          { id: "local", label: "Local accounts", configured: true, available: true, detail: "Default local admin." },
+          { id: "oidc", label: "OpenID Connect", configured: false, available: false, detail: "Not configured." }
+        ]
       })),
       listGovernanceUsers: vi.fn(async () => [
         { id: "user_local_admin", tenantId: "local-tenant", email: "local@example.test", username: "local-admin", displayName: "Local Admin", status: "active", authType: "local", createdAt: "now", updatedAt: "now", disabledAt: null }

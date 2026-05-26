@@ -102,7 +102,10 @@ export function registerWorkspaceTools(registry: ToolRegistry): void {
     riskLevel: "low",
     handler: (args: JsonObject, context: ToolContext) => {
       const root = ensureWorkspacePath(context.workspacePath);
-      const limit = typeof args.limit === "number" ? Math.min(args.limit, 500) : 200;
+      const limit =
+        typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
+          ? Math.min(Math.floor(args.limit), 500)
+          : 200;
       const files: string[] = [];
       listFilesRecursive(root, root, files, limit);
       return { workspacePath: root, files, truncated: files.length >= limit };
@@ -162,7 +165,10 @@ export function registerWorkspaceTools(registry: ToolRegistry): void {
       }
 
       const root = ensureWorkspacePath(context.workspacePath);
-      const maxResults = typeof args.maxResults === "number" ? Math.min(args.maxResults, 250) : 100;
+      const maxResults =
+        typeof args.maxResults === "number" && Number.isFinite(args.maxResults) && args.maxResults > 0
+          ? Math.min(Math.floor(args.maxResults), 250)
+          : 100;
       const matcher = createMatcher(pattern, args.regex === true);
       const files: string[] = [];
       listFilesRecursive(root, root, files, 1000);

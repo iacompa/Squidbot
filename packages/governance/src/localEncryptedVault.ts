@@ -4,16 +4,75 @@ import { DEFAULT_TENANT_ID, type SecretReferenceRecord } from "./types.js";
 import { nowIso } from "./internal.js";
 import { SecretReferenceStore } from "./secretReferences.js";
 
+const VAULT_KEY_SETTING = "vault.localMasterKey";
+
+export type VaultKeySource = "explicit" | "env" | "generated" | "setting";
+
+export type VaultKeyStatus = {
+  hasKey: true;
+  source: VaultKeySource;
+  keyId: string;
+} | {
+  hasKey: false;
+  source: "missing";
+};
+
+function deriveKey(seed: string): { key: Buffer; keyId: string } {
+  return {
+    key: createHash("sha256").update(seed).digest(),
+    keyId: createHash("sha256").update(`key:${seed}`).digest("hex").slice(0, 16)
+  };
+}
+
+function generateFreshSeed(): string {
+  return randomBytes(32).toString("base64");
+}
+
 export class LocalEncryptedVault {
   private readonly references: SecretReferenceStore;
   private readonly key: Buffer;
   private readonly keyId: string;
+  private readonly keySource: VaultKeySource;
 
   constructor(private readonly database: SquidDatabase, masterKey?: string) {
     this.references = new SecretReferenceStore(database);
-    const seed = masterKey ?? process.env.SQUIDBOT_LOCAL_SECRET_KEY ?? "squidbot-local-dev-master-key";
-    this.key = createHash("sha256").update(seed).digest();
-    this.keyId = createHash("sha256").update(`key:${seed}`).digest("hex").slice(0, 16);
+
+    // Source precedence:
+    // 1. Explicit constructor arg (tests pass a stable string)
+    // 2. SQUIDBOT_LOCAL_SECRET_KEY env var (production deployments inject this)
+    // 3. Previously generated key stored in settings (persistent on this machine)
+    // 4. Freshly generated random key (persisted to settings for next boot)
+    //
+    // We NEVER fall back to a hardcoded string default — that would mean
+    // every fresh install on every machine shares the same encryption key,
+    // which is no better than plaintext.
+    let seed: string;
+    if (masterKey) {
+      seed = masterKey;
+      this.keySource = "explicit";
+    } else if (process.env.SQUIDBOT_LOCAL_SECRET_KEY) {
+      seed = process.env.SQUIDBOT_LOCAL_SECRET_KEY;
+      this.keySource = "env";
+    } else {
+      const existing = this.database.getSetting<string>(VAULT_KEY_SETTING);
+      if (existing && existing.length > 0) {
+        seed = existing;
+        this.keySource = "setting";
+      } else {
+        seed = generateFreshSeed();
+        this.database.setSetting(VAULT_KEY_SETTING, seed);
+        this.keySource = "generated";
+      }
+    }
+
+    const derived = deriveKey(seed);
+    this.key = derived.key;
+    this.keyId = derived.keyId;
+  }
+
+  /** Returns the source and id of the active vault master key (never the seed itself). */
+  keyStatus(): VaultKeyStatus {
+    return { hasKey: true, source: this.keySource, keyId: this.keyId };
   }
 
   setSecret(name: string, value: string, options: { tenantId?: string; rotate?: boolean } = {}): SecretReferenceRecord {

@@ -672,7 +672,9 @@ export class SquidDatabase {
           name = excluded.name,
           severity = excluded.severity,
           description = excluded.description,
-          context = excluded.context`
+          context = excluded.context,
+          status = excluded.status,
+          resolvedAt = excluded.resolvedAt`
       )
       .run({
         ...gap,
@@ -1057,6 +1059,29 @@ export class SquidDatabase {
       .all({ nowIso, limit }) as StoredJob[];
 
     return rows.map(parseJob);
+  }
+
+  claimJobForRun(jobId: string, options: { forced?: boolean } = {}): JobRecord | null {
+    const now = new Date().toISOString();
+    const result = options.forced
+      ? this.db
+          .prepare(
+            `UPDATE jobs
+             SET status = 'running', lastOutcome = 'running', updatedAt = @updatedAt
+             WHERE id = @id AND status IN ('active', 'paused', 'completed')`
+          )
+          .run({ id: jobId, updatedAt: now })
+      : this.db
+          .prepare(
+            `UPDATE jobs
+             SET status = 'running', lastOutcome = 'running', updatedAt = @updatedAt
+             WHERE id = @id AND status = 'active'`
+          )
+          .run({ id: jobId, updatedAt: now });
+    if (result.changes === 0) {
+      return null;
+    }
+    return this.getJob(jobId);
   }
 
   updateJob(jobId: string, update: JobUpdate): JobRecord {

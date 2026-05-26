@@ -164,6 +164,43 @@ describe("trace query and redaction API", () => {
     });
   });
 
+  it("listRuns returns the newest trace per runId when multiple traces share a runId", () => {
+    database = createDatabase();
+    const olderEvents = [
+      event(0, "session.started", { workspacePath: "/tmp/workspace" }),
+      event(1, "user.task", { task: "first run summary" }),
+      event(2, "task.complete", { task: "first run summary", finalSummary: "OLDER" })
+    ];
+    const newerEvents = [
+      event(0, "session.started", { workspacePath: "/tmp/workspace" }),
+      event(1, "user.task", { task: "second run summary" }),
+      event(2, "task.complete", { task: "second run summary", finalSummary: "NEWER" })
+    ];
+
+    const older = buildTrace(olderEvents);
+    const olderCreatedAt = new Date(Date.UTC(2026, 4, 2, 12, 0, 0)).toISOString();
+    database.saveTrace({
+      id: `${older.id}_older`,
+      sessionId: older.sessionId,
+      events: { ...older, createdAt: olderCreatedAt },
+      createdAt: olderCreatedAt
+    });
+
+    const newer = buildTrace(newerEvents);
+    const newerCreatedAt = new Date(Date.UTC(2026, 4, 3, 12, 0, 0)).toISOString();
+    database.saveTrace({
+      id: `${newer.id}_newer`,
+      sessionId: newer.sessionId,
+      events: { ...newer, createdAt: newerCreatedAt },
+      createdAt: newerCreatedAt
+    });
+
+    const runs = listRuns(database);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].runId).toBe("run_trace_test");
+    expect(runs[0].createdAt).toBe(newerCreatedAt);
+  });
+
   it("labels developer workflow connector events for trace filtering", () => {
     const trace = buildTrace([
       event(0, "session.started", { workspacePath: "/tmp/workspace" }),

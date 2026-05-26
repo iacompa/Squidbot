@@ -262,13 +262,13 @@ export class Scheduler {
   }
 
   private async executeJob(job: JobRecord, options: { forced: boolean; scheduledTime?: string }): Promise<JobExecutionResult> {
+    const claimed = this.database.claimJobForRun(job.id, { forced: options.forced });
+    if (!claimed) {
+      throw new Error(`Job ${job.id} could not be claimed for run (already running or not in a runnable state).`);
+    }
     const startedAt = this.now();
     const startedStatus = job.status;
     const jobRunId = createId("job_run");
-    this.database.updateJob(job.id, {
-      status: "running",
-      lastOutcome: "running"
-    });
 
     try {
       const result = await this.runJobPayload(job, startedAt, options.scheduledTime ?? startedAt.toISOString());

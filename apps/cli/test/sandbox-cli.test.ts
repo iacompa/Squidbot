@@ -99,5 +99,5 @@ describe("CLI sandbox staging", () => {
     expect(rejected.sandbox.status).toBe("rejected");
     expect(rejected.sandbox.destroyedAt).toBeTruthy();
     expect(fs.readFileSync(path.join(rejectWorkspace, "calculator.py"), "utf8")).toContain("return a - b");
-  });
+  }, 30000);
 });

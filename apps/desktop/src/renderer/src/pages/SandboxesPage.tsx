@@ -48,20 +48,38 @@ export function SandboxesPage() {
     });
   }, [status]);
 
+  const [pending, setPending] = useState<"approve" | "reject" | null>(null);
+
   async function approveSelected(): Promise<void> {
-    if (!selectedSandbox) {
+    if (!selectedSandbox || pending) {
       return;
     }
-    await squidbotApi.approveSandbox(selectedSandbox.id);
-    await refresh();
+    setError(null);
+    setPending("approve");
+    try {
+      await squidbotApi.approveSandbox(selectedSandbox.id);
+      await refresh();
+    } catch (caught) {
+      setError(`Approve failed: ${caught instanceof Error ? caught.message : String(caught)}`);
+    } finally {
+      setPending(null);
+    }
   }
 
   async function rejectSelected(): Promise<void> {
-    if (!selectedSandbox) {
+    if (!selectedSandbox || pending) {
       return;
     }
-    await squidbotApi.rejectSandbox(selectedSandbox.id);
-    await refresh();
+    setError(null);
+    setPending("reject");
+    try {
+      await squidbotApi.rejectSandbox(selectedSandbox.id);
+      await refresh();
+    } catch (caught) {
+      setError(`Reject failed: ${caught instanceof Error ? caught.message : String(caught)}`);
+    } finally {
+      setPending(null);
+    }
   }
 
   return (
@@ -181,21 +199,23 @@ export function SandboxesPage() {
               <div className="button-row">
                 <button
                   className="secondary-button"
-                  disabled={selectedSandbox.status !== "active" || !selectedSandbox.diff.trim()}
+                  disabled={selectedSandbox.status !== "active" || !selectedSandbox.diff.trim() || pending !== null}
                   type="button"
                   onClick={() => void approveSelected()}
+                  aria-busy={pending === "approve"}
                 >
                   <CheckCircle2 size={15} />
-                  <span>Approve</span>
+                  <span>{pending === "approve" ? "Approving…" : "Approve"}</span>
                 </button>
                 <button
                   className="secondary-button"
-                  disabled={selectedSandbox.status !== "active"}
+                  disabled={selectedSandbox.status !== "active" || pending !== null}
                   type="button"
                   onClick={() => void rejectSelected()}
+                  aria-busy={pending === "reject"}
                 >
                   <XCircle size={15} />
-                  <span>Reject</span>
+                  <span>{pending === "reject" ? "Rejecting…" : "Reject"}</span>
                 </button>
               </div>
             </div>

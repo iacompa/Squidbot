@@ -87,6 +87,7 @@ export type AgentEvent = {
     | "team.run.completed"
     | "team.run.failed"
     | "team.run.canceled"
+    | "team.run.paused"
     | "eval.dataset.installed"
     | "eval.run.started"
     | "eval.task.started"

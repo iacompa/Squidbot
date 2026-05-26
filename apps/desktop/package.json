@@ -6,7 +6,7 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "node ../../scripts/ensure-electron-native.mjs && electron-vite dev",
+    "dev": "node ../../scripts/ensure-electron-native.mjs && env -u ELECTRON_RUN_AS_NODE electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "rebuild:electron": "node ../../scripts/rebuild-electron-native.mjs",
     "rebuild:native": "npm run rebuild:electron",

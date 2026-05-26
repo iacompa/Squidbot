@@ -302,8 +302,8 @@ export function OnboardingPage() {
                 })}
               </div>
               <TerminalRunner
-                allowedCommands={["whoami", "trust.summary", "memory.list", "profile.current"]}
-                defaultCommandId="whoami"
+                allowedCommands={["doctor", "demo", "whoami", "trust.summary", "memory.list", "profile.current"]}
+                defaultCommandId="doctor"
                 title="Or run one of these inside the app"
               />
             </>
@@ -330,6 +330,22 @@ export function OnboardingPage() {
       </header>
 
       <StepProgress steps={steps} currentIndex={currentIndex} completedIds={completedIds} />
+
+      <section className="onboarding-quickstart" aria-label="Quick start">
+        <h3>Quick start</h3>
+        <p className="muted-copy">
+          Verify your install, then run the vertical-slice demo — fix a buggy Python calculator inside a sandbox.
+        </p>
+        <div className="onboarding-success__actions">
+          <TerminalSnippet command="npm run doctor" label="Health check" />
+          <TerminalSnippet command="npm run demo -- --workspace ./examples/buggy-python" label="Vertical slice demo" />
+        </div>
+        <TerminalRunner
+          allowedCommands={["doctor", "demo", "whoami", "trust.summary"]}
+          defaultCommandId="doctor"
+          title="Run inside the app"
+        />
+      </section>
 
       {error && <div className="page-error">{error}</div>}
 

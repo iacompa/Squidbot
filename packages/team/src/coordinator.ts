@@ -199,10 +199,44 @@ export class TeamCoordinator {
       }
 
       let remaining = true;
-      while (remaining) {
+      let canceled = false;
+      while (remaining && !canceled) {
         remaining = false;
         const current = this.store.listSubtasks(run.id);
         for (const subtask of this.broker.readySubtasks(current)) {
+          // Re-read the run state on every subtask. The user may have called
+          // cancelTeamRun() or pauseTeamRun() between subtask executions —
+          // we should respect that without finishing the rest of the queue.
+          const latestRun = this.store.getTeamRun(run.id);
+          if (latestRun?.status === "canceled") {
+            canceled = true;
+            emit("team.run.canceled", {
+              teamRunId: run.id,
+              reason: "Cancellation requested while subtask queue was still running.",
+              completedSubtasks: this.store.listSubtasks(run.id).filter((s) => s.status === "completed").length,
+              pendingSubtasks: this.store.listSubtasks(run.id).filter((s) => s.status === "queued" || s.status === "assigned").length
+            });
+            // Mark any remaining queued/assigned subtasks as canceled too — they didn't run.
+            for (const pending of this.store.listSubtasks(run.id)) {
+              if (pending.status === "queued" || pending.status === "assigned") {
+                this.store.updateSubtask(pending.id, { status: "canceled" });
+              }
+            }
+            break;
+          }
+          if (latestRun?.status === "waiting_for_human") {
+            // Pause acts like an early stop for the current invocation.
+            // The user can call resumeTeamRun() and re-invoke runTeamTask logic
+            // separately; we don't busy-poll here.
+            canceled = true;
+            emit("team.run.paused", {
+              teamRunId: run.id,
+              reason: "Run was paused before subtask could be executed.",
+              completedSubtasks: this.store.listSubtasks(run.id).filter((s) => s.status === "completed").length
+            });
+            break;
+          }
+
           remaining = true;
           const roleId = this.broker.assignSubtask({
             subtask,
@@ -215,6 +249,21 @@ export class TeamCoordinator {
           }
           await this.executeSubtask({ runId: run.id, team, subtask, role, workspacePath, emit });
         }
+      }
+
+      if (canceled) {
+        // Skip synthesis and final completion path — the run is in a non-running state.
+        const trace = this.saveTrace(events);
+        return {
+          team,
+          run: this.store.getTeamRun(run.id) ?? run,
+          subtasks: this.store.listSubtasks(run.id),
+          blackboardEntries: this.store.listBlackboardEntries({ teamRunId: run.id }),
+          conflicts: this.store.listConflicts(run.id, "all"),
+          handoffs: this.store.listHandoffs({ teamRunId: run.id, status: "all" }),
+          synthesis: null,
+          traceId: trace.id
+        };
       }
 
       const detected = this.conflicts.detect(run.id);

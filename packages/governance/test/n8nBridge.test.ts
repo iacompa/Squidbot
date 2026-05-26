@@ -37,4 +37,66 @@ describe("n8n bridge", () => {
     fs.writeFileSync(invalidPath, JSON.stringify({ ...unsigned, idempotencyKey: "idempotent-2", signature: "bad" }), "utf8");
     expect(governance.n8n.receiveFixture(invalidPath).accepted).toBe(false);
   });
+
+  it("refuses to create authMode='none' integrations by default", () => {
+    db = tempDb();
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    expect(() =>
+      governance.n8n.createIntegration({
+        name: "Unsigned Integration",
+        direction: "inbound",
+        events: ["audit.export.requested"],
+        actions: ["audit.request"],
+        enabled: true,
+        authMode: "none"
+      })
+    ).toThrow(/allowUnsignedWebhooks/);
+  });
+
+  it("allows authMode='none' only when governance.n8n.allowUnsignedWebhooks=true is explicitly set", () => {
+    db = tempDb();
+    db.setSetting("governance.n8n.allowUnsignedWebhooks", true);
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    const integration = governance.n8n.createIntegration({
+      name: "Test Unsigned",
+      direction: "inbound",
+      events: ["audit.export.requested"],
+      actions: ["audit.request"],
+      enabled: true,
+      authMode: "none"
+    });
+    expect(integration.authMode).toBe("none");
+  });
+
+  it("rejects unsigned events at receive time when the dev setting is off, even if the integration was grandfathered", () => {
+    db = tempDb();
+    // Create with dev setting on, then turn it off to simulate a tightening of policy.
+    db.setSetting("governance.n8n.allowUnsignedWebhooks", true);
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    const integration = governance.n8n.createIntegration({
+      name: "Grandfathered",
+      direction: "inbound",
+      events: ["audit.export.requested"],
+      actions: ["audit.request"],
+      enabled: true,
+      authMode: "none"
+    });
+    db.setSetting("governance.n8n.allowUnsignedWebhooks", false);
+
+    const payload = {
+      integrationId: integration.id,
+      eventType: "audit.export.requested",
+      action: "audit.request",
+      idempotencyKey: "grand-1",
+      riskLevel: "low"
+    };
+    const fixturePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "n8n-policy-")), "request.json");
+    fs.writeFileSync(fixturePath, JSON.stringify(payload), "utf8");
+    const result = governance.n8n.receiveFixture(fixturePath);
+    expect(result.accepted).toBe(false);
+    expect(result.reason).toMatch(/unsigned/i);
+  });
 });

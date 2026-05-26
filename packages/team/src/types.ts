@@ -233,6 +233,7 @@ export type TeamRunResult = {
   blackboardEntries: BlackboardEntry[];
   conflicts: TeamConflict[];
   handoffs: HumanHandoff[];
-  synthesis: TeamSynthesis;
+  /** Null when the run was canceled or paused before reaching the synthesis stage. */
+  synthesis: TeamSynthesis | null;
   traceId: string;
 };

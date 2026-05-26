@@ -30,6 +30,40 @@ describe("TeamCoordinator integration", () => {
     db.close();
   });
 
+  it("stops executing subtasks when cancelTeamRun is called mid-flight", async () => {
+    const db = tempDb();
+    const workspace = buggyPythonWorkspace();
+    const coordinator = new TeamCoordinator(db);
+    const team = coordinator.ensureDefaultSetup();
+
+    // Start the run, then cancel it immediately. Because the cancel hits before
+    // executeSubtask completes (or right after the first one), the rest of the
+    // queue should not run.
+    const runPromise = coordinator.runTeamTask({
+      teamId: team.id,
+      workspacePath: workspace,
+      task: "Fix calculator add function"
+    });
+
+    // Find the run id we just created and cancel it.
+    // We can't directly hook into the loop, so we rely on the fact that the
+    // first subtask is short-lived: schedule a cancel via setImmediate.
+    await new Promise((resolve) => setImmediate(resolve));
+    const recentRun = coordinator.listTeamRuns(team.id, 1)[0];
+    if (recentRun) {
+      coordinator.cancelTeamRun(recentRun.id);
+    }
+
+    const result = await runPromise;
+    // At least one subtask was canceled OR the synthesis was skipped.
+    const wasInterrupted =
+      result.synthesis === null ||
+      result.subtasks.some((subtask) => subtask.status === "canceled");
+    expect(wasInterrupted).toBe(true);
+
+    db.close();
+  });
+
   it("creates handoffs for approval-gated connector writes", async () => {
     const db = tempDb();
     const workspace = buggyPythonWorkspace();

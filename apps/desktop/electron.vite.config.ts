@@ -51,6 +51,9 @@ export default defineConfig({
       alias: {
         "@renderer": path.resolve(__dirname, "src/renderer/src")
       }
+    },
+    optimizeDeps: {
+      exclude: ["@squidbot/core", "@squidbot/db", "better-sqlite3"]
     }
   }
 });

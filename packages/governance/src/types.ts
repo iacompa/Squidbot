@@ -16,7 +16,6 @@ export type JsonRecord = Record<string, JsonValue>;
 export type GovernanceActor = {
   type: PrincipalType;
   id: string;
-  roles?: string[];
   attributes?: Record<string, unknown>;
 };
 

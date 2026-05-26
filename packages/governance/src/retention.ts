@@ -12,6 +12,40 @@ type LegalHoldRow = Omit<LegalHoldRecord, "resourceSelector"> & {
   resourceSelectorJson: string;
 };
 
+type ResourceTableSpec = {
+  table: string;
+  dateColumn: string;
+  tenantColumn?: string;
+  archiveColumn?: string;
+};
+
+const resourceTables: Record<string, ResourceTableSpec> = {
+  trace: { table: "traces", dateColumn: "created_at" },
+  event: { table: "events", dateColumn: "timestamp" },
+  memory: { table: "memories_nodes", dateColumn: "createdAt", archiveColumn: "archivedAt" },
+  reflection: { table: "reflections", dateColumn: "createdAt" },
+  gap: { table: "affordance_gaps", dateColumn: "createdAt" },
+  message: { table: "messaging_events", dateColumn: "createdAt" },
+  evalRun: { table: "eval_runs", dateColumn: "createdAt" },
+  sandbox: { table: "sandboxes", dateColumn: "createdAt" },
+  audit: { table: "audit_ledger", dateColumn: "createdAt" }
+};
+
+export type RetentionApplyResult = {
+  applied: number;
+  blockedByLegalHold: number;
+  rowsAffected: number;
+  confirmed: boolean;
+  results: Array<{
+    policyId: string;
+    resourceType: string;
+    action: string;
+    matchedCount: number;
+    legalHoldBlocked: boolean;
+    rowsAffected: number;
+  }>;
+};
+
 export class RetentionEngine {
   private readonly audit: AuditLedger;
 
@@ -54,26 +88,58 @@ export class RetentionEngine {
         policyId: policy.id,
         resourceType: policy.resourceType,
         action: policy.action,
-        matchedCount: this.estimateResourceCount(policy.resourceType),
+        matchedCount: this.countRowsOlderThan(policy),
         legalHoldBlocked: hasActiveHold && !policy.legalHoldOverride
       }));
   }
 
-  apply(tenantId = DEFAULT_TENANT_ID): { applied: number; blockedByLegalHold: number; results: ReturnType<RetentionEngine["dryRun"]> } {
-    const results = this.dryRun(tenantId);
+  apply(tenantIdOrOptions: string | { tenantId?: string; confirm?: boolean } = DEFAULT_TENANT_ID): RetentionApplyResult {
+    const options =
+      typeof tenantIdOrOptions === "string"
+        ? { tenantId: tenantIdOrOptions, confirm: false }
+        : { tenantId: tenantIdOrOptions.tenantId ?? DEFAULT_TENANT_ID, confirm: tenantIdOrOptions.confirm === true };
+    const tenantId = options.tenantId ?? DEFAULT_TENANT_ID;
+    const hasActiveHold = this.listLegalHolds(tenantId).some((hold) => hold.status === "active");
+    const policies = this.listPolicies(tenantId).filter((policy) => policy.enabled);
+
+    const results: RetentionApplyResult["results"] = [];
+    let totalRowsAffected = 0;
+
+    for (const policy of policies) {
+      const legalHoldBlocked = hasActiveHold && !policy.legalHoldOverride;
+      const matchedCount = this.countRowsOlderThan(policy);
+      let rowsAffected = 0;
+
+      if (!legalHoldBlocked && policy.action !== "keep" && options.confirm) {
+        rowsAffected = this.executeRetentionAction(policy);
+      }
+
+      totalRowsAffected += rowsAffected;
+      results.push({
+        policyId: policy.id,
+        resourceType: policy.resourceType,
+        action: policy.action,
+        matchedCount,
+        legalHoldBlocked,
+        rowsAffected
+      });
+    }
+
     const applied = results.filter((result) => !result.legalHoldBlocked && result.action !== "keep").length;
     const blockedByLegalHold = results.filter((result) => result.legalHoldBlocked).length;
+
     this.audit.append({
       tenantId,
       actorType: "user",
       actorId: DEFAULT_ADMIN_USER_ID,
-      action: "retention.apply",
+      action: options.confirm ? "retention.apply" : "retention.dryRun",
       resourceType: "tenant",
       resourceId: tenantId,
-      outcome: "completed",
-      detail: { applied, blockedByLegalHold, results }
+      outcome: options.confirm ? "applied" : "dryRun",
+      detail: { applied, blockedByLegalHold, rowsAffected: totalRowsAffected, confirmed: options.confirm, results }
     });
-    return { applied, blockedByLegalHold, results };
+
+    return { applied, blockedByLegalHold, rowsAffected: totalRowsAffected, confirmed: options.confirm, results };
   }
 
   createLegalHold(input: { tenantId?: string; name: string; description?: string; selector?: Record<string, unknown>; createdBy?: string }): LegalHoldRecord {
@@ -103,23 +169,73 @@ export class RetentionEngine {
     return rows.map(mapLegalHold);
   }
 
-  private estimateResourceCount(resourceType: string): number {
-    const tableByType: Record<string, string> = {
-      trace: "traces",
-      event: "events",
-      memory: "memories_nodes",
-      reflection: "reflections",
-      gap: "affordance_gaps",
-      message: "messaging_events",
-      evalRun: "eval_runs",
-      sandbox: "sandboxes",
-      audit: "audit_ledger"
-    };
-    const table = tableByType[resourceType];
-    if (!table) {
+  private cutoffIsoForPolicy(policy: RetentionPolicyRecord): string {
+    const cutoffMs = Date.now() - policy.retentionDays * 24 * 60 * 60 * 1000;
+    return new Date(cutoffMs).toISOString();
+  }
+
+  private countRowsOlderThan(policy: RetentionPolicyRecord): number {
+    const spec = resourceTables[policy.resourceType];
+    if (!spec) {
       return 0;
     }
-    return (this.database.db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get() as { count: number }).count;
+    const cutoff = this.cutoffIsoForPolicy(policy);
+    try {
+      return (this.database.db
+        .prepare(`SELECT COUNT(*) AS count FROM ${spec.table} WHERE ${spec.dateColumn} < ?`)
+        .get(cutoff) as { count: number }).count;
+    } catch {
+      return 0;
+    }
+  }
+
+  private executeRetentionAction(policy: RetentionPolicyRecord): number {
+    const spec = resourceTables[policy.resourceType];
+    if (!spec) {
+      return 0;
+    }
+    const cutoff = this.cutoffIsoForPolicy(policy);
+
+    if (policy.action === "delete") {
+      const result = this.database.db
+        .prepare(`DELETE FROM ${spec.table} WHERE ${spec.dateColumn} < ?`)
+        .run(cutoff);
+      return result.changes;
+    }
+    if (policy.action === "archive") {
+      if (spec.archiveColumn) {
+        const result = this.database.db
+          .prepare(`UPDATE ${spec.table} SET ${spec.archiveColumn} = ? WHERE ${spec.dateColumn} < ? AND (${spec.archiveColumn} IS NULL)`)
+          .run(nowIso(), cutoff);
+        return result.changes;
+      }
+      // Tables without a soft-archive column treat archive as delete to avoid silently doing nothing.
+      const result = this.database.db
+        .prepare(`DELETE FROM ${spec.table} WHERE ${spec.dateColumn} < ?`)
+        .run(cutoff);
+      return result.changes;
+    }
+    if (policy.action === "anonymize") {
+      // Best-effort anonymize: only memory and reflection currently have free-text titles/bodies we can blank.
+      if (policy.resourceType === "memory") {
+        const result = this.database.db
+          .prepare(`UPDATE memories_nodes SET title = '[REDACTED]', summary = '[REDACTED]' WHERE createdAt < ?`)
+          .run(cutoff);
+        return result.changes;
+      }
+      if (policy.resourceType === "reflection") {
+        const result = this.database.db
+          .prepare(`UPDATE reflections SET summary = '[REDACTED]' WHERE createdAt < ?`)
+          .run(cutoff);
+        return result.changes;
+      }
+      // Fall through to delete for resource types we don't know how to anonymize.
+      const result = this.database.db
+        .prepare(`DELETE FROM ${spec.table} WHERE ${spec.dateColumn} < ?`)
+        .run(cutoff);
+      return result.changes;
+    }
+    return 0;
   }
 }
 

@@ -58,8 +58,93 @@ const ignoredNames = new Set([
   ".ruff_cache",
   ".squidbot-home"
 ]);
-const networkExecutables = new Set(["curl", "wget", "nc", "netcat", "ssh", "scp", "sftp", "ping", "dig", "nslookup"]);
+const networkExecutables = new Set([
+  "curl", "wget", "nc", "netcat", "ssh", "scp", "sftp", "ping", "dig", "nslookup",
+  "rsync", "telnet", "ftp", "lftp", "aria2c", "axel"
+]);
 const shellExecutables = new Set(["sh", "bash", "zsh", "fish", "pwsh", "powershell"]);
+
+// Subcommands of these tools that are known to perform network I/O.
+const networkSubcommandsByTool: Record<string, Set<string>> = {
+  git: new Set(["clone", "fetch", "pull", "push", "ls-remote", "remote", "archive"]),
+  npm: new Set(["install", "i", "ci", "publish", "audit", "update", "outdated", "fund", "search", "view", "info", "ping", "exec", "dlx"]),
+  pnpm: new Set(["install", "i", "add", "update", "publish", "audit", "outdated", "fetch", "search", "exec", "dlx"]),
+  yarn: new Set(["install", "add", "publish", "audit", "outdated", "info", "search", "upgrade", "dlx"]),
+  bun: new Set(["install", "i", "add", "update", "publish", "outdated", "x"]),
+  pip: new Set(["install", "download", "search", "wheel"]),
+  pip3: new Set(["install", "download", "search", "wheel"]),
+  cargo: new Set(["fetch", "publish", "install", "search", "yank"]),
+  gem: new Set(["install", "fetch", "push", "update", "search"]),
+  composer: new Set(["install", "update", "require", "search", "create-project"]),
+  go: new Set(["get", "install", "mod"]),
+  brew: new Set(["install", "fetch", "update", "upgrade", "search"])
+};
+
+// Code-runner CLIs that accept an inline expression that could perform network I/O.
+// We can't fully statically analyze the inline code, but we can scan the body for
+// well-known network APIs — most legitimate test scripts don't reference them, while
+// most exfil attempts do.
+const inlineCodeRunners: Record<string, Set<string>> = {
+  node: new Set(["-e", "--eval", "-p", "--print"]),
+  deno: new Set(["eval"]),
+  bun: new Set(["-e", "--eval"]),
+  python: new Set(["-c"]),
+  python3: new Set(["-c"]),
+  ruby: new Set(["-e"]),
+  perl: new Set(["-e", "-E"]),
+  php: new Set(["-r"])
+};
+
+// Substrings that indicate the inline code is doing or preparing network I/O.
+const networkIndicatorPatterns: RegExp[] = [
+  /\b(urllib|urlopen|requests|httpx|aiohttp|http\.client|socket)\b/i,
+  /\bfetch\s*\(/i,
+  /\brequire\s*\(\s*['"](?:http|https|net|tls|dgram|dns)['"]\s*\)/i,
+  /\bimport\s*\(\s*['"](?:http|https|node:http|node:https|node:net)['"]/i,
+  /\bXMLHttpRequest\b/i,
+  /\b__import__\s*\(\s*['"](?:urllib|http|socket|requests)/i,
+  /\bNet::HTTP\b/i,
+  /\bLWP::UserAgent\b/i,
+  /\bfile_get_contents\s*\(\s*['"]https?:/i,
+  /\bcurl_/i
+];
+
+export function inlineCodeLooksLikeNetwork(code: string): boolean {
+  return networkIndicatorPatterns.some((pattern) => pattern.test(code));
+}
+
+export function classifyNetworkPolicyBlock(command: string, args: string[]): { blocked: boolean; reason?: string } {
+  const executable = path.basename(command).toLowerCase().replace(/\.exe$/, "");
+  if (networkExecutables.has(executable)) {
+    return { blocked: true, reason: `Network command ${executable} is blocked by sandbox network policy.` };
+  }
+  const subcommands = networkSubcommandsByTool[executable];
+  if (subcommands) {
+    const firstNonFlag = args.find((arg) => !arg.startsWith("-"));
+    if (firstNonFlag && subcommands.has(firstNonFlag.toLowerCase())) {
+      return {
+        blocked: true,
+        reason: `${executable} ${firstNonFlag} performs network I/O and is blocked by the sandbox network policy. Run the offline equivalent (e.g. --offline, --no-deps) or change networkPolicy.`
+      };
+    }
+  }
+  const inlineFlags = inlineCodeRunners[executable];
+  if (inlineFlags) {
+    for (let index = 0; index < args.length; index += 1) {
+      if (!inlineFlags.has(args[index])) {
+        continue;
+      }
+      const code = args[index + 1] ?? "";
+      if (inlineCodeLooksLikeNetwork(code)) {
+        return {
+          blocked: true,
+          reason: `${executable} inline code references network APIs (urllib/fetch/http/socket/...) and is blocked by sandbox network policy.`
+        };
+      }
+    }
+  }
+  return { blocked: false };
+}
 const defaultResourceLimits: SandboxResourceLimits = {
   cpu: 1,
   memoryMb: 512,
@@ -89,11 +174,29 @@ export class SandboxManager {
     fs.mkdirSync(sandboxPath, { recursive: true });
     fs.cpSync(workspaceRoot, sandboxPath, {
       recursive: true,
+      // Never follow or copy symlinks from the source workspace — they could point
+      // at /etc, $HOME, /var, etc. and turn sandbox-relative paths into host reads.
+      // dereference:false combined with the filter below means symlinks are skipped
+      // entirely; we never create a symlink in the sandbox and never read through one.
+      dereference: false,
       filter: (source) => {
         const name = path.basename(source);
-        return !ignoredNames.has(name);
+        if (ignoredNames.has(name)) {
+          return false;
+        }
+        try {
+          const stat = fs.lstatSync(source);
+          if (stat.isSymbolicLink()) {
+            return false;
+          }
+        } catch {
+          return false;
+        }
+        return true;
       }
     });
+
+    assertNoSymlinksUnder(sandboxPath);
 
     const sandbox: Sandbox = {
       id,
@@ -141,13 +244,7 @@ export class SandboxManager {
       const child = spawn(command, args, {
         cwd: sandbox.path,
         shell: false,
-        env: {
-          ...process.env,
-          HOME: path.join(sandbox.path, ".squidbot-home"),
-          CI: "1",
-          SQUIDBOT_SANDBOX: sandbox.id,
-          SQUIDBOT_NETWORK_POLICY: sandbox.networkPolicy
-        },
+        env: buildSandboxEnv(sandbox),
         windowsHide: true
       });
 
@@ -157,6 +254,9 @@ export class SandboxManager {
         }
         resolved = true;
         clearTimeout(timer);
+        if (killTimer) {
+          clearTimeout(killTimer);
+        }
         void assertDiskLimit(sandbox)
           .then(() => {
             resolve({
@@ -185,9 +285,20 @@ export class SandboxManager {
           });
       };
 
+      let killTimer: NodeJS.Timeout | undefined;
       const timer = setTimeout(() => {
         timedOut = true;
         child.kill("SIGTERM");
+        killTimer = setTimeout(() => {
+          if (!resolved) {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // ignore — process may have already exited
+            }
+            finish(137, "\nProcess force-killed after refusing SIGTERM.");
+          }
+        }, 5_000);
       }, timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer) => {
@@ -327,9 +438,60 @@ export function parseCommandLine(commandLine: string): { command: string; args: 
   return { command, args };
 }
 
+const SANDBOX_ENV_PASSTHROUGH = [
+  "PATH",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TZ",
+  "TERM",
+  "TMPDIR",
+  "SHELL",
+  "USER",
+  "LOGNAME"
+] as const;
+
+function buildSandboxEnv(sandbox: Sandbox): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    HOME: path.join(sandbox.path, ".squidbot-home"),
+    CI: "1",
+    SQUIDBOT_SANDBOX: sandbox.id,
+    SQUIDBOT_NETWORK_POLICY: sandbox.networkPolicy
+  };
+  for (const key of SANDBOX_ENV_PASSTHROUGH) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.length > 0) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 function createSandboxId(): string {
   const random = Math.random().toString(36).slice(2, 10);
   return `sandbox_${Date.now().toString(36)}_${random}`;
+}
+
+function assertNoSymlinksUnder(root: string): void {
+  const stack: string[] = [root];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new SandboxPolicyError(`Symlink found inside sandbox after copy: ${fullPath}. Refusing to use sandbox.`);
+      }
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      }
+    }
+  }
 }
 
 function validateCommandPolicy(sandbox: Sandbox, command: string, args: string[]): Error | null {
@@ -338,8 +500,11 @@ function validateCommandPolicy(sandbox: Sandbox, command: string, args: string[]
     return new SandboxPolicyError("Shell execution is blocked in local sandbox mode; pass an executable and arguments directly.");
   }
 
-  if (sandbox.networkPolicy === "deny" && networkExecutables.has(executable)) {
-    return new SandboxPolicyError(`Network command ${executable} is blocked by sandbox network policy.`);
+  if (sandbox.networkPolicy === "deny") {
+    const networkBlock = classifyNetworkPolicyBlock(command, args);
+    if (networkBlock.blocked) {
+      return new SandboxPolicyError(networkBlock.reason ?? "Network access blocked by sandbox policy.");
+    }
   }
 
   const sandboxRoot = fs.realpathSync(sandbox.path);

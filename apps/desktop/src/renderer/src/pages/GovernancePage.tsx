@@ -93,6 +93,45 @@ export function GovernancePage() {
         <Metric label="Audit entries" value={status?.auditEntries ?? 0} />
       </section>
 
+      {status?.tenantIsolation?.enabled ? (
+        <section className="trace-artifact">
+          <h4>Tenant isolation</h4>
+          <p className="muted-copy">
+            Resources are scoped to tenant <strong>{status.tenantId}</strong>. Cross-tenant access is denied by default
+            (default tenant: {status.tenantIsolation.defaultTenantId}).
+          </p>
+        </section>
+      ) : null}
+
+      {status?.ssoProviders?.length ? (
+        <section className="affordance-layout skills-layout">
+          <div className="memory-section affordance-table-section">
+            <div className="memory-section-heading">
+              <h3>SSO providers</h3>
+              <span>enterprise perimeter</span>
+            </div>
+            <div className="affordance-table skill-table">
+              <div className="affordance-table-head">
+                <span>Status</span>
+                <span>Provider</span>
+                <span>Configured</span>
+                <span>Detail</span>
+              </div>
+              {status.ssoProviders.map((provider) => (
+                <div className="affordance-row" key={provider.id}>
+                  <span className={`severity-pill ${provider.available ? "resolved" : "medium"}`}>
+                    {provider.available ? "available" : "planned"}
+                  </span>
+                  <strong>{provider.label}</strong>
+                  <span>{provider.configured ? "yes" : "no"}</span>
+                  <span>{provider.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="affordance-layout skills-layout">
         <div className="memory-section affordance-table-section">
           <div className="memory-section-heading">
@@ -185,8 +224,8 @@ export function GovernancePage() {
             <span>{decisions.length}</span>
           </div>
           <div className="event-list compact-list">
-            {decisions.slice(0, 4).map((decision) => (
-              <div className="event-card" key={decision.id}>
+            {decisions.slice(0, 4).map((decision, index) => (
+              <div className="event-card" key={decision.id ?? `${decision.action}-${decision.createdAt ?? index}`}>
                 <strong>{decision.action}</strong>
                 <p>{decision.decision}: {decision.reason}</p>
               </div>

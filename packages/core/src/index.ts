@@ -17,5 +17,6 @@ export * from "./terminalTools.js";
 export * from "./testTools.js";
 export * from "./toolRegistry.js";
 export * from "./trace.js";
+export * from "./traceReplay.js";
 export * from "./types.js";
 export * from "./workspaceTools.js";

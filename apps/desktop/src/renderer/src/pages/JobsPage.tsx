@@ -63,57 +63,85 @@ export function JobsPage() {
       .catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : "Unable to load job."));
   }, [selectedJob?.id]);
 
+  function reportError(prefix: string, caught: unknown): void {
+    setError(`${prefix}: ${caught instanceof Error ? caught.message : String(caught)}`);
+  }
+
   async function createJob(): Promise<void> {
     setError(null);
-    const job = await squidbotApi.createJob({
-      name: form.name,
-      type: form.type,
-      refId: form.refId,
-      version: form.type === "skill" && form.version.trim() ? form.version.trim() : null,
-      schedule: form.schedule,
-      workspacePath: form.workspacePath.trim() || null,
-      testCommand: form.testCommand.trim() || null,
-      testMode: form.testMode
-    });
-    setForm({ ...initialForm, type: form.type });
-    setStatus("all");
-    setSelectedId(job.id);
-    const nextJobs = await squidbotApi.listJobs({ status: "all", limit: 100 });
-    setJobs(nextJobs);
-    setDetail(await squidbotApi.getJob(job.id));
+    try {
+      const job = await squidbotApi.createJob({
+        name: form.name,
+        type: form.type,
+        refId: form.refId,
+        version: form.type === "skill" && form.version.trim() ? form.version.trim() : null,
+        schedule: form.schedule,
+        workspacePath: form.workspacePath.trim() || null,
+        testCommand: form.testCommand.trim() || null,
+        testMode: form.testMode
+      });
+      setForm({ ...initialForm, type: form.type });
+      setStatus("all");
+      setSelectedId(job.id);
+      const nextJobs = await squidbotApi.listJobs({ status: "all", limit: 100 });
+      setJobs(nextJobs);
+      setDetail(await squidbotApi.getJob(job.id));
+    } catch (caught) {
+      reportError("Create job failed", caught);
+    }
   }
 
   async function pauseSelected(): Promise<void> {
     if (!selectedJob) {
       return;
     }
-    await squidbotApi.pauseJob(selectedJob.id);
-    await refresh();
+    setError(null);
+    try {
+      await squidbotApi.pauseJob(selectedJob.id);
+      await refresh();
+    } catch (caught) {
+      reportError("Pause failed", caught);
+    }
   }
 
   async function resumeSelected(): Promise<void> {
     if (!selectedJob) {
       return;
     }
-    await squidbotApi.resumeJob(selectedJob.id);
-    await refresh();
+    setError(null);
+    try {
+      await squidbotApi.resumeJob(selectedJob.id);
+      await refresh();
+    } catch (caught) {
+      reportError("Resume failed", caught);
+    }
   }
 
   async function runSelectedNow(): Promise<void> {
     if (!selectedJob) {
       return;
     }
-    await squidbotApi.runJobNow(selectedJob.id);
-    await refresh();
+    setError(null);
+    try {
+      await squidbotApi.runJobNow(selectedJob.id);
+      await refresh();
+    } catch (caught) {
+      reportError("Run-now failed", caught);
+    }
   }
 
   async function removeSelected(): Promise<void> {
     if (!selectedJob) {
       return;
     }
-    await squidbotApi.removeJob(selectedJob.id);
-    setSelectedId(null);
-    await refresh();
+    setError(null);
+    try {
+      await squidbotApi.removeJob(selectedJob.id);
+      setSelectedId(null);
+      await refresh();
+    } catch (caught) {
+      reportError("Remove failed", caught);
+    }
   }
 
   return (

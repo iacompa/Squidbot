@@ -22,6 +22,8 @@
     "messaging": "tsx src/index.ts messaging",
     "governance": "tsx src/index.ts governance",
     "project:status": "tsx src/index.ts project:status",
+    "doctor": "tsx src/index.ts doctor",
+    "demo": "tsx src/index.ts demo",
     "memory": "tsx src/index.ts memory",
     "connectors": "tsx src/index.ts connectors",
     "model": "tsx src/index.ts model",

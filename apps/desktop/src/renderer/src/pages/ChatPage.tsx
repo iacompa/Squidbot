@@ -120,7 +120,6 @@ export function ChatPage({
 
     setError(null);
     setIsSending(true);
-    setInput("");
     setMessages((current) => [...current, { id: createMessageId(), role: "user", content: trimmed }]);
 
     try {
@@ -142,8 +141,15 @@ export function ChatPage({
           toolResults: response.toolResults
         }
       ]);
+      // Only clear the input once the send actually succeeded — if the model
+      // call fails (offline, bad key, timeout), the user keeps their text and
+      // can retry without retyping.
+      setInput("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to send message.");
+      // Also remove the optimistic user bubble — leaving it visible while the
+      // user retries is confusing because the next send appends another copy.
+      setMessages((current) => current.slice(0, -1));
     } finally {
       setIsSending(false);
       // The model may have called `model.useAccount` mid-turn to switch

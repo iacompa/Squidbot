@@ -776,6 +776,14 @@ export type GovernanceStatusDto = {
   legalHolds: number;
   n8nIntegrations: number;
   policyPacks: number;
+  tenantIsolation: { enabled: boolean; defaultTenantId: string };
+  ssoProviders: Array<{
+    id: string;
+    label: string;
+    configured: boolean;
+    available: boolean;
+    detail: string;
+  }>;
 };
 
 export type GovernanceUserDto = {
@@ -1360,7 +1368,9 @@ export type SquidbotCommandId =
   | "trust.packet.gdpr"
   | "profile.list"
   | "profile.current"
-  | "memory.list";
+  | "memory.list"
+  | "doctor"
+  | "demo";
 
 export type SquidbotCommandDescriptorDto = {
   id: SquidbotCommandId;

@@ -25,16 +25,26 @@ export class N8nGovernanceBridge {
     this.policy = new GovernancePolicyEngine(database);
   }
 
+  private unsignedWebhooksAllowed(): boolean {
+    return this.database.getSetting<boolean>("governance.n8n.allowUnsignedWebhooks") === true;
+  }
+
   createIntegration(input: { id?: string; tenantId?: string; name: string; direction: "inbound" | "outbound"; events?: string[]; actions?: string[]; enabled?: boolean; authMode?: N8nIntegrationRecord["authMode"] }): N8nIntegrationRecord {
     const now = nowIso();
     const id = input.id ?? createId("n8n_integration");
+    const authMode = input.authMode ?? "hmac";
+    if (authMode === "none" && !this.unsignedWebhooksAllowed()) {
+      throw new Error(
+        "n8n integration refused: authMode='none' is only permitted when governance.n8n.allowUnsignedWebhooks=true (test/development setting). Use 'hmac' or another signed mode in production."
+      );
+    }
     this.database.db
       .prepare(
         `INSERT INTO n8n_webhook_integrations (
           id, tenantId, name, direction, authMode, allowedEventTypesJson, allowedActionsJson, enabled, createdAt, updatedAt
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, input.tenantId ?? DEFAULT_TENANT_ID, input.name, input.direction, input.authMode ?? "hmac", JSON.stringify(input.events ?? []), JSON.stringify(input.actions ?? []), input.enabled ? 1 : 0, now, now);
+      .run(id, input.tenantId ?? DEFAULT_TENANT_ID, input.name, input.direction, authMode, JSON.stringify(input.events ?? []), JSON.stringify(input.actions ?? []), input.enabled ? 1 : 0, now, now);
     return this.getIntegration(id)!;
   }
 
@@ -80,6 +90,10 @@ export class N8nGovernanceBridge {
       reason = "integration not found";
     } else if (!integration.enabled) {
       reason = "integration disabled";
+    } else if (integration.authMode === "none" && !this.unsignedWebhooksAllowed()) {
+      // The integration was created when unsigned was permitted (or directly via DB);
+      // refuse to process unsigned events unless the test/dev setting is on.
+      reason = "unsigned webhooks are disabled (set governance.n8n.allowUnsignedWebhooks=true to permit)";
     } else if (!signatureValid && integration.authMode !== "none") {
       reason = "invalid signature";
     } else if (existing) {

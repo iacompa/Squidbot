@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentRuntime, getLatestTrace, ModelRouter, ToolRegistry } from "@squidbot/core";
 import { initializeDatabase, type SquidDatabase } from "@squidbot/db";
 import {
@@ -20,6 +20,7 @@ let database: SquidDatabase | null = null;
 const tempDirs: string[] = [];
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   database?.close();
   database = null;
   for (const tempDir of tempDirs.splice(0)) {
@@ -292,6 +293,31 @@ describe("developer workflow connectors", () => {
     expect(events.map((event) => event.type)).toContain("connector.ciStatus");
     expect(events.map((event) => event.type)).toContain("connector.prDrafted");
     expect(events.map((event) => event.type)).toContain("connector.issueUpdated");
+  });
+
+  it("uses real GitHub HTTP for read operations when github.apiToken is configured", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+    database.setSetting("github.apiToken", "ghp_test_token");
+    const registry = new ConnectorRegistry(database);
+    installDeveloperWorkflowConnectors(registry);
+    const github = registry.getConnector("github");
+    const listIssuesEndpoint = github!.endpoints.find((endpoint) => endpoint.operationId === "listIssues")!;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify([{ number: 1, title: "Bug" }])
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeConnectorOperation(github!, listIssuesEndpoint, { owner: "acme", repo: "app" }, {
+      workspacePath: fixture.workspacePath,
+      getSetting: (key: string) => database!.getSetting(key)
+    } as never);
+
+    expect(result.mode).toBe("real");
+    expect(result.executed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("keeps developer write operations approval-gated in the runtime", async () => {

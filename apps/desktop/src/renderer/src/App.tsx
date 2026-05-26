@@ -201,11 +201,11 @@ export function App() {
           </div>
           <div className="status-row">
             <span className="status-dot amber" />
-            <span>Draft writes</span>
+            <span>Sandbox staging</span>
           </div>
           <div className="status-row">
-            <span className="status-dot coral" />
-            <span>Dry-run terminal</span>
+            <span className="status-dot green" />
+            <span>Tests in sandbox</span>
           </div>
         </div>
       </aside>

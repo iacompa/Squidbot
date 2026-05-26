@@ -331,8 +331,8 @@ export function buildTrace(events: AgentEvent[]): Trace {
 
   return {
     id: createId("trace"),
-    sessionId: first.sessionId,
-    runId: first.runId,
+    sessionId: first?.sessionId ?? "",
+    runId: first?.runId ?? "",
     createdAt: new Date().toISOString(),
     summary: {
       eventCount: events.length,
@@ -386,12 +386,11 @@ export function redactTrace(trace: Trace | null): Trace | null {
 export function listRuns(database: SquidDatabase, options: TraceListOptions = {}): TraceRunSummary[] {
   const limit = normalizeLimit(options.limit, 50);
   const offset = Math.max(0, options.offset ?? 0);
-  const summaries = database
+  const rawTraces = database
     .listTraces(options.sortBy && options.sortBy !== "createdAt" ? 1000 : limit, options.sortBy && options.sortBy !== "createdAt" ? 0 : offset)
     .map((storedTrace) => redactTrace(parseStoredTrace(storedTrace)))
-    .filter((trace): trace is Trace => Boolean(trace))
-    .map((trace) => summarizeTrace(trace));
-  const traces = [...new Map(summaries.map((summary) => [summary.runId, summary])).values()];
+    .filter((trace): trace is Trace => Boolean(trace));
+  const traces = newestTracePerRun(rawTraces).map((trace) => summarizeTrace(trace));
 
   if (options.sortBy === "duration") {
     traces.sort((left, right) => right.durationMs - left.durationMs);

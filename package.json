@@ -34,6 +34,8 @@
     "messaging": "npm run ensure:node-native && npm run messaging -w apps/cli --",
     "governance": "npm run ensure:node-native && npm run governance -w apps/cli --",
     "project:status": "npm run ensure:node-native && npm run project:status -w apps/cli --",
+    "doctor": "npm run ensure:node-native && npm run doctor -w apps/cli --",
+    "demo": "npm run ensure:node-native && npm run demo -w apps/cli --",
     "whoami": "npm run ensure:node-native && npm run whoami -w apps/cli --",
     "trust": "npm run ensure:node-native && npm run trust -w apps/cli --",
     "profile": "npm run ensure:node-native && npm run profile -w apps/cli --",

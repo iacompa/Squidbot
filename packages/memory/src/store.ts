@@ -401,7 +401,7 @@ export class MemoryGraphStore {
 
     return rows.map((row, index) => ({
       node: parseNode(row),
-      score: 1 / (1 + Math.max(0, row.rankScore)),
+      score: 1 / (1 + Math.abs(row.rankScore)),
       source: "fts",
       rank: index + 1
     }));
@@ -409,15 +409,18 @@ export class MemoryGraphStore {
 
   searchVector(query: string, topK = 10): MemorySearchResult[] {
     const queryVector = embedText(query);
+    const VECTOR_SEARCH_BATCH_LIMIT = 5000;
     const rows = this.database.db
       .prepare(
         `SELECT n.*, v.vector
          FROM memories_nodes n
          JOIN memories_vectors v ON v.nodeId = n.id
          WHERE n.deletedAt IS NULL
-           AND n.archivedAt IS NULL`
+           AND n.archivedAt IS NULL
+         ORDER BY n.updatedAt DESC
+         LIMIT @limit`
       )
-      .all() as Array<StoredMemoryNode & { vector: string }>;
+      .all({ limit: VECTOR_SEARCH_BATCH_LIMIT }) as Array<StoredMemoryNode & { vector: string }>;
 
     return rows
       .map((row) => ({

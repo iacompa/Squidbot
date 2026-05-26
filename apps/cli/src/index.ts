@@ -40,6 +40,8 @@ import {
   MessagingAdapterRegistry,
   MessagingGateway,
   MessagingStore,
+  startSlackWebhookServer,
+  unwrapSlackWebhookPayloads,
   type MessagingPlatform
 } from "@squidbot/messaging";
 import { parseCommandLine, SandboxManager, sandboxFromRecord } from "@squidbot/sandbox";
@@ -107,13 +109,21 @@ function parseArgs(argv: string[]): ParsedArgs {
   let testCommand: string | undefined;
   const messageParts: string[] = [];
 
+  const takeFlagValue = (flag: string, index: number): string => {
+    const next = rest[index + 1];
+    if (typeof next !== "string" || next.startsWith("--")) {
+      throw new Error(`${flag} requires a value.`);
+    }
+    return next;
+  };
+
   for (let index = 0; index < rest.length; index += 1) {
     const item = rest[index];
     if (item === "--workspace") {
-      workspace = rest[index + 1];
+      workspace = takeFlagValue("--workspace", index);
       index += 1;
     } else if (item === "--test-command") {
-      testCommand = rest[index + 1];
+      testCommand = takeFlagValue("--test-command", index);
       index += 1;
     } else {
       messageParts.push(item);
@@ -243,6 +253,16 @@ async function main(): Promise<void> {
 
     if (args.command === "project:status") {
       await handleProjectStatusCommand(database);
+      return;
+    }
+
+    if (args.command === "doctor") {
+      await handleDoctorCommand(database, config.appDataDir);
+      return;
+    }
+
+    if (args.command === "demo") {
+      await handleDemoCommand(database, args);
       return;
     }
 
@@ -624,6 +644,8 @@ async function main(): Promise<void> {
     console.log("  npm run settings -- set model.apiKey abc123");
     console.log("  npm run settings -- unset model.apiKey");
     console.log("  npm run model -- budget");
+    console.log("  npm run doctor");
+    console.log("  npm run demo -- --workspace ./examples/buggy-python");
   } finally {
     database.close();
   }
@@ -976,7 +998,49 @@ async function handleMessagingCommand(database: ReturnType<typeof initializeData
     }
   }
 
-  throw new Error("Usage: npm run messaging -- adapters|matrix|configure|channels|allowlist|fixture|send|delivery|inbox|sessions|identities");
+  if (subcommand === "webhook") {
+    const action = parts[1] ?? "serve";
+    if (action === "serve") {
+      const port = collectFlagNumber(parts, "--port") ?? 8787;
+      const platform = (collectFlagValue(parts, "--platform") ?? "slack") as MessagingPlatform;
+      const adapter = store.getAdapterByPlatform(platform) ?? store.getAdapter(`adapter_${platform}`);
+      if (!adapter) {
+        throw new Error(`Adapter not installed for platform: ${platform}. Run: npm run messaging -- adapters list`);
+      }
+      const signingSecret =
+        database.getSetting<string>(`messaging.${platform}.signingSecret`) ?? process.env.SLACK_SIGNING_SECRET;
+      if (!signingSecret || !signingSecret.trim()) {
+        throw new Error(
+          `Messaging webhook requires a signing secret. Set messaging.${platform}.signingSecret (settings) or SLACK_SIGNING_SECRET (env).`
+        );
+      }
+      const { ready, close } = startSlackWebhookServer({
+        port,
+        signingSecret,
+        onPayload: async (payload) => {
+          const events = unwrapSlackWebhookPayloads(payload);
+          for (const event of events) {
+            const normalized = await gateway.ingest(event, adapter.id);
+            await gateway.route(normalized);
+          }
+        }
+      });
+      const { url } = await ready;
+      console.log(`Messaging webhook listening at ${url}`);
+      console.log(`Platform: ${platform} · adapter: ${adapter.id}`);
+      console.log("Press Ctrl+C to stop.");
+      await new Promise<void>((resolve) => {
+        const shutdown = () => {
+          void close().then(resolve);
+        };
+        process.once("SIGINT", shutdown);
+        process.once("SIGTERM", shutdown);
+      });
+      return;
+    }
+  }
+
+  throw new Error("Usage: npm run messaging -- adapters|matrix|configure|channels|allowlist|fixture|send|delivery|inbox|sessions|identities|webhook serve [--port 8787] [--platform slack]");
 }
 
 async function handleGovernanceCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): Promise<void> {
@@ -1147,7 +1211,7 @@ async function handleGovernanceCommand(database: ReturnType<typeof initializeDat
         resourceType: "secret",
         resourceId: reference.id,
         outcome: "stored",
-        detail: { name, value }
+        detail: { name, value: "[redacted]" }
       });
       printJson({ secret: reference });
       return;
@@ -1225,7 +1289,15 @@ async function handleGovernanceCommand(database: ReturnType<typeof initializeDat
       return;
     }
     if (action === "apply") {
-      printJson(governance.retention.apply());
+      const confirm = parts.includes("--confirm");
+      if (!confirm) {
+        printJson({
+          ...governance.retention.apply({ confirm: false }),
+          note: "Dry-run only. Pass --confirm to actually delete or archive matching rows."
+        });
+        return;
+      }
+      printJson(governance.retention.apply({ confirm: true }));
       return;
     }
   }
@@ -2021,6 +2093,101 @@ async function handleProjectStatusCommand(database: ReturnType<typeof initialize
       path: database.filePath,
       migrationsApplied: migrationCount
     }
+  });
+}
+
+async function handleDoctorCommand(database: ReturnType<typeof initializeDatabase>, appDataDir: string): Promise<void> {
+  const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
+  const nodeVersion = process.version;
+  const nodeOk = Number(process.version.slice(1).split(".")[0]) >= 20;
+  checks.push({ name: "node", ok: nodeOk, detail: nodeVersion });
+
+  try {
+    const migrationCount = (database.db.prepare("SELECT COUNT(*) as count FROM schema_migrations").get() as { count: number }).count;
+    checks.push({ name: "database", ok: migrationCount >= 16, detail: `${migrationCount} migrations at ${database.filePath}` });
+  } catch (error) {
+    checks.push({ name: "database", ok: false, detail: error instanceof Error ? error.message : String(error) });
+  }
+
+  const fixturePath = resolveFromInvocationCwd("./examples/buggy-python/calculator.py");
+  const fixtureOk = fs.existsSync(fixturePath) && fs.readFileSync(fixturePath, "utf8").includes("return a - b");
+  checks.push({
+    name: "verticalSliceFixture",
+    ok: fixtureOk,
+    detail: fixtureOk ? "examples/buggy-python is ready for the killer demo" : "calculator fixture is missing or already fixed"
+  });
+
+  const governance = new GovernanceEngine(database);
+  try {
+    governance.bootstrap();
+    checks.push({ name: "governance", ok: true, detail: "bootstrap succeeded" });
+  } catch (error) {
+    checks.push({ name: "governance", ok: false, detail: error instanceof Error ? error.message : String(error) });
+  }
+
+  try {
+    const vaultStatus = governance.secrets.keyStatus();
+    const source = vaultStatus.hasKey ? vaultStatus.source : "missing";
+    // "explicit" is only safe in tests, "env" is best, "setting" is generated-once-and-stored,
+    // "generated" means we made one this boot. All are real keys (not a hardcoded default).
+    checks.push({
+      name: "vaultKey",
+      ok: vaultStatus.hasKey,
+      detail: `source=${source}${vaultStatus.hasKey ? ` keyId=${vaultStatus.keyId}` : ""}`
+    });
+  } catch (error) {
+    checks.push({ name: "vaultKey", ok: false, detail: error instanceof Error ? error.message : String(error) });
+  }
+
+  checks.push({
+    name: "appDataDir",
+    ok: fs.existsSync(appDataDir),
+    detail: appDataDir
+  });
+
+  const settings = withDefaultModelSettings(database.getAllSettings());
+  checks.push({
+    name: "modelProvider",
+    ok: Boolean(settings["model.provider"] ?? "mock"),
+    detail: String(settings["model.provider"] ?? "mock")
+  });
+
+  const allOk = checks.every((check) => check.ok);
+  printJson({ ok: allOk, checks });
+  if (!allOk) {
+    process.exitCode = 1;
+  }
+}
+
+async function handleDemoCommand(database: ReturnType<typeof initializeDatabase>, args: ParsedArgs): Promise<void> {
+  const workspace = resolveFromInvocationCwd(args.workspace ?? "./examples/buggy-python");
+  if (!fs.existsSync(workspace)) {
+    throw new Error(`Workspace not found: ${workspace}`);
+  }
+
+  const runtime = createRuntime({
+    database,
+    workspacePath: workspace,
+    sessionId: createId("session")
+  });
+  const result = await runtime.runTask("Fix calculator add function", {
+    testCommand: args.testCommand ?? "pytest"
+  });
+
+  const sandboxes = database.listSandboxes({ status: "active" });
+  const trace = getLatestTrace(database);
+  printJson({
+    demo: "vertical-slice",
+    workspace,
+    runId: result.runId,
+    summary: result.finalSummary,
+    activeSandboxes: sandboxes.length,
+    latestTraceId: trace?.id ?? null,
+    nextSteps: [
+      "npm run sandbox -- list",
+      "npm run sandbox -- approve <sandbox-id>",
+      "npm run traces -- latest"
+    ]
   });
 }
 

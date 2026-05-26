@@ -209,6 +209,59 @@ describe("SquidDatabase", () => {
     expect(database.listJobRuns("job_test")).toHaveLength(1);
   });
 
+  it("claimJobForRun is atomic — second concurrent claim returns null", () => {
+    database = initializeDatabase(tempDbPath());
+
+    database.insertJob({
+      id: "job_atomic",
+      name: "atomic test",
+      type: "task",
+      refId: "list files",
+      version: null,
+      schedule: "0 9 * * 1-5",
+      scheduleKind: "recurring",
+      nextRunAt: "2026-05-04T13:00:00.000Z",
+      status: "active",
+      lastOutcome: "never",
+      workspacePath: "/tmp/workspace",
+      testCommand: null,
+      testMode: false,
+      createdAt: "2026-05-02T12:00:00.000Z"
+    });
+
+    const firstClaim = database.claimJobForRun("job_atomic");
+    expect(firstClaim).not.toBeNull();
+    expect(firstClaim?.status).toBe("running");
+
+    const secondClaim = database.claimJobForRun("job_atomic");
+    expect(secondClaim).toBeNull();
+  });
+
+  it("claimJobForRun with forced=true claims even when status is paused", () => {
+    database = initializeDatabase(tempDbPath());
+
+    database.insertJob({
+      id: "job_forced",
+      name: "forced test",
+      type: "task",
+      refId: "list files",
+      version: null,
+      schedule: "0 9 * * 1-5",
+      scheduleKind: "recurring",
+      nextRunAt: "2026-05-04T13:00:00.000Z",
+      status: "active",
+      lastOutcome: "never",
+      workspacePath: "/tmp/workspace",
+      testCommand: null,
+      testMode: false,
+      createdAt: "2026-05-02T12:00:00.000Z"
+    });
+    database.updateJob("job_forced", { status: "paused" });
+
+    expect(database.claimJobForRun("job_forced")).toBeNull();
+    expect(database.claimJobForRun("job_forced", { forced: true })?.status).toBe("running");
+  });
+
   it("stores installed connector manifests", () => {
     database = initializeDatabase(tempDbPath());
 

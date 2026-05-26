@@ -1,5 +1,7 @@
 import path from "node:path";
+import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
+import { validateProviderApiUrl } from "./urlGuards.js";
 import { ConnectorRegistry, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
 import { EvalResultStore, SkillVariantStore } from "@squidbot/evals";
 import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEngine } from "@squidbot/governance";
@@ -249,6 +251,22 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       (key === "model.apiKey" || key === "model.apiUrl" || key === "model.apiModel")
     ) {
       database.deleteSetting(key);
+    } else if (key === "workspacePath") {
+      if (typeof value !== "string" || !value.trim()) {
+        throw new Error("workspacePath must be a non-empty string.");
+      }
+      database.setSetting(key, path.resolve(value));
+    } else if (key.startsWith("sandbox.limits.")) {
+      const numeric = normalizePositiveInteger(value);
+      if (numeric === null) {
+        throw new Error(`${key} must be a positive integer.`);
+      }
+      database.setSetting(key, numeric);
+    } else if (key === "sandbox.network.policy") {
+      if (value !== "allow" && value !== "deny" && value !== "custom") {
+        throw new Error("sandbox.network.policy must be allow, deny, or custom.");
+      }
+      database.setSetting(key, value);
     } else {
       database.setSetting(key, value);
     }
@@ -285,7 +303,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:upsertModelAccount", (_event, input: ModelAccountInput) => {
-    const saved = upsertModelAccount(database, input);
+    const saved = upsertModelAccount(database, coerceModelAccountInput(input));
     return redactAccount(saved);
   });
 
@@ -333,6 +351,18 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   ipcMain.handle(
     "squidbot:discoverModels",
     async (_event, request: { providerKind: ProviderKind; apiUrl: string; apiKey: string; timeoutMs?: number }) => {
+      const urlError = validateProviderApiUrl(request.apiUrl);
+      if (urlError) {
+        return {
+          success: false,
+          code: "network" as const,
+          message: urlError,
+          fallback: {
+            providerKind: request.providerKind,
+            catalog: getCatalogForProvider(request.providerKind)
+          }
+        };
+      }
       const result = await discoverProviderModels({
         apiUrl: request.apiUrl,
         apiKey: request.apiKey,
@@ -450,81 +480,83 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   ipcMain.handle("squidbot:getSandbox", (_event, sandboxId: string) => database.getSandbox(sandboxId));
 
   ipcMain.handle("squidbot:approveSandbox", async (_event, sandboxId: string) => {
-    const record = database.getSandbox(sandboxId);
-    if (!record) {
-      throw new Error(`Sandbox not found: ${sandboxId}`);
-    }
-    if (record.status !== "active") {
-      throw new Error(`Sandbox is not active: ${sandboxId}`);
-    }
-    const manager = new SandboxManager();
-    const approvalId = createId("approval");
-    await manager.promote(
-      sandboxFromRecord({
+    return withSandboxLock(sandboxId, async () => {
+      const record = database.getSandbox(sandboxId);
+      if (!record) {
+        throw new Error(`Sandbox not found: ${sandboxId}`);
+      }
+      if (record.status !== "active") {
+        throw new Error(`Sandbox is not active: ${sandboxId} (status: ${record.status})`);
+      }
+      const manager = new SandboxManager();
+      const approvalId = createId("approval");
+      const sandboxArg = sandboxFromRecord({
         id: record.id,
         sandboxPath: record.sandboxPath,
         workspacePath: record.workspacePath,
         createdAt: record.createdAt,
         resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
         networkPolicy: record.networkPolicy
-      }),
-      approvalId
-    );
-    await manager.destroy(
-      sandboxFromRecord({
-        id: record.id,
-        sandboxPath: record.sandboxPath,
-        workspacePath: record.workspacePath,
-        createdAt: record.createdAt,
-        resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
-        networkPolicy: record.networkPolicy
-      })
-    );
-    const now = new Date().toISOString();
-    const updated = database.updateSandbox(record.id, {
-      status: "promoted",
-      approvalId,
-      promotedAt: now,
-      destroyedAt: now
+      });
+      try {
+        await manager.promote(sandboxArg, approvalId);
+        await manager.destroy(sandboxArg);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        database.updateSandbox(record.id, { status: "failed", lastError: message });
+        throw error;
+      }
+      const now = new Date().toISOString();
+      const updated = database.updateSandbox(record.id, {
+        status: "promoted",
+        approvalId,
+        promotedAt: now,
+        destroyedAt: now
+      });
+      appendSandboxEvent(database, updated, "sandbox.promoted", {
+        sandboxId: updated.id,
+        approvalId,
+        promoter: "desktop",
+        diffLength: updated.diff.length
+      });
+      appendSandboxEvent(database, updated, "sandbox.destroyed", {
+        sandboxId: updated.id,
+        reason: "promoted"
+      });
+      return updated;
     });
-    appendSandboxEvent(database, updated, "sandbox.promoted", {
-      sandboxId: updated.id,
-      approvalId,
-      promoter: "desktop",
-      diffLength: updated.diff.length
-    });
-    appendSandboxEvent(database, updated, "sandbox.destroyed", {
-      sandboxId: updated.id,
-      reason: "promoted"
-    });
-    return updated;
   });
 
   ipcMain.handle("squidbot:rejectSandbox", async (_event, sandboxId: string) => {
-    const record = database.getSandbox(sandboxId);
-    if (!record) {
-      throw new Error(`Sandbox not found: ${sandboxId}`);
-    }
-    const manager = new SandboxManager();
-    await manager.destroy(
-      sandboxFromRecord({
-        id: record.id,
-        sandboxPath: record.sandboxPath,
-        workspacePath: record.workspacePath,
-        createdAt: record.createdAt,
-        resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
-        networkPolicy: record.networkPolicy
-      })
-    );
-    const updated = database.updateSandbox(record.id, {
-      status: "rejected",
-      destroyedAt: new Date().toISOString()
+    return withSandboxLock(sandboxId, async () => {
+      const record = database.getSandbox(sandboxId);
+      if (!record) {
+        throw new Error(`Sandbox not found: ${sandboxId}`);
+      }
+      if (record.status === "rejected" || record.status === "destroyed" || record.status === "promoted") {
+        return record;
+      }
+      const manager = new SandboxManager();
+      await manager.destroy(
+        sandboxFromRecord({
+          id: record.id,
+          sandboxPath: record.sandboxPath,
+          workspacePath: record.workspacePath,
+          createdAt: record.createdAt,
+          resourceLimits: normalizeSandboxResourceLimits(record.resourceLimits),
+          networkPolicy: record.networkPolicy
+        })
+      );
+      const updated = database.updateSandbox(record.id, {
+        status: "rejected",
+        destroyedAt: new Date().toISOString()
+      });
+      appendSandboxEvent(database, updated, "sandbox.destroyed", {
+        sandboxId: updated.id,
+        reason: "rejected"
+      });
+      return updated;
     });
-    appendSandboxEvent(database, updated, "sandbox.destroyed", {
-      sandboxId: updated.id,
-      reason: "rejected"
-    });
-    return updated;
   });
 
   ipcMain.handle("squidbot:listSkills", () => createSkillService(database, paths).listSkills(100));
@@ -683,6 +715,22 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:runTeamTask", async (_event, request: TeamRunRequestDto) => {
+    if (!request || typeof request !== "object") {
+      throw new Error("Team run requires a request object.");
+    }
+    const teamId = typeof request.teamId === "string" ? request.teamId.trim() : "";
+    if (!teamId) {
+      throw new Error("Team run requires a teamId.");
+    }
+    const rawTask = typeof request.task === "string" ? request.task : "";
+    const task = rawTask.trim().slice(0, 8000);
+    if (!task) {
+      throw new Error("Team run requires a non-empty task.");
+    }
+    const mode =
+      request.mode === "dry-run" || request.mode === "sandbox" || request.mode === "approved-write"
+        ? request.mode
+        : "sandbox";
     const settings = readSettings(database, paths);
     const workspacePath =
       typeof request.workspacePath === "string" && request.workspacePath.trim()
@@ -692,10 +740,10 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       throw new Error("Team run requires a selected workspace or explicit workspace path.");
     }
     return createTeamCoordinator(database).runTeamTask({
-      teamId: request.teamId,
+      teamId,
       workspacePath,
-      task: request.task,
-      mode: request.mode ?? "sandbox"
+      task,
+      mode
     });
   });
 
@@ -1072,7 +1120,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
 
   ipcMain.handle("squidbot:listSquidbotCommands", () => SQUIDBOT_COMMAND_REGISTRY);
 
-  ipcMain.handle("squidbot:runSquidbotCommand", (_event, commandId: SquidbotCommandId): CommandRunResultDto => {
+  ipcMain.handle("squidbot:runSquidbotCommand", async (_event, commandId: SquidbotCommandId): Promise<CommandRunResultDto> => {
     const descriptor = SQUIDBOT_COMMAND_REGISTRY.find((entry) => entry.id === commandId);
     if (!descriptor) {
       throw new Error(`Unknown SquidBot command: ${String(commandId)}`);
@@ -1178,6 +1226,71 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
           data = memories;
           break;
         }
+        case "doctor": {
+          const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
+          const nodeOk = Number(process.version.slice(1).split(".")[0]) >= 20;
+          checks.push({ name: "node", ok: nodeOk, detail: process.version });
+          try {
+            const migrationCount = (database.db.prepare("SELECT COUNT(*) as count FROM schema_migrations").get() as { count: number }).count;
+            checks.push({ name: "database", ok: migrationCount >= 16, detail: `${migrationCount} migrations` });
+          } catch (error) {
+            checks.push({ name: "database", ok: false, detail: error instanceof Error ? error.message : String(error) });
+          }
+          const fixturePath = resolveDemoWorkspace(database, paths);
+          const fixtureOk = fs.existsSync(path.join(fixturePath, "calculator.py")) &&
+            fs.readFileSync(path.join(fixturePath, "calculator.py"), "utf8").includes("return a - b");
+          checks.push({
+            name: "verticalSliceFixture",
+            ok: fixtureOk,
+            detail: fixtureOk ? "examples/buggy-python ready" : "calculator fixture missing or already fixed"
+          });
+          const governance = createGovernance(database);
+          try {
+            governance.bootstrap();
+            checks.push({ name: "governance", ok: true, detail: "bootstrap succeeded" });
+          } catch (error) {
+            checks.push({ name: "governance", ok: false, detail: error instanceof Error ? error.message : String(error) });
+          }
+          checks.push({ name: "appDataDir", ok: fs.existsSync(paths.appDataDir), detail: paths.appDataDir });
+          const allOk = checks.every((check) => check.ok);
+          output = checks.map((check) => `${check.ok ? "✓" : "✗"} ${check.name}: ${check.detail}`).join("\n");
+          data = { ok: allOk, checks };
+          if (!allOk) {
+            return {
+              id: descriptor.id,
+              displayCommand: descriptor.displayCommand,
+              startedAt,
+              completedAt: new Date().toISOString(),
+              ok: false,
+              output,
+              data
+            };
+          }
+          break;
+        }
+        case "demo": {
+          const workspace = resolveDemoWorkspace(database, paths);
+          const runtime = createRuntime(database, workspace, createId("session"));
+          const result = await runtime.runTask("Fix calculator add function", { testCommand: "pytest" });
+          const sandboxes = database.listSandboxes({ status: "active" });
+          const trace = getLatestTrace(database);
+          output = [
+            "Vertical slice demo complete.",
+            `Run: ${result.runId}`,
+            `Summary: ${result.finalSummary}`,
+            `Active sandboxes: ${sandboxes.length}`,
+            trace ? `Latest trace: ${trace.id}` : "No trace recorded yet."
+          ].join("\n");
+          data = {
+            demo: "vertical-slice",
+            workspace,
+            runId: result.runId,
+            summary: result.finalSummary,
+            activeSandboxes: sandboxes.length,
+            latestTraceId: trace?.id ?? null
+          };
+          break;
+        }
         default: {
           const _exhaustive: never = descriptor.id;
           throw new Error(`Unhandled command: ${String(_exhaustive)}`);
@@ -1206,6 +1319,21 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 }
 
+const sandboxLocks = new Map<string, Promise<unknown>>();
+
+async function withSandboxLock<T>(sandboxId: string, fn: () => Promise<T>): Promise<T> {
+  const prior = sandboxLocks.get(sandboxId) ?? Promise.resolve();
+  const next = prior.then(fn, fn);
+  sandboxLocks.set(sandboxId, next);
+  try {
+    return (await next) as T;
+  } finally {
+    if (sandboxLocks.get(sandboxId) === next) {
+      sandboxLocks.delete(sandboxId);
+    }
+  }
+}
+
 function coerceOnboardingAnswers(answers: OnboardingAnswerDto[]): OnboardingAnswer[] {
   if (!Array.isArray(answers)) return [];
   return answers.map((answer) => ({
@@ -1213,6 +1341,87 @@ function coerceOnboardingAnswers(answers: OnboardingAnswerDto[]): OnboardingAnsw
     rawValue: String(answer.rawValue ?? ""),
     skipped: Boolean(answer.skipped)
   }));
+}
+
+function coerceModelAccountInput(raw: unknown): ModelAccountInput {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid model account input.");
+  }
+  const source = raw as Record<string, unknown>;
+  const name = typeof source.name === "string" ? source.name.trim() : "";
+  if (!name) {
+    throw new Error("Model account name is required.");
+  }
+
+  const out: ModelAccountInput = { name };
+
+  if (typeof source.id === "string" && source.id.trim()) {
+    out.id = source.id.trim();
+  }
+  if (typeof source.providerKind === "string" && source.providerKind.trim()) {
+    out.providerKind = source.providerKind.trim() as ModelAccountInput["providerKind"];
+  }
+  if (source.apiUrl !== undefined) {
+    if (typeof source.apiUrl !== "string") {
+      throw new Error("apiUrl must be a string.");
+    }
+    const trimmed = source.apiUrl.trim();
+    if (trimmed) {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          throw new Error("apiUrl must use http or https protocol.");
+        }
+        out.apiUrl = trimmed;
+      } catch {
+        throw new Error(`Invalid apiUrl: ${trimmed}`);
+      }
+    }
+  }
+  if (source.apiKey === null) {
+    out.apiKey = null;
+  } else if (typeof source.apiKey === "string") {
+    out.apiKey = source.apiKey;
+  }
+  if (typeof source.apiModel === "string") {
+    out.apiModel = source.apiModel.trim();
+  }
+  if (typeof source.costPerToken === "number" && Number.isFinite(source.costPerToken) && source.costPerToken >= 0) {
+    out.costPerToken = source.costPerToken;
+  }
+  if (source.dailyBudgetTokens === null) {
+    out.dailyBudgetTokens = null;
+  } else if (typeof source.dailyBudgetTokens === "number" && Number.isFinite(source.dailyBudgetTokens) && source.dailyBudgetTokens > 0) {
+    out.dailyBudgetTokens = source.dailyBudgetTokens;
+  }
+  if (source.description === null) {
+    out.description = null;
+  } else if (typeof source.description === "string") {
+    out.description = source.description;
+  }
+  if (typeof source.activate === "boolean") {
+    out.activate = source.activate;
+  }
+
+  return out;
+}
+
+function resolveDemoWorkspace(database: SquidDatabase, paths: DesktopAppPaths): string {
+  const configured = database.getSetting<string>("workspacePath");
+  if (configured && fs.existsSync(path.join(configured, "calculator.py"))) {
+    return configured;
+  }
+  const candidates = [
+    path.join(process.cwd(), "examples/buggy-python"),
+    path.join(process.cwd(), "../../examples/buggy-python"),
+    path.join(paths.appDataDir, "examples/buggy-python")
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "calculator.py"))) {
+      return candidate;
+    }
+  }
+  throw new Error("Demo workspace not found. Set workspacePath to examples/buggy-python.");
 }
 
 /**
@@ -1282,6 +1491,20 @@ const SQUIDBOT_COMMAND_REGISTRY: SquidbotCommandDescriptorDto[] = [
     label: "memory list",
     description: "List approved memories (founder note, guardrails, ...).",
     displayCommand: "npm run memory -- list",
+    outputIsMarkdown: false
+  },
+  {
+    id: "doctor",
+    label: "doctor",
+    description: "Run environment health checks (Node, DB, fixtures, governance).",
+    displayCommand: "npm run doctor",
+    outputIsMarkdown: false
+  },
+  {
+    id: "demo",
+    label: "demo",
+    description: "Run the vertical-slice demo on examples/buggy-python.",
+    displayCommand: "npm run demo -- --workspace ./examples/buggy-python",
     outputIsMarkdown: false
   }
 ];

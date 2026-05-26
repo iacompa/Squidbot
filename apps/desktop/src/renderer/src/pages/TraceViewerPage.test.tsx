@@ -107,6 +107,8 @@ describe("TraceViewerPage", () => {
     expect(screen.getByLabelText("Trace timeline")).toBeTruthy();
     expect(screen.getByText("Cost waterfall")).toBeTruthy();
     expect(screen.getByText("Duration breakdown")).toBeTruthy();
+    expect(screen.getByText("Prompt inspector")).toBeTruthy();
+    expect(screen.getByText("Trace replay")).toBeTruthy();
     expect(screen.getByText("Redactions")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Sandbox diff: sandbox_test"));

@@ -18,3 +18,5 @@ export * from "./governanceEvents.js";
 export * from "./governanceEngine.js";
 export * from "./trustReport.js";
 export * from "./compliancePackets.js";
+export * from "./sso.js";
+export * from "./tenantIsolation.js";

@@ -4,6 +4,7 @@ import { requiresSandbox, violatesExternalModelRestriction, violatesZeroSpend } 
 import { DEFAULT_TENANT_ID, type GovernanceDecision, type GovernancePolicyInput } from "./types.js";
 import { createId, nowIso, parseJson } from "./internal.js";
 import { IdentityStore } from "./identity.js";
+import { redactValue } from "./redaction.js";
 
 type PolicyRow = {
   id: string;
@@ -25,7 +26,7 @@ export class GovernancePolicyEngine {
 
   decide(input: GovernancePolicyInput, options: { persist?: boolean } = {}): GovernanceDecision {
     const tenantId = input.tenantId ?? DEFAULT_TENANT_ID;
-    const roles = input.actor.roles?.length ? input.actor.roles : this.identity.getActorRoleNames(input.actor.type, input.actor.id, tenantId);
+    const roles = this.identity.getActorRoleNames(input.actor.type, input.actor.id, tenantId);
     const permissions = this.permissionsForRoles(roles, tenantId);
     const matchedPolicies: string[] = [];
     const obligations: string[] = [];
@@ -103,15 +104,19 @@ export class GovernancePolicyEngine {
     return output;
   }
 
-  listDecisions(limit = 20): Array<GovernanceDecision & { actorId: string; action: string; resourceType: string; resourceId: string; createdAt: string }> {
+  listDecisions(
+    limit = 20,
+    tenantId: string = DEFAULT_TENANT_ID
+  ): Array<GovernanceDecision & { actorId: string; action: string; resourceType: string; resourceId: string; createdAt: string }> {
     return this.database.db
       .prepare(
         `SELECT id, tenantId, actorId, action, resourceType, resourceId, decision, reason, matchedPoliciesJson, contextJson, createdAt
          FROM policy_decisions
+         WHERE tenantId = ?
          ORDER BY createdAt DESC
          LIMIT ?`
       )
-      .all(limit)
+      .all(tenantId, limit)
       .map((row) => {
         const typed = row as {
           id: string;
@@ -180,6 +185,7 @@ export class GovernancePolicyEngine {
   private persistDecision(input: GovernancePolicyInput, decision: GovernanceDecision): GovernanceDecision {
     const id = createId("policy_decision");
     const createdAt = nowIso();
+    const redactedContext = redactValue({ ...(input.context ?? {}), obligations: decision.obligations });
     this.database.db
       .prepare(
         `INSERT INTO policy_decisions (
@@ -198,7 +204,7 @@ export class GovernancePolicyEngine {
         decision.decision,
         decision.reason,
         JSON.stringify(decision.matchedPolicies),
-        JSON.stringify({ ...(input.context ?? {}), obligations: decision.obligations }),
+        JSON.stringify(redactedContext.value),
         createdAt
       );
     return { ...decision, id, createdAt };

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { buildTraceReplayPlan, extractPromptInspectorEntries } from "../lib/traceReplay";
 import {
   AlertTriangle,
   Bot,
@@ -13,8 +14,10 @@ import {
   Shield,
   Sparkles,
   TerminalSquare,
-  Wrench
+  Wrench,
+  RotateCcw
 } from "lucide-react";
+import { TerminalSnippet } from "../components/TerminalSnippet";
 import type { TraceDto, TraceMetricsDto, TraceStepDto } from "../types";
 
 type TraceViewerPageProps = {
@@ -186,6 +189,10 @@ export function TraceViewerPage({ trace, metrics }: TraceViewerPageProps) {
   const selectedIndex = selectedEvent ? trace.steps.findIndex((step) => step.id === selectedEvent.id) : -1;
   const selectedPatch = selectedEvent ? getPatch(selectedEvent) : null;
   const planRows = useMemo(() => extractPlanRows(trace), [trace]);
+  const promptEntries = useMemo(() => extractPromptInspectorEntries(trace), [trace]);
+  const replayPlan = useMemo(() => buildTraceReplayPlan(trace), [trace]);
+  const [selectedPromptId, setSelectedPromptId] = useState<string>(promptEntries[0]?.id ?? "");
+  const selectedPrompt = promptEntries.find((entry) => entry.id === selectedPromptId) ?? promptEntries[0] ?? null;
   const maxTypeDuration = metrics.eventTypeBreakdown.reduce((max, item) => Math.max(max, item.durationMs), 0);
   const maxProviderCost = metrics.providerBreakdown.reduce((max, item) => Math.max(max, item.cost), 0);
 
@@ -333,6 +340,55 @@ export function TraceViewerPage({ trace, metrics }: TraceViewerPageProps) {
           )}
         </aside>
       </div>
+
+      {(promptEntries.length > 0 || replayPlan) && (
+        <div className="trace-analysis-grid">
+          {promptEntries.length > 0 ? (
+            <section className="trace-artifact">
+              <h4>
+                <Bot size={16} aria-hidden /> Prompt inspector
+              </h4>
+              <div className="prompt-inspector">
+                <div className="prompt-inspector-list">
+                  {promptEntries.map((entry) => (
+                    <button
+                      className={`prompt-inspector-item${selectedPrompt?.id === entry.id ? " is-active" : ""}`}
+                      key={entry.id}
+                      type="button"
+                      onClick={() => setSelectedPromptId(entry.id)}
+                    >
+                      <strong>{entry.provider}</strong>
+                      <span>{entry.model}</span>
+                      <span>{formatTime(entry.timestamp)}</span>
+                    </button>
+                  ))}
+                </div>
+                {selectedPrompt ? (
+                  <div className="prompt-inspector-detail">
+                    {selectedPrompt.contextPreview ? (
+                      <>
+                        <h5>System / context</h5>
+                        <pre>{selectedPrompt.contextPreview}</pre>
+                      </>
+                    ) : null}
+                    <h5>Prompt</h5>
+                    <pre>{selectedPrompt.promptPreview}</pre>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+          {replayPlan ? (
+            <section className="trace-artifact">
+              <h4>
+                <RotateCcw size={16} aria-hidden /> Trace replay
+              </h4>
+              <p className="muted-copy">Re-run this task with the same workspace and test command.</p>
+              <TerminalSnippet command={replayPlan.replayCommand} label="Replay command" />
+            </section>
+          ) : null}
+        </div>
+      )}
 
       <div className="trace-analysis-grid">
         <section className="trace-artifact">

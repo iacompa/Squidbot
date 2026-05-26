@@ -1,5 +1,9 @@
 import fs from "node:fs";
+import path from "node:path";
 import { parseStructuredFile, type ConnectorEndpoint, type ConnectorManifest } from "./manifest.js";
+
+const ALLOWED_FIXTURE_EXTENSIONS = new Set([".json", ".yaml", ".yml"]);
+const MAX_FIXTURE_BYTES = 10 * 1024 * 1024;
 
 export function getFixtureResponse(manifest: ConnectorManifest, endpoint: ConnectorEndpoint): unknown {
   const fixtureData = loadFixtureData(manifest);
@@ -26,8 +30,28 @@ function loadFixtureData(manifest: ConnectorManifest): unknown {
     return manifest.fixtureData;
   }
 
-  const raw = fs.readFileSync(manifest.fixtureData, "utf8");
-  return parseStructuredFile(raw, manifest.fixtureData);
+  const fixturePath = path.resolve(manifest.fixtureData);
+  if (!path.isAbsolute(fixturePath)) {
+    throw new Error(`Connector ${manifest.name}: fixtureData path must be absolute after resolution.`);
+  }
+
+  const extension = path.extname(fixturePath).toLowerCase();
+  if (!ALLOWED_FIXTURE_EXTENSIONS.has(extension)) {
+    throw new Error(
+      `Connector ${manifest.name}: fixtureData file extension ${extension || "(none)"} not allowed. Use .json, .yaml, or .yml.`
+    );
+  }
+
+  const stat = fs.statSync(fixturePath);
+  if (!stat.isFile()) {
+    throw new Error(`Connector ${manifest.name}: fixtureData path is not a regular file: ${fixturePath}`);
+  }
+  if (stat.size > MAX_FIXTURE_BYTES) {
+    throw new Error(`Connector ${manifest.name}: fixtureData file exceeds ${MAX_FIXTURE_BYTES} bytes.`);
+  }
+
+  const raw = fs.readFileSync(fixturePath, "utf8");
+  return parseStructuredFile(raw, fixturePath);
 }
 
 function dummyFromSchema(schema: unknown): unknown {

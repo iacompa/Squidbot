@@ -302,11 +302,16 @@ export class AgentRuntime {
     }
 
     const finalSummary = formatTaskSummary(task, plan.riskLevel, toolResults);
+    const stagedDiff = stagedSandbox
+      ? String(this.database.getSandbox(stagedSandbox.sandbox.id)?.diff ?? "").trim()
+      : "";
     append("task.complete", {
       task,
       finalSummary,
-      draftOnly: true,
+      draftOnly: !stagedSandbox,
       modifiedFiles: false,
+      sandboxId: stagedSandbox?.sandbox.id ?? null,
+      approvalRequired: stagedDiff.length > 0,
       skillCall: options.skillCall ?? null,
       job: options.job ?? null
     });
@@ -593,11 +598,7 @@ export class AgentRuntime {
         sandboxId: sandbox.id,
         message
       });
-      return {
-        sandbox,
-        patch,
-        testResults: []
-      };
+      return null;
     }
   }
 
@@ -680,10 +681,16 @@ export class AgentRuntime {
       result: output
     });
 
+    const ok =
+      result.exitCode === 0 &&
+      !result.timedOut &&
+      result.blockedByPolicy !== true &&
+      result.resourceLimitExceeded !== true;
+
     return {
       callId: action.id,
       toolName: "test.run",
-      ok: true,
+      ok,
       output
     };
   }

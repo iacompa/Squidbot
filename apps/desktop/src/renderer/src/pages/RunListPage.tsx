@@ -54,14 +54,31 @@ export function RunListPage() {
       return;
     }
 
-    void Promise.all([squidbotApi.getTrace(selectedRunId), squidbotApi.getTraceMetrics(selectedRunId)])
+    // Tag the in-flight fetch with the run id we requested. When the user
+    // clicks a different run before the previous response lands, we drop the
+    // late response on the floor instead of letting it overwrite the new
+    // selection's trace pane.
+    let cancelled = false;
+    const requestedRunId = selectedRunId;
+
+    void Promise.all([squidbotApi.getTrace(requestedRunId), squidbotApi.getTraceMetrics(requestedRunId)])
       .then(([trace, metrics]) => {
+        if (cancelled) {
+          return;
+        }
         setSelectedTrace(trace);
         setSelectedMetrics(metrics);
       })
       .catch((nextError: unknown) => {
+        if (cancelled) {
+          return;
+        }
         setError(nextError instanceof Error ? nextError.message : "Unable to load trace.");
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRunId]);
 
   const visibleRuns = useMemo(() => {

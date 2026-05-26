@@ -9,6 +9,7 @@ import { RetentionEngine } from "./retention.js";
 import { LineageRecorder } from "./lineage.js";
 import { N8nGovernanceBridge } from "./n8nBridge.js";
 import { policyPacks } from "./policyPacks.js";
+import { SsoManager } from "./sso.js";
 
 export class GovernanceEngine {
   readonly identities: IdentityStore;
@@ -19,6 +20,7 @@ export class GovernanceEngine {
   readonly retention: RetentionEngine;
   readonly lineage: LineageRecorder;
   readonly n8n: N8nGovernanceBridge;
+  readonly sso: SsoManager;
 
   constructor(private readonly database: SquidDatabase, masterKey?: string) {
     this.identities = new IdentityStore(database);
@@ -29,6 +31,7 @@ export class GovernanceEngine {
     this.retention = new RetentionEngine(database);
     this.lineage = new LineageRecorder(database);
     this.n8n = new N8nGovernanceBridge(database);
+    this.sso = new SsoManager(database);
   }
 
   bootstrap(): ReturnType<IdentityStore["bootstrap"]> {
@@ -69,38 +72,40 @@ export class GovernanceEngine {
     legalHolds: number;
     n8nIntegrations: number;
     policyPacks: number;
+    tenantIsolation: { enabled: boolean; defaultTenantId: string };
+    ssoProviders: ReturnType<SsoManager["listProviders"]>;
   } {
     return {
       tenantId,
       users: this.identities.listUsers(tenantId).length,
       roles: this.identities.listRoles(tenantId).length,
-      decisions: this.policies.listDecisions(1000).length,
+      decisions: this.policies.listDecisions(1000, tenantId).length,
       auditEntries: this.audit.latest(1000, tenantId).length,
       secrets: this.secrets.listSecrets(tenantId).length,
       retentionPolicies: this.retention.listPolicies(tenantId).length,
       legalHolds: this.retention.listLegalHolds(tenantId).length,
       n8nIntegrations: this.n8n.listIntegrations(tenantId).length,
-      policyPacks: policyPacks.length
+      policyPacks: policyPacks.length,
+      tenantIsolation: { enabled: true, defaultTenantId: DEFAULT_TENANT_ID },
+      ssoProviders: this.sso.listProviders()
     };
   }
 
   decide(input: GovernancePolicyInput): ReturnType<GovernancePolicyEngine["decide"]> {
     const decision = this.policies.decide(input);
-    if (decision.decision !== "allow") {
-      this.audit.append({
-        tenantId: decision.tenantId,
-        actorType: input.actor.type,
-        actorId: input.actor.id,
-        action: input.action,
-        resourceType: input.resource.type,
-        resourceId: input.resource.id,
-        outcome: decision.decision,
-        policyDecisionId: decision.id ?? null,
-        source: input.context?.source ?? "governance",
-        dataClassification: input.context?.dataClassification ?? "internal",
-        detail: { reason: decision.reason, matchedPolicies: decision.matchedPolicies, obligations: decision.obligations }
-      });
-    }
+    this.audit.append({
+      tenantId: decision.tenantId,
+      actorType: input.actor.type,
+      actorId: input.actor.id,
+      action: input.action,
+      resourceType: input.resource.type,
+      resourceId: input.resource.id,
+      outcome: decision.decision,
+      policyDecisionId: decision.id ?? null,
+      source: input.context?.source ?? "governance",
+      dataClassification: input.context?.dataClassification ?? "internal",
+      detail: { reason: decision.reason, matchedPolicies: decision.matchedPolicies, obligations: decision.obligations }
+    });
     return decision;
   }
 
@@ -110,10 +115,14 @@ export class GovernanceEngine {
     this.lineage.record({ tenantId, sourceType: "toolCall", sourceId: `${runId}:tool`, targetType: "trace", targetId: runId, relationship: "recorded_in", metadata: { runId } });
   }
 
-  auditSecretRead(secretName: string, reveal: boolean): void {
+  auditSecretRead(
+    secretName: string,
+    reveal: boolean,
+    actor: { type: "user" | "serviceAccount" | "system"; id: string } = { type: "user", id: DEFAULT_ADMIN_USER_ID }
+  ): void {
     this.audit.append({
-      actorType: "user",
-      actorId: DEFAULT_ADMIN_USER_ID,
+      actorType: actor.type,
+      actorId: actor.id,
       action: reveal ? "secret.reveal" : "secret.read",
       resourceType: "secret",
       resourceId: secretName,

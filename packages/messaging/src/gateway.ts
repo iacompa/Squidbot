@@ -5,7 +5,7 @@ import { MessagingAllowlist } from "./allowlist.js";
 import { AttachmentStore } from "./attachmentStore.js";
 import { DeliveryRouter } from "./deliveryRouter.js";
 import { appendMessagingEvent } from "./events.js";
-import { FixtureMessagingAdapter } from "./fixtureAdapter.js";
+import { createMessagingAdapter } from "./createAdapter.js";
 import { normalizeMessagingEvent } from "./normalizer.js";
 import { SessionMapper } from "./sessionMapper.js";
 import { MessagingStore } from "./store.js";
@@ -57,8 +57,8 @@ export class MessagingGateway {
     if (adapter.status !== "installed") {
       throw new Error(`Messaging adapter is ${adapter.status}: ${adapterId}`);
     }
-    const fixtureAdapter = new FixtureMessagingAdapter(adapter.manifest);
-    const normalized = await fixtureAdapter.normalizeInbound(rawEvent);
+    const messagingAdapter = this.createAdapter(adapter.manifest);
+    const normalized = await messagingAdapter.normalizeInbound(rawEvent);
     validateInboundEvent(normalized);
     if (normalized.externalEventId) {
       const existing = this.store.findEventByExternalId({
@@ -273,7 +273,20 @@ export class MessagingGateway {
     if (channel.status !== "active") {
       return { ok: false, error: `Messaging channel is ${channel.status}: ${target.channelId}` };
     }
-    const externalMessageId = `fixture_msg_${createId("outbound")}`;
+    const adapterRecord = this.store.getAdapter(channel.adapterId);
+    if (!adapterRecord) {
+      return { ok: false, error: `Messaging adapter not found: ${channel.adapterId}` };
+    }
+
+    const messagingAdapter = this.createAdapter(adapterRecord.manifest);
+    const deliveryTarget = {
+      channelId: channel.id,
+      externalChannelId: channel.externalChannelId
+    };
+    const adapterResult = await messagingAdapter.send(deliveryTarget, message);
+    const externalMessageId =
+      adapterResult.externalMessageId ?? `local_${createId("outbound")}`;
+
     const record = this.store.recordOutboundEvent({
       adapterId: channel.adapterId,
       platform: channel.platform,
@@ -285,15 +298,28 @@ export class MessagingGateway {
       message,
       externalMessageId
     });
-    appendMessagingEvent(this.deps.database, "messaging.outbound", {
+    appendMessagingEvent(this.deps.database, adapterResult.ok ? "messaging.outbound" : "messaging.delivery.failed", {
       messagingEventId: record.id,
       adapterId: channel.adapterId,
       platform: channel.platform,
       channelId: channel.id,
       runId: message.runId ?? null,
-      text: message.text
+      text: message.text,
+      error: adapterResult.error ?? null,
+      transport: adapterResult.ok ? "real" : "local-fallback"
     });
-    return { ok: true, eventId: record.id, externalMessageId };
+    return adapterResult.ok
+      ? { ok: true, eventId: record.id, externalMessageId }
+      : { ok: false, eventId: record.id, externalMessageId, error: adapterResult.error };
+  }
+
+  private createAdapter(manifest: MessagingAdapterManifest) {
+    return createMessagingAdapter(manifest, {
+      getSetting: (key) => {
+        const value = this.deps.database.getSetting<string>(key);
+        return value ?? undefined;
+      }
+    });
   }
 
   deliverRunSummary(runId: string, text: string): DeliveryResult[] {
@@ -338,8 +364,6 @@ export class MessagingGateway {
     sessionId: string,
     platform: string
   ): Promise<MessagingRouteResult> {
-    const status = action === "approve" ? "approved" : "rejected";
-    const link = this.store.getApprovalLinkByApprovalId(approvalId);
     const deny = async (reason: string): Promise<MessagingRouteResult> => {
       appendMessagingEvent(this.deps.database, "messaging.approval.denied", {
         approvalId,
@@ -353,21 +377,32 @@ export class MessagingGateway {
       return { allowed: false, action: "approval", sessionId, outboundEventId: sent.eventId, reason, responseText: `Approval denied: ${reason}` };
     };
 
+    if (action !== "approve" && action !== "reject") {
+      return deny(`unsupported approval action: ${action}`);
+    }
+    const status: "approved" | "rejected" = action === "approve" ? "approved" : "rejected";
+
+    const link = this.store.getApprovalLinkByApprovalId(approvalId);
     if (!link) {
       return deny("approval link not found");
     }
     if (link.channelId !== channelId) {
       return deny("approval response channel does not match the request channel");
     }
-    if (link.status !== "pending") {
+    if (link.expiresAt && Date.parse(link.expiresAt) < Date.now()) {
+      const expired = this.store.resolveApprovalLinkIfPending(approvalId, "expired", responseEventId);
+      if (expired) {
+        return deny("approval expired");
+      }
       return deny(`approval is not pending (${link.status})`);
     }
-    if (link.expiresAt && Date.parse(link.expiresAt) < Date.now()) {
-      this.store.resolveApprovalLink(approvalId, "expired", responseEventId);
-      return deny("approval expired");
+
+    const resolved = this.store.resolveApprovalLinkIfPending(approvalId, status, responseEventId);
+    if (!resolved) {
+      const current = this.store.getApprovalLinkByApprovalId(approvalId);
+      return deny(`approval is not pending (${current?.status ?? "unknown"})`);
     }
 
-    this.store.resolveApprovalLink(approvalId, status, responseEventId);
     appendMessagingEvent(this.deps.database, "messaging.approval.received", {
       approvalId,
       action,

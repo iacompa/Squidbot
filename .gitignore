@@ -25,6 +25,11 @@ secrets/
 squidbot-trace-*.json
 squidbot-trace-*.md
 
+# Vite/electron-vite injects a transient *.config.<ts>.mjs file next to the
+# real config during build. Don't commit it.
+apps/desktop/electron.vite.config.*.mjs
+**/vite.config.*.mjs
+
 # Claude Code worktrees live under .claude/worktrees/<name>/ — they're
 # independent checkouts of the same repo, not files that belong in any
 # commit. Ignoring the directory keeps `git status` clean in whichever

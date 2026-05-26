@@ -1,6 +1,7 @@
 import type { JsonObject, ToolRegistry } from "@squidbot/core";
 import type { ToolContext } from "@squidbot/core";
 import { getFixtureResponse } from "./fixture.js";
+import { executeGithubReadRequest, isGithubReadOperation } from "./httpTransport.js";
 import type { ConnectorEndpoint, ConnectorManifest, ConnectorPermission } from "./manifest.js";
 import type { ConnectorRegistry } from "./registry.js";
 
@@ -28,7 +29,14 @@ function registerConnectorTool(
     return;
   }
 
-  const isWrite = manifest.readWrite.write.includes(endpoint.operationId) || !manifest.readWrite.read.includes(endpoint.operationId);
+  const isReadOp = manifest.readWrite.read.includes(endpoint.operationId);
+  const isWriteOp = manifest.readWrite.write.includes(endpoint.operationId);
+  if (!isReadOp && !isWriteOp) {
+    throw new Error(
+      `Connector ${manifest.name} endpoint ${endpoint.operationId} is not listed in readWrite.read or readWrite.write. Classify it explicitly.`
+    );
+  }
+  const isWrite = isWriteOp;
   toolRegistry.register({
     name: toolName,
     description: `${manifest.name}: ${endpoint.description ?? endpoint.operationId}`,
@@ -47,6 +55,22 @@ function registerConnectorTool(
   });
 }
 
+const SECRET_ARG_PATTERN = /^(.*(?:api[_-]?key|secret|token|password|passwd|authorization|auth|credentials?|bearer|private[_-]?key).*)$/i;
+
+function redactArgs(args: JsonObject): JsonObject {
+  const out: JsonObject = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (SECRET_ARG_PATTERN.test(key)) {
+      out[key] = "[redacted]";
+    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+      out[key] = redactArgs(value as JsonObject);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 export async function executeConnectorOperation(
   manifest: ConnectorManifest,
   endpoint: ConnectorEndpoint,
@@ -59,13 +83,20 @@ export async function executeConnectorOperation(
     operationName: endpoint.operationId,
     method: endpoint.method,
     path: endpoint.path,
-    args,
+    args: redactArgs(args),
     mode,
     costOwner: manifest.costOwner,
     dataClassifications: endpoint.dataClassifications ?? manifest.dataClassifications
   });
 
   if (manifest.fixtureMode) {
+    const token = context.getSetting?.<string>("github.apiToken") ?? context.getSetting?.<string>("github.token");
+    if (isGithubReadOperation(manifest, endpoint) && token?.trim()) {
+      const real = await executeGithubReadRequest(manifest, endpoint, args, context);
+      emitDeveloperWorkflowEvent(manifest, endpoint, real.response ?? real, context);
+      return real;
+    }
+
     const response = getFixtureResponse(manifest, endpoint);
     context.emitEvent?.("connector.fixture", {
       connectorName: manifest.name,

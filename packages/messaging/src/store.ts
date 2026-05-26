@@ -588,6 +588,22 @@ export class MessagingStore {
     }
     return link;
   }
+
+  resolveApprovalLinkIfPending(
+    approvalId: string,
+    status: "approved" | "rejected" | "expired" | "canceled",
+    responseEventId?: string | null
+  ): MessagingApprovalLink | null {
+    const result = this.database.db
+      .prepare(
+        "UPDATE messaging_approval_links SET status = @status, responseEventId = @responseEventId, resolvedAt = @resolvedAt WHERE approvalId = @approvalId AND status = 'pending'"
+      )
+      .run({ approvalId, status, responseEventId: responseEventId ?? null, resolvedAt: new Date().toISOString() });
+    if (result.changes === 0) {
+      return null;
+    }
+    return this.getApprovalLinkByApprovalId(approvalId);
+  }
 }
 
 export function parseAdapter(row: Row): MessagingAdapterRecord {

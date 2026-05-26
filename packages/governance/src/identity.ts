@@ -128,7 +128,8 @@ export class IdentityStore {
          ON CONFLICT(tenantId, username) DO UPDATE SET email = excluded.email, displayName = excluded.displayName, updatedAt = excluded.updatedAt`
       )
       .run(id, input.tenantId ?? DEFAULT_TENANT_ID, input.email ?? null, input.username, input.displayName ?? input.username, input.authType ?? "local", JSON.stringify(input.attributes ?? {}), now, now);
-    return this.getUser(id) ?? this.getUserByUsername(input.username, input.tenantId ?? DEFAULT_TENANT_ID)!;
+    const tenantId = input.tenantId ?? DEFAULT_TENANT_ID;
+    return this.getUser(id, tenantId) ?? this.getUserByUsername(input.username, tenantId)!;
   }
 
   listUsers(tenantId = DEFAULT_TENANT_ID): UserRecord[] {
@@ -136,8 +137,10 @@ export class IdentityStore {
     return rows.map(mapUser);
   }
 
-  getUser(userId: string): UserRecord | null {
-    const row = this.database.db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as UserRow | undefined;
+  getUser(userId: string, tenantId: string = DEFAULT_TENANT_ID): UserRecord | null {
+    const row = this.database.db
+      .prepare(`SELECT * FROM users WHERE id = ? AND tenantId = ?`)
+      .get(userId, tenantId) as UserRow | undefined;
     return row ? mapUser(row) : null;
   }
 
@@ -146,10 +149,15 @@ export class IdentityStore {
     return row ? mapUser(row) : null;
   }
 
-  disableUser(userId: string): UserRecord {
+  disableUser(userId: string, tenantId: string = DEFAULT_TENANT_ID): UserRecord {
     const now = nowIso();
-    this.database.db.prepare(`UPDATE users SET status = 'disabled', disabledAt = ?, updatedAt = ? WHERE id = ?`).run(now, now, userId);
-    const user = this.getUser(userId);
+    const result = this.database.db
+      .prepare(`UPDATE users SET status = 'disabled', disabledAt = ?, updatedAt = ? WHERE id = ? AND tenantId = ?`)
+      .run(now, now, userId, tenantId);
+    if (result.changes === 0) {
+      throw new Error(`User not found in tenant ${tenantId}: ${userId}`);
+    }
+    const user = this.getUser(userId, tenantId);
     if (!user) {
       throw new Error(`User not found: ${userId}`);
     }
@@ -206,9 +214,24 @@ export class IdentityStore {
   }
 
   getActorRoleNames(principalType: PrincipalType, principalId: string, tenantId = DEFAULT_TENANT_ID): string[] {
+    if (principalType === "user") {
+      const user = this.getUser(principalId, tenantId);
+      if (!user || user.status !== "active") {
+        return [];
+      }
+    }
+    const now = Date.now();
     return this.listAssignmentsForPrincipal(principalType, principalId, tenantId)
-      .map((assignment) => this.getRole(assignment.roleId, tenantId)?.name)
-      .filter((role): role is string => Boolean(role));
+      .filter((assignment) => {
+        if (!assignment.expiresAt) {
+          return true;
+        }
+        const expiresAt = Date.parse(assignment.expiresAt);
+        return Number.isFinite(expiresAt) && expiresAt > now;
+      })
+      .map((assignment) => this.getRole(assignment.roleId, tenantId))
+      .filter((role): role is RoleRecord => Boolean(role) && !role!.archivedAt)
+      .map((role) => role.name);
   }
 
   private getAssignment(id: string): RoleAssignmentRecord | null {
