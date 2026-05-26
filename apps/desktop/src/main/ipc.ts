@@ -4,6 +4,7 @@ import { dialog, ipcMain } from "electron";
 import { validateModelAccountApiUrl, validateProviderApiUrl } from "./urlGuards.js";
 import { replaceMcpManager } from "./mcpPool.js";
 import { McpCommandError, redactMcpEnv, validateMcpCommand } from "./mcpAllowlist.js";
+import { withApprovalLock } from "./approvalLock.js";
 import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
   ConnectorRegistry,
@@ -720,43 +721,55 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:approveConnectorCall", async (_event, approvalId: string) => {
-    const row = getApproval(database, approvalId);
-    if (!row) return { ok: false, error: "Approval not found" };
-    if (row.kind !== "connector-call") return { ok: false, error: `Wrong kind: ${row.kind}` };
-    if (row.resolvedAt) return { ok: false, error: `Already ${row.resolution}` };
+    return withApprovalLock(approvalId, async () => {
+      const row = getApproval(database, approvalId);
+      if (!row) return { ok: false, error: "Approval not found" };
+      if (row.kind !== "connector-call") return { ok: false, error: `Wrong kind: ${row.kind}` };
+      if (row.resolvedAt) return { ok: false, error: `Already ${row.resolution}` };
 
-    const { connectorName, operationId, args } = row.payload as Record<string, unknown>;
-    const registry = new ConnectorRegistry(database);
-    installDeveloperWorkflowConnectors(registry);
-    const manifest = registry.getConnector(connectorName as string);
-    if (!manifest) return { ok: false, error: `Connector not found: ${String(connectorName)}` };
-    const endpoint = manifest.endpoints.find((ep) => ep.operationId === operationId);
-    if (!endpoint) return { ok: false, error: `Endpoint not found: ${String(operationId)}` };
+      const { connectorName, operationId, args } = row.payload as Record<string, unknown>;
+      const registry = new ConnectorRegistry(database);
+      installDeveloperWorkflowConnectors(registry);
+      const manifest = registry.getConnector(connectorName as string);
+      if (!manifest) return { ok: false, error: `Connector not found: ${String(connectorName)}` };
+      const endpoint = manifest.endpoints.find((ep) => ep.operationId === operationId);
+      if (!endpoint) return { ok: false, error: `Endpoint not found: ${String(operationId)}` };
 
-    const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
-    const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
-    if (!baseUrl) return { ok: false, error: "Base URL not configured." };
+      const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
+      const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
+      if (!baseUrl) return { ok: false, error: "Base URL not configured." };
 
-    const httpResult = await executeRealHttpCall(
-      manifest,
-      endpoint,
-      (args as Record<string, unknown>) ?? {},
-      { baseUrl, apiKey }
-    );
-    resolveApproval(database, approvalId, {
-      resolution: "approved",
-      result: httpResult.ok
-        ? { status: httpResult.status, body: httpResult.body }
-        : { error: httpResult.code, message: httpResult.message }
+      const httpResult = await executeRealHttpCall(
+        manifest,
+        endpoint,
+        (args as Record<string, unknown>) ?? {},
+        { baseUrl, apiKey }
+      );
+      resolveApproval(database, approvalId, {
+        resolution: "approved",
+        result: httpResult.ok
+          ? { status: httpResult.status, body: httpResult.body }
+          : { error: httpResult.code, message: httpResult.message }
+      });
+      return httpResult.ok
+        ? { ok: true, result: httpResult.body }
+        : { ok: false, error: `${httpResult.code}: ${httpResult.message}` };
     });
-    return httpResult.ok
-      ? { ok: true, result: httpResult.body }
-      : { ok: false, error: `${httpResult.code}: ${httpResult.message}` };
   });
 
   ipcMain.handle("squidbot:rejectConnectorCall", async (_event, approvalId: string, reason?: string) => {
-    resolveApproval(database, approvalId, { resolution: "rejected", reason });
-    return { ok: true as const };
+    return withApprovalLock(approvalId, async () => {
+      // Without these guards a caller could retroactively flip an already
+      // approved sandbox-promotion to rejected — corrupting the audit
+      // ledger and triggering the resolved-approvals system note to
+      // surface a nonsense resolution.
+      const row = getApproval(database, approvalId);
+      if (!row) return { ok: false as const, error: "Approval not found" };
+      if (row.kind !== "connector-call") return { ok: false as const, error: `Wrong kind: ${row.kind}` };
+      if (row.resolvedAt) return { ok: false as const, error: `Already ${row.resolution}` };
+      resolveApproval(database, approvalId, { resolution: "rejected", reason });
+      return { ok: true as const };
+    });
   });
 
   function mcpRowToDto(row: ReturnType<SquidDatabase["getMcpServer"]>): McpServerDto | null {
