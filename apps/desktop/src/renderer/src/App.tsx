@@ -233,7 +233,7 @@ export function App() {
     }
 
     if (activePage === "approvals") {
-      return <ApprovalsPage />;
+      return <ApprovalsPage onApprovalsChanged={refreshPendingApprovalCount} />;
     }
 
     if (activePage === "trust") {

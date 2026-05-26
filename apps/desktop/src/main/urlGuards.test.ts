@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isPrivateOrLoopbackHostname, validateProviderApiUrl } from "./urlGuards";
+import {
+  isPrivateOrLoopbackHostname,
+  validateModelAccountApiUrl,
+  validateProviderApiUrl
+} from "./urlGuards";
 
 describe("isPrivateOrLoopbackHostname", () => {
   it.each([
@@ -58,5 +62,35 @@ describe("validateProviderApiUrl", () => {
     expect(validateProviderApiUrl("https://10.0.0.5/v1")).toContain("private/loopback");
     expect(validateProviderApiUrl("https://192.168.1.1/v1")).toContain("private/loopback");
     expect(validateProviderApiUrl("https://localhost:6379/v1")).toContain("private/loopback");
+  });
+});
+
+describe("validateModelAccountApiUrl (looser http-allowed variant)", () => {
+  it("returns null for empty string (caller handles empty at higher layer)", () => {
+    expect(validateModelAccountApiUrl("")).toBeNull();
+  });
+
+  it("accepts https public hosts", () => {
+    expect(validateModelAccountApiUrl("https://api.openai.com/v1")).toBeNull();
+  });
+
+  it("accepts http public hosts (intentional gateway use)", () => {
+    expect(validateModelAccountApiUrl("http://api.example.com/v1")).toBeNull();
+  });
+
+  it("rejects malformed URLs", () => {
+    expect(validateModelAccountApiUrl("not-a-url")).toContain("Invalid");
+  });
+
+  it("rejects non-http(s) protocols", () => {
+    expect(validateModelAccountApiUrl("ftp://api.example.com")).toContain("http or https");
+    expect(validateModelAccountApiUrl("file:///etc/passwd")).toContain("http or https");
+  });
+
+  it("rejects private/loopback hosts even over http", () => {
+    expect(validateModelAccountApiUrl("http://localhost:11434/v1")).toContain("private/loopback");
+    expect(validateModelAccountApiUrl("http://127.0.0.1/v1")).toContain("private/loopback");
+    expect(validateModelAccountApiUrl("http://169.254.169.254/")).toContain("private/loopback");
+    expect(validateModelAccountApiUrl("https://10.0.0.5/v1")).toContain("private/loopback");
   });
 });

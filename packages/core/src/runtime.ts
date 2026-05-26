@@ -19,6 +19,7 @@ import {
 } from "./memory.js";
 import { ModelRouter, type ModelRouterSettings } from "./modelRouter.js";
 import { PolicyEngine } from "./policyEngine.js";
+import type { GovernanceEnforcer } from "@squidbot/governance";
 import { summarizeWorkspace } from "./repoTask.js";
 import { createSession } from "./session.js";
 import { registerTerminalTools } from "./terminalTools.js";
@@ -45,6 +46,7 @@ export type AgentRuntimeOptions = {
   modelRouter?: ModelRouter;
   toolRegistry?: ToolRegistry;
   policyEngine?: PolicyEngine;
+  governanceEnforcer?: GovernanceEnforcer;
 };
 
 export type RunTaskOptions = {
@@ -75,7 +77,8 @@ export class AgentRuntime {
   private modelRouter: ModelRouter;
   private readonly toolRegistry: ToolRegistry;
   private readonly policyEngine: PolicyEngine;
-  private readonly messages: ChatMessage[] = [];
+  private readonly governanceEnforcer: GovernanceEnforcer | null;
+  private messages: ChatMessage[] = [];
   /**
    * The id of the active model_account the current `modelRouter` was built
    * against. When the agent (or the operator) switches accounts mid-session
@@ -91,11 +94,19 @@ export class AgentRuntime {
   private readonly modelRouterIsInjected: boolean;
   /**
    * High-water mark of the last `resolvedAt` timestamp we surfaced to the
-   * agent as a resolved-approvals system note, keyed by sessionId. Used so
-   * that each `sendMessage` only surfaces approvals resolved *since* the
-   * previous turn — the agent doesn't see the same approval announced twice.
+   * agent as a resolved-approvals system note. Persisted in the settings
+   * table per session — without DB-backed storage, every fresh runtime
+   * (the desktop builds one per IPC message) reset the watermark to
+   * `Date.now() - 60s`, re-surfacing the same approvals each turn.
    */
-  private readonly lastResolvedAtBySession = new Map<string, string>();
+  private getLastResolvedAt(): string {
+    const stored = this.database.getSetting<string>(`chat.lastResolvedAt.${this.sessionId}`);
+    return stored ?? new Date(Date.now() - 60_000).toISOString();
+  }
+
+  private setLastResolvedAt(value: string): void {
+    this.database.setSetting(`chat.lastResolvedAt.${this.sessionId}`, value);
+  }
 
   constructor(options: AgentRuntimeOptions) {
     this.database = options.database;
@@ -107,6 +118,7 @@ export class AgentRuntime {
     this.modelRouterAccountId = getActiveModelAccount(options.database)?.id ?? null;
     this.toolRegistry = options.toolRegistry ?? new ToolRegistry();
     this.policyEngine = options.policyEngine ?? new PolicyEngine();
+    this.governanceEnforcer = options.governanceEnforcer ?? null;
 
     if (!options.toolRegistry) {
       registerWorkspaceTools(this.toolRegistry);
@@ -123,6 +135,16 @@ export class AgentRuntime {
     // the operator to run an explicit setup step. Idempotent — existing profiles
     // are not overwritten and an already-active profile is not changed.
     installSeedProfiles(this.database);
+
+    // Hydrate prior conversation history for this session. The DB is the
+    // source of truth — a fresh runtime built for the same sessionId (which
+    // happens on every IPC sendChatMessage) sees everything sent on prior
+    // turns. Without this, multi-turn chat was silently broken: the UI looked
+    // like a conversation, but the model only ever saw the latest turn.
+    const persisted = this.database.listChatMessages(this.sessionId);
+    if (persisted.length > 0) {
+      this.messages = persisted.map((m) => ({ role: m.role, content: m.content }));
+    }
   }
 
   /**
@@ -165,9 +187,7 @@ export class AgentRuntime {
    * so this is just a read against that table.
    */
   private buildResolvedApprovalsNote(): string | null {
-    const lastSeen =
-      this.lastResolvedAtBySession.get(this.sessionId)
-      ?? new Date(Date.now() - 60_000).toISOString();
+    const lastSeen = this.getLastResolvedAt();
     const rows = this.database.db
       .prepare(
         `SELECT id, payloadJson, resolution, resolvedAt, resultJson
@@ -211,7 +231,7 @@ export class AgentRuntime {
     // next turn.
     const latestSurfaced = rows[rows.length - 1].resolvedAt;
     const bumped = new Date(new Date(latestSurfaced).getTime() + 1).toISOString();
-    this.lastResolvedAtBySession.set(this.sessionId, bumped);
+    this.setLastResolvedAt(bumped);
     return [
       "SYSTEM: Since your last message, the following connector approvals were resolved:",
       ...lines,
@@ -230,6 +250,7 @@ export class AgentRuntime {
     append("session.started", { workspacePath: this.workspacePath });
     append("user.message", { content });
     this.messages.push({ role: "user", content });
+    this.database.appendChatMessage(this.sessionId, { role: "user", content });
 
     // Retrieve approved memories so the chat path can cite operator guardrails,
     // founder notes from onboarding, and other importance-ranked context the
@@ -281,6 +302,7 @@ export class AgentRuntime {
 
     const responseContent = formatAssistantResponse(modelResponse.content, toolResults);
     this.messages.push({ role: "assistant", content: responseContent });
+    this.database.appendChatMessage(this.sessionId, { role: "assistant", content: responseContent });
 
     const trace = buildTrace(runEvents);
     this.database.saveTrace({
@@ -549,6 +571,36 @@ export class AgentRuntime {
         ok: false,
         output: { error: "Tool is not registered." }
       };
+    }
+
+    // Governance ABAC gate runs BEFORE the legacy PolicyEngine risk check.
+    // A deny converts to a structured tool-result so the model can react
+    // (e.g. switch tools, ask the operator) rather than the runtime throwing
+    // mid-turn. Without this, GovernanceEnforcer.assertAllowed existed but
+    // was never called from anywhere — the simulated policy in the UI had
+    // no relationship to actual runtime behavior.
+    if (this.governanceEnforcer) {
+      try {
+        this.governanceEnforcer.assertAllowed({
+          actor: { type: "system", id: `runtime:${this.sessionId}` },
+          action: "tool.invoke",
+          resource: { type: "tool", id: toolCall.name }
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        append("tool.denied", {
+          toolName: toolCall.name,
+          callId: toolCall.id,
+          actionDescription,
+          reason: `Blocked by governance: ${reason}`
+        });
+        return {
+          callId: toolCall.id,
+          toolName: toolCall.name,
+          ok: false,
+          output: { error: `Blocked by governance policy: ${reason}` }
+        };
+      }
     }
 
     const decision = this.policyEngine.evaluateTool(tool, toolCall.args);

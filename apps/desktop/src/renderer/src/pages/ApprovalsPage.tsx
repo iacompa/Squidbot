@@ -3,7 +3,14 @@ import { Check, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { squidbotApi } from "../lib/api";
 import type { PendingApprovalDto } from "../../../shared/api";
 
-export function ApprovalsPage() {
+export interface ApprovalsPageProps {
+  /** Called whenever the local approval list mutates (approve, reject, refresh).
+   * Lets the parent (App.tsx) re-fetch the sidebar badge count so it doesn't
+   * stale until the next chat turn or full page nav. */
+  onApprovalsChanged?: () => void;
+}
+
+export function ApprovalsPage({ onApprovalsChanged }: ApprovalsPageProps = {}) {
   const [pending, setPending] = useState<PendingApprovalDto[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +38,7 @@ export function ApprovalsPage() {
         await squidbotApi.approveConnectorCall(item.id);
       }
       await refresh();
+      onApprovalsChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -48,6 +56,7 @@ export function ApprovalsPage() {
         await squidbotApi.rejectConnectorCall(item.id);
       }
       await refresh();
+      onApprovalsChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

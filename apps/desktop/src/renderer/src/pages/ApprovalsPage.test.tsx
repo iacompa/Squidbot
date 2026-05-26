@@ -108,3 +108,45 @@ describe("ApprovalsPage — connector-call kind", () => {
     );
   });
 });
+
+describe("ApprovalsPage — onApprovalsChanged callback", () => {
+  // Stale sidebar badge fix: ApprovalsPage refreshes its own list after
+  // approve/reject but never notified App.tsx, so the red nav badge stayed
+  // at the old count until something else triggered a re-fetch.
+
+  it("fires after a successful approve", async () => {
+    const onChange = vi.fn();
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage onApprovalsChanged={onChange} />);
+    await waitFor(() => screen.getByText(/Promote sandbox sb_one/i));
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+  });
+
+  it("fires after a successful reject", async () => {
+    const onChange = vi.fn();
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage onApprovalsChanged={onChange} />);
+    await waitFor(() => screen.getByText(/Promote sandbox sb_one/i));
+    fireEvent.click(screen.getByRole("button", { name: /^reject$/i }));
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+  });
+
+  it("does NOT fire when approve throws", async () => {
+    Object.defineProperty(window, "squidbot", {
+      configurable: true,
+      value: {
+        listPendingApprovals: vi.fn(async () => sample),
+        approveSandbox: vi.fn(async () => { throw new Error("boom"); }),
+        rejectSandbox: vi.fn()
+      }
+    });
+    const onChange = vi.fn();
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage onApprovalsChanged={onChange} />);
+    await waitFor(() => screen.getByText(/Promote sandbox sb_one/i));
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+    await waitFor(() => screen.getByText(/boom/i));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});

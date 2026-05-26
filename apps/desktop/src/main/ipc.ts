@@ -1,7 +1,10 @@
 import path from "node:path";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
-import { validateProviderApiUrl } from "./urlGuards.js";
+import { validateModelAccountApiUrl, validateProviderApiUrl } from "./urlGuards.js";
+import { replaceMcpManager } from "./mcpPool.js";
+import { McpCommandError, redactMcpEnv, validateMcpCommand } from "./mcpAllowlist.js";
+import { withApprovalLock } from "./approvalLock.js";
 import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
   ConnectorRegistry,
@@ -14,7 +17,7 @@ import {
   resolveApproval
 } from "@squidbot/connectors";
 import { EvalResultStore, SkillVariantStore } from "@squidbot/evals";
-import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEngine } from "@squidbot/governance";
+import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEnforcer, GovernanceEngine, GovernancePolicyEngine } from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
 import { DeliveryRouter, getPlatformMatrixEntry, listPlatformMatrix, MessagingAdapterRegistry, MessagingGateway, MessagingStore } from "@squidbot/messaging";
 import { SandboxManager, sandboxFromRecord } from "@squidbot/sandbox";
@@ -186,12 +189,14 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
   installDeveloperWorkflowConnectors(connectorRegistry);
   registerConnectorTools(toolRegistry, connectorRegistry);
 
-  // Spawn enabled MCP servers into the same ToolRegistry. We don't await
-  // — startup shouldn't block on slow MCP servers. Tools that aren't yet
-  // registered when an agent message arrives simply aren't available;
-  // they appear on the next runtime construction.
-  const mcpManager = new McpClientManager(toolRegistry);
-  void mcpManager.spawnAll(
+  // Spawn enabled MCP servers into the same ToolRegistry via the pool. The
+  // pool shuts down the previous generation before the new one — without
+  // that, every chat message orphaned a subprocess tree (createRuntime is
+  // called per-message). We still don't await: startup shouldn't block on
+  // slow servers; tools not yet registered when an agent message arrives
+  // simply aren't available until the next runtime construction.
+  void replaceMcpManager(
+    toolRegistry,
     database.listMcpServers()
       .filter((s) => s.enabled)
       .map((s) => ({
@@ -204,7 +209,8 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
       }))
   );
 
-  return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry });
+  const governanceEnforcer = new GovernanceEnforcer(new GovernancePolicyEngine(database));
+  return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry, governanceEnforcer });
 }
 
 function createSkillService(database: SquidDatabase, paths: DesktopAppPaths): SkillService {
@@ -294,6 +300,17 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       (key === "model.apiKey" || key === "model.apiUrl" || key === "model.apiModel")
     ) {
       database.deleteSetting(key);
+    } else if (key === "model.apiUrl") {
+      // Strict guard: api key would travel to this URL on the next chat
+      // turn, so we require https and reject private/loopback hosts.
+      if (typeof value !== "string") {
+        throw new Error("model.apiUrl must be a string.");
+      }
+      const urlError = validateProviderApiUrl(value);
+      if (urlError) {
+        throw new Error(urlError);
+      }
+      database.setSetting(key, value.trim());
     } else if (key === "workspacePath") {
       if (typeof value !== "string" || !value.trim()) {
         throw new Error("workspacePath must be a non-empty string.");
@@ -705,43 +722,55 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:approveConnectorCall", async (_event, approvalId: string) => {
-    const row = getApproval(database, approvalId);
-    if (!row) return { ok: false, error: "Approval not found" };
-    if (row.kind !== "connector-call") return { ok: false, error: `Wrong kind: ${row.kind}` };
-    if (row.resolvedAt) return { ok: false, error: `Already ${row.resolution}` };
+    return withApprovalLock(approvalId, async () => {
+      const row = getApproval(database, approvalId);
+      if (!row) return { ok: false, error: "Approval not found" };
+      if (row.kind !== "connector-call") return { ok: false, error: `Wrong kind: ${row.kind}` };
+      if (row.resolvedAt) return { ok: false, error: `Already ${row.resolution}` };
 
-    const { connectorName, operationId, args } = row.payload as Record<string, unknown>;
-    const registry = new ConnectorRegistry(database);
-    installDeveloperWorkflowConnectors(registry);
-    const manifest = registry.getConnector(connectorName as string);
-    if (!manifest) return { ok: false, error: `Connector not found: ${String(connectorName)}` };
-    const endpoint = manifest.endpoints.find((ep) => ep.operationId === operationId);
-    if (!endpoint) return { ok: false, error: `Endpoint not found: ${String(operationId)}` };
+      const { connectorName, operationId, args } = row.payload as Record<string, unknown>;
+      const registry = new ConnectorRegistry(database);
+      installDeveloperWorkflowConnectors(registry);
+      const manifest = registry.getConnector(connectorName as string);
+      if (!manifest) return { ok: false, error: `Connector not found: ${String(connectorName)}` };
+      const endpoint = manifest.endpoints.find((ep) => ep.operationId === operationId);
+      if (!endpoint) return { ok: false, error: `Endpoint not found: ${String(operationId)}` };
 
-    const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
-    const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
-    if (!baseUrl) return { ok: false, error: "Base URL not configured." };
+      const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
+      const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
+      if (!baseUrl) return { ok: false, error: "Base URL not configured." };
 
-    const httpResult = await executeRealHttpCall(
-      manifest,
-      endpoint,
-      (args as Record<string, unknown>) ?? {},
-      { baseUrl, apiKey }
-    );
-    resolveApproval(database, approvalId, {
-      resolution: "approved",
-      result: httpResult.ok
-        ? { status: httpResult.status, body: httpResult.body }
-        : { error: httpResult.code, message: httpResult.message }
+      const httpResult = await executeRealHttpCall(
+        manifest,
+        endpoint,
+        (args as Record<string, unknown>) ?? {},
+        { baseUrl, apiKey }
+      );
+      resolveApproval(database, approvalId, {
+        resolution: "approved",
+        result: httpResult.ok
+          ? { status: httpResult.status, body: httpResult.body }
+          : { error: httpResult.code, message: httpResult.message }
+      });
+      return httpResult.ok
+        ? { ok: true, result: httpResult.body }
+        : { ok: false, error: `${httpResult.code}: ${httpResult.message}` };
     });
-    return httpResult.ok
-      ? { ok: true, result: httpResult.body }
-      : { ok: false, error: `${httpResult.code}: ${httpResult.message}` };
   });
 
   ipcMain.handle("squidbot:rejectConnectorCall", async (_event, approvalId: string, reason?: string) => {
-    resolveApproval(database, approvalId, { resolution: "rejected", reason });
-    return { ok: true as const };
+    return withApprovalLock(approvalId, async () => {
+      // Without these guards a caller could retroactively flip an already
+      // approved sandbox-promotion to rejected — corrupting the audit
+      // ledger and triggering the resolved-approvals system note to
+      // surface a nonsense resolution.
+      const row = getApproval(database, approvalId);
+      if (!row) return { ok: false as const, error: "Approval not found" };
+      if (row.kind !== "connector-call") return { ok: false as const, error: `Wrong kind: ${row.kind}` };
+      if (row.resolvedAt) return { ok: false as const, error: `Already ${row.resolution}` };
+      resolveApproval(database, approvalId, { resolution: "rejected", reason });
+      return { ok: true as const };
+    });
   });
 
   function mcpRowToDto(row: ReturnType<SquidDatabase["getMcpServer"]>): McpServerDto | null {
@@ -751,7 +780,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       name: row.name,
       command: row.command,
       args: row.args,
-      env: row.env,
+      env: redactMcpEnv(row.env),
       riskLevel: row.riskLevel,
       enabled: row.enabled,
       lastConnectedAt: row.lastConnectedAt,
@@ -766,7 +795,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       name: s.name,
       command: s.command,
       args: s.args,
-      env: s.env,
+      env: redactMcpEnv(s.env),
       riskLevel: s.riskLevel,
       enabled: s.enabled,
       lastConnectedAt: s.lastConnectedAt,
@@ -776,6 +805,13 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:addMcpServer", async (_event, input: McpServerInputDto): Promise<McpServerDto> => {
+    try {
+      validateMcpCommand(input.command, input.args ?? []);
+    } catch (err) {
+      if (err instanceof McpCommandError) throw new Error(err.message);
+      throw err;
+    }
+
     const now = new Date().toISOString();
     const saved = database.saveMcpServer({
       id: createId("mcp"),
@@ -794,9 +830,9 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       // Spawn in a throwaway registry to validate the server is healthy.
       // The real registration happens lazily inside createRuntime() on the
       // next chat request — no need to share state with the persistent pool.
+      const tempRegistry = new ToolRegistry();
+      const tempManager = new McpClientManager(tempRegistry);
       try {
-        const tempRegistry = new ToolRegistry();
-        const tempManager = new McpClientManager(tempRegistry);
         await tempManager.spawnAll([{
           name: saved.name,
           transport: "stdio",
@@ -809,11 +845,16 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
           lastConnectedAt: new Date().toISOString(),
           lastError: null
         });
-        await tempManager.shutdown();
       } catch (err) {
         database.updateMcpServer(saved.name, {
           lastError: err instanceof Error ? err.message : String(err)
         });
+      } finally {
+        // Was previously inside the try block — a spawn failure orphaned
+        // the temp manager's subprocess(es). Finally guarantees cleanup
+        // even when spawnAll throws or the updateMcpServer call below
+        // throws an FK violation.
+        await tempManager.shutdown().catch(() => undefined);
       }
     }
 
@@ -823,6 +864,17 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:updateMcpServer", async (_event, name: string, input: Partial<McpServerInputDto>): Promise<McpServerDto> => {
+    if (input.command !== undefined || input.args !== undefined) {
+      const existing = database.getMcpServer(name);
+      const command = input.command ?? existing?.command ?? "";
+      const args = input.args ?? existing?.args ?? [];
+      try {
+        validateMcpCommand(command, args);
+      } catch (err) {
+        if (err instanceof McpCommandError) throw new Error(err.message);
+        throw err;
+      }
+    }
     database.updateMcpServer(name, input);
     const dto = mcpRowToDto(database.getMcpServer(name));
     if (!dto) throw new Error(`MCP server not found: ${name}`);
@@ -1742,15 +1794,11 @@ function coerceModelAccountInput(raw: unknown): ModelAccountInput {
     }
     const trimmed = source.apiUrl.trim();
     if (trimmed) {
-      try {
-        const parsed = new URL(trimmed);
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-          throw new Error("apiUrl must use http or https protocol.");
-        }
-        out.apiUrl = trimmed;
-      } catch {
-        throw new Error(`Invalid apiUrl: ${trimmed}`);
+      const err = validateModelAccountApiUrl(trimmed);
+      if (err) {
+        throw new Error(err);
       }
+      out.apiUrl = trimmed;
     }
   }
   if (source.apiKey === null) {

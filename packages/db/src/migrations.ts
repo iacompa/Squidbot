@@ -1376,6 +1376,26 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_blueprint_runs_bp ON blueprint_runs(blueprint_id);
       CREATE INDEX IF NOT EXISTS idx_blueprint_runs_type ON blueprint_runs(run_type);
     `
+  },
+  {
+    id: 20,
+    name: "chat_messages",
+    // Multi-turn chat history per session. The runtime hydrates from this
+    // table on construction; without it every IPC-driven sendMessage built
+    // a fresh AgentRuntime whose in-memory messages array started empty,
+    // so the model never saw prior turns.
+    up: `
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('system','user','assistant','tool')),
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+        ON chat_messages (session_id, id);
+    `
   }
 ];
 
