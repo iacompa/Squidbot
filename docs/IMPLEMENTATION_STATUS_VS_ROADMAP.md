@@ -447,6 +447,22 @@
 
 **Last updated by:** AI analysis on 2026-05-25 (audit pass + worktree merge + bounded P2/P4 wins). Audit corrected stale Key Evidence / Gaps for Phase 1/6/7/9/12/16; deleted orphan TracesPage; deleted stale `docs copy/`; merged `claude/frosty-williamson-817c25` (105 commits — blueprints + AI Studio v1 + a11y); landed CI log parser (Phase 9) and in-app feedback widget (Phase 16).
 
+## Sprint 0 Hardening — Complete (2026-05-26)
+
+Plan: `docs/superpowers/plans/2026-05-26-squidbot-10-10-hardening.md`. Branch `worktree-sprint-0-hardening`. Tag `sprint-0-hardening`. 9 commits closing critical security + runtime correctness bugs surfaced by two converging audits:
+
+1. `496ec0f` — Singleton MCP pool stops per-message subprocess leak.
+2. `8738294` — Persist multi-turn chat history (`chat_messages` table; runtime hydrates on construction).
+3. `e17183b` — Persist approval high-water mark per session (settings-backed).
+4. `8a19003` — SSRF guard rejects private/loopback/link-local hosts at `executeRealHttpCall`.
+5. `be4c362` — Validate `model.apiUrl` at `saveSetting` + `upsertModelAccount`.
+6. `5513d19` — MCP command allowlist (npx/uvx/node/python*/deno/bun + shell-metachar rejection), env redaction in DTO, spawn-fail cleanup.
+7. `0f7c741` — Approval queue lock + `rejectConnectorCall` kind/state guards.
+8. `541c2fa` — Wire `GovernanceEnforcer` into runtime tool execution.
+9. `34d2c93` — Sidebar approvals badge refreshes after approve/reject.
+
+Verification: `npm run test` 624/624 green; `npm run build` (typecheck) clean; `npm run verify:security` exit 0. Sprints 1–5 (encryption at rest, agentic tool loop, memory enforcement, connector/trace redaction, UX polish, coverage) are scoped as a backlog index in the plan; each should be expanded into its own dated plan before execution.
+
 ---
 
 *This matrix exists because the original plan documents are excellent strategy but lacked a living implementation mirror. Keep both in sync.*
