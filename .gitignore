@@ -11,6 +11,8 @@ coverage/
 .env.*
 !.env.example
 .playwright-mcp/
+test-results/
+playwright-report/
 tmp/
 temp/
 .tmp/

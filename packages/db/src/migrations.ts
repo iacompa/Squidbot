@@ -1269,6 +1269,113 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_model_accounts_provider_kind
         ON model_accounts (providerKind);
     `
+  },
+  {
+    id: 17,
+    name: "pending_approvals",
+    // Promotes the Phase-2 listPendingApprovals façade (which read from
+    // sandbox rows) to a real persistence layer. Future approval kinds
+    // (connector-call, etc.) land here directly; sandbox-promotion rows are
+    // mirrored in by the IPC handler.
+    up: `
+      CREATE TABLE pending_approvals (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('sandbox-promotion', 'connector-call')),
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        riskLevel TEXT NOT NULL CHECK(riskLevel IN ('low', 'medium', 'high', 'critical')),
+        payloadJson TEXT NOT NULL,
+        callerSessionId TEXT,
+        callerRunId TEXT,
+        createdAt TEXT NOT NULL,
+        resolvedAt TEXT,
+        resolution TEXT CHECK(resolution IN ('approved', 'rejected') OR resolution IS NULL),
+        resultJson TEXT,
+        CHECK ((resolvedAt IS NULL AND resolution IS NULL) OR (resolvedAt IS NOT NULL AND resolution IS NOT NULL))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_approvals_unresolved
+        ON pending_approvals (createdAt)
+        WHERE resolvedAt IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_pending_approvals_session
+        ON pending_approvals (callerSessionId);
+    `
+  },
+  {
+    id: 18,
+    name: "mcp_servers",
+    // Stores configured Model Context Protocol servers. Each row spawns
+    // a child process on app start via McpClientManager. Tools the server
+    // exposes register in the ToolRegistry as mcp.<name>.<toolName>.
+    // transport is currently CHECK'd to 'stdio' only; HTTP / SSE / WebSocket
+    // defer to a future migration. riskLevel mirrors connector permissions.
+    up: `
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        transport TEXT NOT NULL CHECK (transport IN ('stdio')),
+        command TEXT NOT NULL,
+        argsJson TEXT NOT NULL DEFAULT '[]',
+        envJson TEXT NOT NULL DEFAULT '{}',
+        riskLevel TEXT NOT NULL CHECK (riskLevel IN ('low', 'medium', 'high', 'critical')),
+        enabled INTEGER NOT NULL DEFAULT 1,
+        lastConnectedAt TEXT,
+        lastError TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled
+        ON mcp_servers (enabled)
+        WHERE enabled = 1;
+    `
+  },
+  {
+    id: 19,
+    name: "blueprints",
+    // AI Studio v1 — Phase 2 of vs-openclaw-hermes roadmap.
+    // Three new tables: identity row, immutable version history, per-run results.
+    // Cascades enforce referential integrity; ON DELETE CASCADE on blueprint_versions
+    // and blueprint_runs so deleting a Blueprint cleans up its history.
+    up: `
+      CREATE TABLE IF NOT EXISTS blueprints (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'pilot', 'stable', 'archived')),
+        current_version TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS blueprint_versions (
+        id TEXT PRIMARY KEY,
+        blueprint_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        manifest_json TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        createdBy TEXT NOT NULL,
+        UNIQUE (blueprint_id, version),
+        FOREIGN KEY (blueprint_id) REFERENCES blueprints(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS blueprint_runs (
+        id TEXT PRIMARY KEY,
+        blueprint_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        run_type TEXT NOT NULL CHECK (run_type IN ('benchmark', 'pilot', 'production', 'reflection')),
+        result_json TEXT NOT NULL,
+        startedAt TEXT NOT NULL,
+        completedAt TEXT,
+        FOREIGN KEY (blueprint_id) REFERENCES blueprints(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_blueprint_versions_bp ON blueprint_versions(blueprint_id);
+      CREATE INDEX IF NOT EXISTS idx_blueprint_runs_bp ON blueprint_runs(blueprint_id);
+      CREATE INDEX IF NOT EXISTS idx_blueprint_runs_type ON blueprint_runs(run_type);
+    `
   }
 ];
 

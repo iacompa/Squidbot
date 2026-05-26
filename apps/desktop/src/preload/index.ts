@@ -32,6 +32,15 @@ const api: SquidbotApi = {
   getSandbox: (sandboxId) => ipcRenderer.invoke("squidbot:getSandbox", sandboxId),
   approveSandbox: (sandboxId) => ipcRenderer.invoke("squidbot:approveSandbox", sandboxId),
   rejectSandbox: (sandboxId) => ipcRenderer.invoke("squidbot:rejectSandbox", sandboxId),
+  listPendingApprovals: () => ipcRenderer.invoke("squidbot:listPendingApprovals"),
+  testConnector: (name) => ipcRenderer.invoke("squidbot:testConnector", name),
+  approveConnectorCall: (id) => ipcRenderer.invoke("squidbot:approveConnectorCall", id),
+  rejectConnectorCall: (id, reason) => ipcRenderer.invoke("squidbot:rejectConnectorCall", id, reason),
+  listMcpServers: () => ipcRenderer.invoke("squidbot:listMcpServers"),
+  addMcpServer: (input) => ipcRenderer.invoke("squidbot:addMcpServer", input),
+  updateMcpServer: (name, input) => ipcRenderer.invoke("squidbot:updateMcpServer", name, input),
+  removeMcpServer: (name) => ipcRenderer.invoke("squidbot:removeMcpServer", name),
+  testMcpServer: (input) => ipcRenderer.invoke("squidbot:testMcpServer", input),
   listSkills: () => ipcRenderer.invoke("squidbot:listSkills"),
   getSkill: (skillId, version) => ipcRenderer.invoke("squidbot:getSkill", skillId, version),
   evaluateSkill: (skillId, version) => ipcRenderer.invoke("squidbot:evaluateSkill", skillId, version),
@@ -94,6 +103,14 @@ const api: SquidbotApi = {
   archiveMemoryGraphNode: (nodeId) => ipcRenderer.invoke("squidbot:archiveMemoryGraphNode", nodeId),
   deleteMemoryGraphNode: (nodeId) => ipcRenderer.invoke("squidbot:deleteMemoryGraphNode", nodeId),
   mergeMemoryGraphNodes: (targetNodeId, sourceNodeId) => ipcRenderer.invoke("squidbot:mergeMemoryGraphNodes", targetNodeId, sourceNodeId),
+
+  // Blueprints (AI Studio Phase 2)
+  listBlueprints: () => ipcRenderer.invoke("squidbot:listBlueprints"),
+  getBlueprint: (slug) => ipcRenderer.invoke("squidbot:getBlueprint", slug),
+  installBlueprint: (manifest, actor) => ipcRenderer.invoke("squidbot:installBlueprint", manifest, actor),
+  exportBlueprint: (slug) => ipcRenderer.invoke("squidbot:exportBlueprint", slug),
+  deleteBlueprint: (slug, actor) => ipcRenderer.invoke("squidbot:deleteBlueprint", slug, actor),
+  listBlueprintVersions: (slug) => ipcRenderer.invoke("squidbot:listBlueprintVersions", slug),
 
   // Identity / Trust / Profile / Onboarding / Terminal-in-app
   getIdentityReport: () => ipcRenderer.invoke("squidbot:getIdentityReport"),

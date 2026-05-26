@@ -1,65 +1,71 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, RefreshCw, ShieldX, XCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { squidbotApi } from "../lib/api";
-import type { SandboxDto } from "../types";
+import type { PendingApprovalDto } from "../../../shared/api";
 
 export function ApprovalsPage() {
-  const [sandboxes, setSandboxes] = useState<SandboxDto[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingApprovalDto[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<"approve" | "reject" | null>(null);
 
-  const selected = sandboxes.find((s) => s.id === selectedId) ?? sandboxes[0] ?? null;
-
-  async function refresh(): Promise<void> {
-    setError(null);
-    const list = await squidbotApi.listSandboxes({ status: "active" });
-    setSandboxes(list);
-    setSelectedId((current) => (current && list.some((s) => s.id === current) ? current : list[0]?.id ?? null));
-  }
-
-  useEffect(() => {
-    void refresh().catch((e: unknown) => {
-      setError(e instanceof Error ? e.message : "Unable to load pending approvals.");
-    });
+  const refresh = useCallback(async () => {
+    try {
+      const next = await squidbotApi.listPendingApprovals();
+      setPending(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }, []);
 
-  async function approve(): Promise<void> {
-    if (!selected || pending) return;
-    setError(null);
-    setPending("approve");
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function approve(item: PendingApprovalDto) {
+    setBusyId(item.id);
     try {
-      await squidbotApi.approveSandbox(selected.id);
+      if (item.kind === "sandbox-promotion") {
+        if (!item.payload.sandboxId) return;
+        await squidbotApi.approveSandbox(item.payload.sandboxId);
+      } else if (item.kind === "connector-call") {
+        await squidbotApi.approveConnectorCall(item.id);
+      }
       await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Approve failed.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setPending(null);
+      setBusyId(null);
     }
   }
 
-  async function reject(): Promise<void> {
-    if (!selected || pending) return;
-    setError(null);
-    setPending("reject");
+  async function reject(item: PendingApprovalDto) {
+    setBusyId(item.id);
     try {
-      await squidbotApi.rejectSandbox(selected.id);
+      if (item.kind === "sandbox-promotion") {
+        if (!item.payload.sandboxId) return;
+        await squidbotApi.rejectSandbox(item.payload.sandboxId);
+      } else if (item.kind === "connector-call") {
+        await squidbotApi.rejectConnectorCall(item.id);
+      }
       await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Reject failed.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setPending(null);
+      setBusyId(null);
     }
   }
 
-  const busy = pending !== null;
 
   return (
-    <main className="page-panel">
+    <main className="page-panel approvals-page">
       <header className="page-header">
         <div>
           <p className="section-label">Approvals</p>
           <h2>Pending actions</h2>
+          <p className="page-subtitle">
+            SquidBot pauses risky operations and waits for your approval. Items in this queue are
+            blocking real work — clear them when ready.
+          </p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void refresh()}>
           <RefreshCw size={17} />
@@ -67,69 +73,49 @@ export function ApprovalsPage() {
         </button>
       </header>
 
-      {error ? <div className="error-strip">{error}</div> : null}
+      {error && <div className="error-strip">{error}</div>}
 
-      {sandboxes.length === 0 ? (
+      {pending.length === 0 ? (
         <div className="empty-state">
-          <ShieldX size={24} />
+          <ShieldCheck size={24} />
           <h3>No pending approvals</h3>
-          <p>Active sandboxes that require approval will appear here.</p>
+          <p>SquidBot will queue items here when it needs your sign-off on a risky action.</p>
         </div>
       ) : (
-        <div className="two-column">
-          <div className="list-panel">
-            {sandboxes.map((sandbox) => (
-              <button
-                key={sandbox.id}
-                type="button"
-                className={`list-item ${selected?.id === sandbox.id ? "selected" : ""}`}
-                onClick={() => setSelectedId(sandbox.id)}
-              >
-                <div className="list-item-header">
-                  <span className="mono">{sandbox.id}</span>
-                  <span className={`status-pill ${sandbox.status}`}>{sandbox.status}</span>
+        <ul className="approval-list">
+          {pending.map((item) => (
+            <li className="approval-row" key={item.id}>
+              <div className="approval-row__main">
+                <div className="approval-row__title">
+                  <strong>{item.title}</strong>
+                  <span className={`chip chip--risk-${item.riskLevel}`}>{item.riskLevel}</span>
                 </div>
-                <div className="list-item-sub">{sandbox.workspacePath}</div>
-              </button>
-            ))}
-          </div>
-
-          <div className="detail-panel">
-            {selected ? (
-              <>
-                <div className="detail-header">
-                  <h3>{selected.id}</h3>
-                  <div className="detail-actions">
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={() => void approve()}
-                      disabled={busy}
-                      aria-busy={pending === "approve"}
-                    >
-                      <CheckCircle2 size={16} /> {pending === "approve" ? "Approving…" : "Approve"}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger-button"
-                      onClick={() => void reject()}
-                      disabled={busy}
-                      aria-busy={pending === "reject"}
-                    >
-                      <XCircle size={16} /> {pending === "reject" ? "Rejecting…" : "Reject"}
-                    </button>
-                  </div>
+                <div className="approval-row__summary">{item.summary}</div>
+                <div className="approval-row__meta">
+                  {item.kind} · {new Date(item.createdAt).toLocaleString()}
                 </div>
-                <div className="detail-meta">
-                  <div>Workspace: <span className="mono">{selected.workspacePath}</span></div>
-                  <div>Created: {new Date(selected.createdAt).toLocaleString()}</div>
-                  {selected.approvalId ? <div>Approval ID: <span className="mono">{selected.approvalId}</span></div> : null}
-                </div>
-                <pre className="diff-preview">{selected.diff}</pre>
-              </>
-            ) : null}
-          </div>
-        </div>
+              </div>
+              <div className="approval-row__actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void approve(item)}
+                  disabled={busyId === item.id}
+                >
+                  <Check size={14} aria-hidden /> Approve
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => void reject(item)}
+                  disabled={busyId === item.id}
+                >
+                  <X size={14} aria-hidden /> Reject
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </main>
   );

@@ -185,6 +185,16 @@ describe("identity report and system prompt", () => {
     expect(description).toContain("Auto Dealership");
   });
 
+  it("system prompt teaches the agent the connector-call pending-approval convention", () => {
+    database = freshDatabase();
+    installSeedProfiles(database);
+    activateProfile(database, "profile_seed_generic_business");
+    const report = buildIdentityReport(database, new ToolRegistry());
+    const prompt = buildSystemPrompt(report);
+    expect(prompt).toMatch(/pending.*approval/i);
+    expect(prompt).toMatch(/Do NOT retry/i);
+  });
+
   it("system prompt instructs the model to be conversational and NOT recite capabilities on greetings", () => {
     // Reported in the wild: user said "hi" and the model dumped its entire
     // tool list grouped by family ("Sales: …, GitHub: …, GitLab: …"). Root

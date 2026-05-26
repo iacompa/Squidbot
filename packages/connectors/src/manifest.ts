@@ -32,6 +32,8 @@ export type ConnectorManifest = {
   auth: {
     type: ConnectorAuthType;
     scopes?: string[];
+    /** Header name for type="apiKey" connectors (default "X-API-Key"). */
+    headerName?: string;
   };
   permissions: ConnectorPermission[];
   endpoints: ConnectorEndpoint[];
@@ -47,6 +49,7 @@ export type ConnectorManifest = {
     read: string[];
     write: string[];
   };
+  testEndpoint?: { method: string; path: string };
 };
 
 export const connectorManifestJsonSchema = {
@@ -74,7 +77,8 @@ export const connectorManifestJsonSchema = {
       required: ["type"],
       properties: {
         type: { enum: ["apiKey", "oauth2", "basic", "none", "bearer"] },
-        scopes: { type: "array", items: { type: "string" } }
+        scopes: { type: "array", items: { type: "string" } },
+        headerName: { type: "string" }
       }
     },
     permissions: { type: "array" },
@@ -84,7 +88,15 @@ export const connectorManifestJsonSchema = {
     costOwner: { enum: ["userProvided", "vendor", "free"] },
     fixtureMode: { type: "boolean" },
     fixtureData: {},
-    readWrite: { type: "object" }
+    readWrite: { type: "object" },
+    testEndpoint: {
+      type: "object",
+      required: ["method", "path"],
+      properties: {
+        method: { type: "string" },
+        path: { type: "string" }
+      }
+    }
   }
 } as const;
 
@@ -144,6 +156,9 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
   }
 
   const scopes = optionalStringArray(authRecord.scopes, "manifest.auth.scopes", errors);
+  if (authRecord.headerName !== undefined && typeof authRecord.headerName !== "string") {
+    errors.push("manifest.auth.headerName must be a string when provided.");
+  }
   const permissions = parsePermissions(record.permissions, errors);
   const endpoints = parseEndpoints(record.endpoints, permissions, errors);
   const dataClassifications = requireStringArray(record.dataClassifications, "manifest.dataClassifications", errors);
@@ -152,6 +167,7 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
   const write = requireStringArray(readWrite.write, "manifest.readWrite.write", errors);
   const rateLimits = parseRateLimits(record.rateLimits, errors);
   const fixtureData = parseFixtureData(record.fixtureData, errors);
+  const testEndpoint = parseTestEndpoint(record.testEndpoint, errors);
 
   if (typeof record.fixtureMode !== "boolean") {
     errors.push("manifest.fixtureMode must be a boolean.");
@@ -168,7 +184,8 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
     protocol,
     auth: {
       type: authType,
-      ...(scopes ? { scopes } : {})
+      ...(scopes ? { scopes } : {}),
+      ...(typeof authRecord.headerName === "string" ? { headerName: authRecord.headerName } : {})
     },
     permissions,
     endpoints,
@@ -177,7 +194,8 @@ export function validateConnectorManifest(input: unknown): ConnectorManifest {
     costOwner,
     fixtureMode: record.fixtureMode as boolean,
     ...(fixtureData !== undefined ? { fixtureData } : {}),
-    readWrite: { read, write }
+    readWrite: { read, write },
+    ...(testEndpoint !== undefined ? { testEndpoint } : {})
   };
 }
 
@@ -266,6 +284,33 @@ function parseRateLimits(input: unknown, errors: string[]): ConnectorManifest["r
     }
   }
   return output;
+}
+
+function parseTestEndpoint(input: unknown, errors: string[]): { method: string; path: string } | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+  if (typeof input !== "object" || input === null) {
+    errors.push("manifest.testEndpoint must be an object when provided.");
+    return undefined;
+  }
+  const record = input as Record<string, unknown>;
+  let method: string | undefined;
+  let path: string | undefined;
+  if (typeof record.method !== "string") {
+    errors.push("manifest.testEndpoint.method must be a string.");
+  } else {
+    method = record.method.toUpperCase();
+  }
+  if (typeof record.path !== "string") {
+    errors.push("manifest.testEndpoint.path must be a string.");
+  } else {
+    path = record.path;
+  }
+  if (method === undefined || path === undefined) {
+    return undefined;
+  }
+  return { method, path };
 }
 
 function parseFixtureData(input: unknown, errors: string[]): string | JsonObject | undefined {

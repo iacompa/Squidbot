@@ -187,10 +187,10 @@ The desktop Gaps page lists open, resolved, and won't-fix gaps. It shows gap con
 
 ## Connectors
 
-Install the fixture demo connector:
+Install a developer-workflow connector:
 
 ```bash
-npm run connectors -- install ./connectors/demo/salesConnector.json
+npm run connectors -- install ./connectors/demo/githubConnector.json
 ```
 
 List installed connectors:
@@ -199,10 +199,10 @@ List installed connectors:
 npm run connectors -- list
 ```
 
-Call the demo connector through the mock chat path:
+Call an installed connector (requires baseUrl + apiKey if not in fixture mode):
 
 ```bash
-npm run connectors -- call demoSales readSales
+npm run connectors -- call github listBranches
 ```
 
 Generate a connector from an OpenAPI or Swagger file:

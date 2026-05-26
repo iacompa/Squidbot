@@ -17,11 +17,10 @@ export function installDeveloperWorkflowConnectors(registry: ConnectorRegistry):
   for (const relativePath of developerConnectorManifestRelativePaths) {
     const manifestPath = resolveRepoFile(relativePath);
     const manifest = registry.loadManifest(manifestPath);
-    if (!registry.getConnector(manifest.name)) {
-      installed.push(registry.registerConnector(manifest));
-    } else {
-      installed.push(registry.getConnector(manifest.name)!);
-    }
+    // Shipped manifests are versioned through the JSON file — the file is
+    // the source of truth. Always upsert so a fixtureMode flip or endpoint
+    // update lands for existing installs without needing a migration.
+    installed.push(registry.registerConnector(manifest));
   }
 
   return installed;

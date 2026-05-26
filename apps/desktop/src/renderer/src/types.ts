@@ -60,23 +60,30 @@ import type {
 } from "../../shared/api";
 
 export type PageId =
+  | "briefing"
   | "chat"
   | "onboarding"
-  | "identity"
+  | "integrations"      // NEW — top-level home for AI models / connectors / messaging
+  | "history"           // NEW — merges traces (runs) + memory
+  | "approvals"
   | "trust"
-  | "profiles"
-  | "traces"
-  | "memory"
-  | "gaps"
-  | "sandboxes"
-  | "skills"
+  | "settings"
+  // Advanced (collapsed by default)
   | "jobs"
   | "teams"
   | "evals"
-  | "messaging"
-  | "governance"
-  | "approvals"
-  | "settings";
+  | "sandboxes"
+  | "gaps"
+  // Deprecated but kept reachable through navRedirects — do NOT remove,
+  // some pages call onNavigate("traces"|"memory"|...) and resolveNav handles
+  // the redirect to the new destination.
+  | "traces"      // → history (Activity tab)
+  | "memory"      // → history (Memory tab)
+  | "identity"    // → settings (Profile tab)
+  | "profiles"    // → settings (Profile tab)
+  | "skills"      // → settings (Skills tab)
+  | "governance"  // → settings (Governance tab)
+  | "messaging";  // → integrations (Messaging tab)
 
 export type UiMessage = {
   id: string;

@@ -258,14 +258,14 @@ describe("connector runtime integration", () => {
 });
 
 describe("developer workflow connectors", () => {
-  it("installs bundled GitHub, GitLab, Jira, and Jenkins connectors in fixture mode", () => {
+  it("installs bundled GitHub, GitLab, Jira, and Jenkins connectors with fixtureMode off by default", () => {
     const fixture = createWorkspace();
     database = initializeDatabase(fixture.dbPath);
     const registry = new ConnectorRegistry(database);
     const installed = installDeveloperWorkflowConnectors(registry);
 
     expect(installed.map((connector) => connector.name).sort()).toEqual(["github", "gitlab", "jenkins", "jira"]);
-    expect(registry.getConnector("github")?.fixtureMode).toBe(true);
+    expect(registry.getConnector("github")?.fixtureMode).toBe(false);
     expect(registry.getConnector("jira")?.endpoints.map((endpoint) => endpoint.operationId)).toContain("addComment");
   });
 

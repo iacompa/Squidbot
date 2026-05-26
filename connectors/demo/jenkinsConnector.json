@@ -4,6 +4,7 @@
   "description": "Jenkins CI connector with fixture-backed build status and approval-gated build actions.",
   "protocol": "rest",
   "auth": { "type": "bearer", "scopes": ["build:read", "build:write"] },
+  "testEndpoint": { "method": "GET", "path": "/me/api/json" },
   "permissions": [
     { "name": "ciRead", "riskLevel": "low", "requiresApproval": false },
     { "name": "ciWrite", "riskLevel": "medium", "requiresApproval": true }
@@ -16,7 +17,7 @@
   ],
   "dataClassifications": ["public"],
   "costOwner": "free",
-  "fixtureMode": true,
+  "fixtureMode": false,
   "fixtureData": "../../docs/demoData/devIntegration/jenkins.json",
   "readWrite": {
     "read": ["getBuildStatus", "fetchBuildLogs"],

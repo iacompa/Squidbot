@@ -15,6 +15,9 @@
   --shadow: 0 18px 42px rgba(31, 42, 38, 0.1);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Breakpoint custom properties — referenced by every media query in this file. */
+  --bp-mobile: 768px;
+  --bp-tablet: 1024px;
 }
 
 * {
@@ -23,7 +26,7 @@
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 360px;
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
@@ -209,6 +212,15 @@ pre {
   letter-spacing: 0;
 }
 
+/* Right-aligned action cluster inside a page-header. Used on the onboarding
+   success screen where a primary CTA ("Open Briefing") sits next to a ghost
+   "Re-run onboarding" button. */
+.page-header__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .secondary-button,
 .primary-icon-button {
   display: inline-flex;
@@ -352,6 +364,88 @@ pre {
 .chat-form input:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 3px rgba(21, 127, 116, 0.14);
+}
+
+/* C.7 — ChatPage mobile tweaks. The composer's send button is the 44px
+   second grid column — its flex-shrink:0 prevents it from collapsing
+   if the input grows. The message bubble's max-width drops to 92% so
+   bubbles use the available width on narrow screens; assistant/user
+   distinguish via background+alignment, not just narrower max-width.
+   Composer side padding tightens since the page already has tight
+   side padding at mobile width.
+   Note: .memory-graph-grid 1fr collapse already lives in the existing
+   1023px block (line ~1721) — not re-stated here. */
+@media (max-width: 767px) {
+  .chat-form {
+    padding: 12px;
+  }
+  .chat-form input { min-height: 44px; }
+  .chat-form > button { flex-shrink: 0; min-block-size: 44px; min-inline-size: 44px; }
+  .message-bubble { max-width: 92%; }
+}
+
+/* C.8 — Universal mobile form treatment + touch-target enforcement.
+   Below 768px: form labels block-above-inputs, inputs full-width,
+   action button rows stack vertically with full-width buttons.
+   Above OR below the breakpoint, any (pointer: coarse) device gets
+   44x44 minimums on interactive elements — this is the touch-input
+   guarantee even on a tablet held in landscape (>768px wide).
+   Hover styles get guarded by (hover: hover) so they don't stick
+   after a tap on touch devices that report both pointer types.
+   Scope note: many specific forms already have their own mobile
+   rules (e.g. .model-account-form__row in the existing 767px block
+   at line ~3391). This rule is the catch-all for forms that didn't
+   get explicit attention. */
+@media (max-width: 767px) {
+  form label {
+    display: block;
+    margin-bottom: 12px;
+  }
+  form label > span {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  form input:not([type="checkbox"]):not([type="radio"]),
+  form select,
+  form textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-block-size: 44px;
+  }
+  form .form-actions,
+  form .button-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  form .form-actions button,
+  form .button-row button {
+    width: 100%;
+    min-block-size: 44px;
+  }
+}
+
+/* Touch-target enforcement: (pointer: coarse) covers any touch device
+   regardless of viewport width; (max-width: 767px) catches mobile-sized
+   browser windows on hover-capable hardware (the Electron app being
+   resized for a phone-width preview, or the web bundle in a phone-sim
+   browser tab). All interactive elements get 44x44 minimums.
+
+   !important is used deliberately here: this is the accessibility floor
+   for touch targets, and any class-targeted rule (e.g. `.secondary-button
+   { min-height: 38px }`) would otherwise win on specificity (0,1,0 beats
+   0,0,1 regardless of source order). E.1's Playwright audit locks this
+   in so any regression below 44x44 fails CI. */
+@media (pointer: coarse), (max-width: 767px) {
+  button,
+  a,
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-block-size: 44px !important;
+    min-inline-size: 44px !important;
+  }
 }
 
 .error-strip {
@@ -1379,6 +1473,30 @@ pre {
   grid-template-columns: 112px minmax(0, 1fr) 88px minmax(150px, 0.7fr);
 }
 
+/* C.5 — Below 768px, extends the existing 1023px collapse of the
+   .affordance-table pattern (Gaps, Jobs, Eval Lab + sandbox/skill
+   variants) with mobile-specific polish:
+   - hide the column-label head (labels don't apply once rows stack)
+   - tighter padding / gap that suits single-column cards
+   - overflow-wrap so long ids/paths break instead of forcing scroll
+   The grid-template-columns: 1fr collapse itself is inherited from
+   the parent 1023px rule (line ~1731) — not re-stated here. */
+@media (max-width: 767px) {
+  .affordance-table-head {
+    display: none;
+  }
+  .affordance-row,
+  .sandbox-table .affordance-row,
+  .skill-table .affordance-row {
+    gap: 6px;
+    padding: 12px;
+    min-height: 0;
+  }
+  .affordance-row > * {
+    overflow-wrap: anywhere;
+  }
+}
+
 .job-table .affordance-table-head,
 .job-table .affordance-row {
   grid-template-columns: 112px minmax(0, 1fr) 76px minmax(140px, 0.9fr) 108px;
@@ -1663,7 +1781,7 @@ pre {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1023px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -2925,7 +3043,7 @@ pre {
   margin-bottom: 16px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1023px) {
   .identity-grid,
   .trust-grid,
   .onboarding-grid,
@@ -2989,7 +3107,7 @@ pre {
   border-color: #f0f8f7;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .settings-shortcut {
     flex-direction: column;
     align-items: stretch;
@@ -3407,7 +3525,7 @@ pre {
   to { transform: rotate(360deg); }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .model-account-form__row {
     grid-template-columns: 1fr;
   }
@@ -3486,3 +3604,437 @@ pre {
   gap: 12px;
   justify-content: flex-end;
 }
+
+/* ---- Integrations / History tab strip (shared) ---- */
+.integrations-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.integrations-tabs button[role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.integrations-tabs button[role="tab"]:hover {
+  color: var(--ink);
+}
+
+.integrations-tabs button[role="tab"].is-active {
+  color: var(--teal-strong);
+  border-bottom-color: var(--teal);
+}
+
+/* C.4 — Integrations + History top tab bars become horizontally
+   scrollable below 768px. Both pages share this class. min-block-size
+   on the tab buttons enforces touch targets; min-inline-size:max-content
+   keeps tab labels from getting truncated under flex-shrink. */
+@media (max-width: 767px) {
+  .integrations-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    flex-wrap: nowrap;
+  }
+  .integrations-tabs button[role="tab"] {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-block-size: 44px;
+    min-inline-size: max-content;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Settings page — left-rail tab shell (Task 1.7)
+ * Four-tab destination: General / Profile / Skills / Governance. The rail
+ * sticks to the top so it stays visible while you scroll a long tab body
+ * (e.g. the Skills detail panel).
+ * --------------------------------------------------------------------------*/
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.settings-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 24px;
+}
+
+.settings-rail button[role="tab"] {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.settings-rail button[role="tab"]:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.settings-rail button[role="tab"][aria-selected="true"] {
+  background: var(--teal);
+  color: #fff;
+  font-weight: 600;
+}
+
+.settings-content {
+  min-width: 0;
+}
+
+.settings-tab-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 767px) {
+  .settings-shell {
+    grid-template-columns: 1fr;
+  }
+  /* C.3 — settings rail becomes a horizontal scrollable bar instead of
+     a multi-line wrapped row. Single-line keeps the page header tidy and
+     matches the iOS/Android tab pattern users expect on touch. Scroll-snap
+     locks each tap to a tab boundary. */
+  .settings-rail {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    position: static;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 6px;
+  }
+  .settings-rail button[role="tab"] {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-block-size: 44px;
+    min-inline-size: max-content;
+  }
+}
+
+/* ----------------------------------------------------------------------
+ * Sidebar Advanced section toggle + Approvals badge.
+ *
+ * Task 1.8 of the sidebar reorg added a collapsed-by-default "Advanced"
+ * group beneath the 6 primary nav items. The toggle button gets the
+ * uppercase-section-header treatment so it reads as a divider rather
+ * than another nav item. The badge sits at the end of the Approvals
+ * row to surface pending approval count without forcing a click.
+ * ---------------------------------------------------------------------- */
+
+.sidebar-section-toggle {
+  margin: 14px 14px 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  width: calc(100% - 28px);
+  border-radius: 6px;
+}
+
+.sidebar-section-toggle:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.nav-list--advanced .nav-item {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.nav-list--advanced .nav-item span {
+  font-size: 13px;
+}
+
+.nav-badge {
+  background: var(--coral);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.approval-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.approval-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.approval-row__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.approval-row__summary {
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.approval-row__meta {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.approval-row__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.chip--risk-low { background: var(--green); color: #fff; }
+.chip--risk-medium { background: var(--amber); color: #fff; }
+.chip--risk-high { background: var(--coral); color: #fff; }
+.chip--risk-low,
+.chip--risk-medium,
+.chip--risk-high {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+/* C.6 — Approvals + Trust audit ledger mobile treatment.
+   - .approval-row collapses from horizontal flex to vertical stack so the
+     row__main and row__actions don't fight for ~360px of width. Action
+     buttons go full-width so Approve / Reject are reachable single-handed.
+   - .spend-table (TrustPage's per-provider spend) wraps in a horizontal
+     scroll container — the columns are too data-dense to card-stack
+     usefully; a swipe-to-scroll is the better UX. */
+@media (max-width: 767px) {
+  .approval-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+  .approval-row__actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .approval-row__actions button {
+    width: 100%;
+    min-block-size: 44px;
+  }
+  .spend-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+.connector-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.connector-status-text { flex: 1; }
+
+.connector-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.connector-status-dot.grey   { background: var(--muted); }
+.connector-status-dot.yellow { background: var(--amber); opacity: 0.7; }
+.connector-status-dot.blue   { background: var(--teal); }
+.connector-status-dot.green  { background: var(--green); }
+.connector-status-dot.amber  { background: var(--amber); }
+.connector-status-dot.red    { background: var(--coral); }
+.connector-status-dot.lock {
+  background: var(--ink);
+  position: relative;
+}
+.connector-status-dot.lock::after {
+  content: "🔒";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  font-size: 9px;
+}
+
+.burger-button {
+  display: none;
+  background: transparent;
+  border: 0;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+
+@media (hover: hover) {
+  .burger-button:hover {
+    background: var(--surface-2);
+  }
+}
+
+@media (max-width: 767px) {
+  .burger-button { display: inline-flex; align-items: center; justify-content: center; }
+}
+
+.mobile-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 21, 0.55);
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.mobile-nav-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (min-width: 768px) {
+  .mobile-nav-backdrop { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav-backdrop { transition-duration: 0ms !important; }
+}
+
+/* Mobile drawer behavior — sidebar slides off-canvas below --bp-mobile,
+   slides back in when .app-shell has .nav-open. Desktop/tablet unaffected. */
+@media (max-width: 767px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(280px, 80vw);
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    z-index: 100;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.2);
+  }
+  .app-shell.nav-open .sidebar {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition-duration: 0ms !important; }
+}
+
+body.no-scroll {
+  overflow: hidden;
+}
+
+.briefing-page { display: flex; flex-direction: column; gap: 24px; }
+.briefing-header h2 { font-size: clamp(20px, 4vw, 28px); }
+.briefing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.briefing-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.briefing-card h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.briefing-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.briefing-list strong { font-size: 22px; }
+.briefing-jobs, .briefing-actions {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+}
+.briefing-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+@media (max-width: 1023px) {
+  .briefing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .briefing-grid { grid-template-columns: 1fr; }
+  .briefing-actions { flex-direction: column; align-items: stretch; }
+  .briefing-actions button { width: 100%; }
+}
+
+/* Note: C.1 (.identity-grid + .trust-grid mobile collapse) and C.2
+   (.run-dashboard-layout tablet collapse) were originally landed here but
+   were pure duplicates — the existing 1023px block at line ~1659 already
+   collapses .run-dashboard-layout, and the existing 1023px block at line
+   ~2909 already collapses .identity-grid + .trust-grid. Both rules cascade
+   down to mobile via the inclusive max-width matching, so the dedicated
+   767px rules were redundant. Removed during cleanup. */

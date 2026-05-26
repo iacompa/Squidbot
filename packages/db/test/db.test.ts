@@ -411,4 +411,61 @@ describe("SquidDatabase", () => {
     };
     expect(channel).toMatchObject({ platform: "slack", externalChannelId: "C_TEST" });
   });
+
+  describe("mcp_servers", () => {
+    it("round-trips an MCP server config", () => {
+      database = initializeDatabase(tempDbPath());
+
+      const saved = database.saveMcpServer({
+        id: "mcp_1",
+        name: "filesystem-home",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
+        env: { READ_ONLY: "true" },
+        riskLevel: "medium",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      expect(saved.name).toBe("filesystem-home");
+      expect(saved.args).toEqual(["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"]);
+      expect(saved.env).toEqual({ READ_ONLY: "true" });
+      expect(saved.enabled).toBe(true);
+      expect(saved.lastConnectedAt).toBeNull();
+
+      const list = database.listMcpServers();
+      expect(list.find((s) => s.name === "filesystem-home")).toBeDefined();
+
+      database.updateMcpServer("filesystem-home", {
+        enabled: false,
+        lastConnectedAt: new Date().toISOString()
+      });
+      const after = database.getMcpServer("filesystem-home");
+      expect(after?.enabled).toBe(false);
+      expect(after?.lastConnectedAt).toBeTruthy();
+
+      database.deleteMcpServer("filesystem-home");
+      expect(database.getMcpServer("filesystem-home")).toBeNull();
+    });
+
+    it("rejects invalid riskLevel via the CHECK constraint", () => {
+      database = initializeDatabase(tempDbPath());
+
+      expect(() =>
+        database!.saveMcpServer({
+          id: "bad",
+          name: "bad",
+          transport: "stdio",
+          command: "echo",
+          args: [],
+          env: {},
+          riskLevel: "bogus" as never,
+          enabled: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+      ).toThrow();
+    });
+  });
 });

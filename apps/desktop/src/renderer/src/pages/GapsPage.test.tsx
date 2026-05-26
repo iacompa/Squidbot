@@ -25,7 +25,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, "squidbot");
 });
 
-describe("AffordancePage", () => {
+describe("GapsPage", () => {
   it("renders the gaps surface without requiring live IPC during initial render", async () => {
     vi.resetModules();
     Object.defineProperty(window, "squidbot", {
@@ -37,8 +37,8 @@ describe("AffordancePage", () => {
       }
     });
 
-    const { AffordancePage } = await import("./AffordancePage");
-    const markup = renderToStaticMarkup(<AffordancePage />);
+    const { GapsPage } = await import("./GapsPage");
+    const markup = renderToStaticMarkup(<GapsPage />);
 
     expect(markup).toContain("Affordances");
     expect(markup).toContain("Detected gaps");
@@ -76,8 +76,8 @@ describe("AffordancePage", () => {
       }
     });
 
-    const { AffordancePage } = await import("./AffordancePage");
-    render(<AffordancePage />);
+    const { GapsPage } = await import("./GapsPage");
+    render(<GapsPage />);
 
     expect(await screen.findByText("nonexistentTool")).toBeTruthy();
     expect(screen.getByText("Tool nonexistentTool was requested but is not registered.")).toBeTruthy();

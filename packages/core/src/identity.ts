@@ -345,6 +345,9 @@ export function buildSystemPrompt(
   lines.push(
     "- Never claim capabilities you don't have. If a tool isn't in the list above, you can't use it — say so plainly rather than improvising."
   );
+  lines.push(
+    "- Connector pending-approval: if a connector tool returns `{ pending: true, approvalId, ... }`, that's not an error — SquidBot is awaiting the operator's sign-off in the Approvals page. Surface this to the user in plain language (explain what you tried to do and that it's pending review). Do NOT retry the operation; the operator's approve/reject result will flow back to you on a future message."
+  );
   lines.push("");
   lines.push(
     "Profile changes: SquidBot adapts to any business. If the user wants to switch to an industry-tailored profile (law firm, dealership, gov contractor, engineering, healthcare, or a custom one), they can run `npm run profile -- list` and `npm run profile -- activate <id>`, or create their own with `npm run profile -- create`."

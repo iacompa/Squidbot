@@ -1,9 +1,11 @@
 import type { JsonObject, ToolRegistry } from "@squidbot/core";
 import type { ToolContext } from "@squidbot/core";
+import { enqueueApproval } from "./approvalQueue.js";
 import { getFixtureResponse } from "./fixture.js";
-import { executeGithubReadRequest, isGithubReadOperation } from "./httpTransport.js";
+import { executeGithubReadRequest, executeRealHttpCall, isGithubReadOperation } from "./httpTransport.js";
 import type { ConnectorEndpoint, ConnectorManifest, ConnectorPermission } from "./manifest.js";
 import type { ConnectorRegistry } from "./registry.js";
+import { decide as decideSensitivityPolicy, type ProfileSensitivity } from "./sensitivityPolicy.js";
 
 export function registerConnectorTools(toolRegistry: ToolRegistry, connectorRegistry: ConnectorRegistry): void {
   for (const manifest of connectorRegistry.listConnectors()) {
@@ -115,29 +117,115 @@ export async function executeConnectorOperation(
     };
   }
 
-  const baseUrl = context.getSetting?.<string>(`${manifest.name}.baseUrl`);
-  if (!baseUrl) {
+  const profileSensitivity: ProfileSensitivity =
+    context.getActiveProfileSensitivity?.() ?? "standard";
+  const decision = decideSensitivityPolicy(manifest, endpoint, profileSensitivity);
+
+  if (decision.mode === "deny") {
     const response = {
       connectorName: manifest.name,
       operationName: endpoint.operationId,
-      mode: "dry-run",
+      mode: "denied",
       fixture: false,
       executed: false,
-      reason: "No connector base URL is configured. Set one with settings before real calls."
+      reason: decision.reason
     };
     emitDeveloperWorkflowEvent(manifest, endpoint, response, context);
     return response;
   }
 
-  const response = {
+  if (decision.mode === "queue") {
+    if (!context.database) {
+      // Defensive — once the runtime threads `database` into ToolContext
+      // this branch is unreachable for production callers. Legacy code
+      // paths (some tests, the dev integration helper) construct a bare
+      // ToolContext without a database and would otherwise crash inside
+      // enqueueApproval. Return a safe, observable response instead.
+      const response = {
+        connectorName: manifest.name,
+        operationName: endpoint.operationId,
+        mode: "queue-unavailable",
+        executed: false,
+        reason: "Approval queue is unavailable in this context."
+      };
+      emitDeveloperWorkflowEvent(manifest, endpoint, response, context);
+      return response;
+    }
+    const approvalId = enqueueApproval(context.database, {
+      kind: "connector-call",
+      title: `Allow ${manifest.name}.${endpoint.operationId}?`,
+      summary: summarizeArgsForApproval(args),
+      riskLevel: decision.riskLevel,
+      payload: {
+        connectorName: manifest.name,
+        operationId: endpoint.operationId,
+        args
+      },
+      callerSessionId: context.sessionId,
+      callerRunId: context.runId
+    });
+    const response = {
+      connectorName: manifest.name,
+      operationName: endpoint.operationId,
+      mode: "pending-approval",
+      pending: true,
+      approvalId,
+      reason: decision.reason
+    };
+    context.emitEvent?.("connector.approval-requested", {
+      connectorName: manifest.name,
+      operationName: endpoint.operationId,
+      approvalId,
+      riskLevel: decision.riskLevel
+    });
+    emitDeveloperWorkflowEvent(manifest, endpoint, response, context);
+    return response;
+  }
+
+  // decision.mode === "execute"
+  const baseUrl = context.getSetting?.<string>(`${manifest.name}.baseUrl`);
+  const apiKey = context.getSetting?.<string>(`${manifest.name}.apiKey`) ?? null;
+  if (!baseUrl) {
+    const response = {
+      connectorName: manifest.name,
+      operationName: endpoint.operationId,
+      mode: "not-configured",
+      executed: false,
+      reason: "No connector base URL is configured. Set one in Integrations → Connectors."
+    };
+    emitDeveloperWorkflowEvent(manifest, endpoint, response, context);
+    return response;
+  }
+
+  const result = await executeRealHttpCall(manifest, endpoint, args, { baseUrl, apiKey });
+  context.emitEvent?.("connector.http_call", {
     connectorName: manifest.name,
     operationName: endpoint.operationId,
-    mode: "dry-run",
-    fixture: false,
-    executed: false,
-    reason: "Real connector transport is intentionally dry-run in this phase unless a reviewed adapter is added.",
-    baseUrl
-  };
+    method: endpoint.method,
+    path: endpoint.path,
+    status: result.ok ? result.status : (result.status ?? null),
+    durationMs: result.durationMs,
+    ok: result.ok,
+    mode: "real"
+  });
+  const response: JsonObject = result.ok
+    ? {
+        connectorName: manifest.name,
+        operationName: endpoint.operationId,
+        mode: "real",
+        executed: true,
+        response: result.body as JsonObject[keyof JsonObject],
+        status: result.status
+      }
+    : {
+        connectorName: manifest.name,
+        operationName: endpoint.operationId,
+        mode: "real",
+        executed: false,
+        error: result.code,
+        status: result.status ?? null,
+        message: result.message
+      };
   emitDeveloperWorkflowEvent(manifest, endpoint, response, context);
   return response;
 }
@@ -243,4 +331,10 @@ function extractString(value: unknown, keys: string[]): string | null {
 function summarizeResponse(value: unknown): string {
   const raw = JSON.stringify(value);
   return raw.length > 240 ? `${raw.slice(0, 237)}...` : raw;
+}
+
+function summarizeArgsForApproval(args: Record<string, unknown>): string {
+  const json = JSON.stringify(args);
+  if (json.length <= 140) return `Args: ${json}`;
+  return `Args (truncated): ${json.slice(0, 140)}…`;
 }

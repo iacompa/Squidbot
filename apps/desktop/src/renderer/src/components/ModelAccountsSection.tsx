@@ -131,6 +131,40 @@ export function ModelAccountsSection({
   }, [presets.length, forceOpenForm]);
 
   /**
+   * Auto-refresh from the live `/v1/models` endpoint when the user changes
+   * the Provider dropdown — but only when the form is open AND a key + URL
+   * are already filled in. This way picking "anthropic" with a key already
+   * pasted swaps the model dropdown to anthropic's live list instead of
+   * showing only the static catalog. The dependency is `form.providerKind`
+   * alone so it doesn't re-fire on every keystroke in the key field — the
+   * effect below handles that with its own debounce.
+   */
+  useEffect(() => {
+    if (!showForm || !form.apiKey || !form.apiUrl) return;
+    void refreshModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.providerKind]);
+
+  /**
+   * Debounced auto-refresh whenever the user finishes editing the API key.
+   * 300ms is "just long enough that paste-and-tab feels instant, but not so
+   * short that each keystroke fires a request." Without this, the user
+   * has to click Refresh after pasting their key — a small but real
+   * friction point. Dep array is `[form.apiKey, showForm]` only so we
+   * don't double-fire with the providerKind effect above (when provider
+   * changes, both apiUrl AND providerKind change, but only providerKind's
+   * effect should run).
+   */
+  useEffect(() => {
+    if (!showForm || !form.apiKey || !form.apiUrl) return;
+    const handle = setTimeout(() => {
+      void refreshModels();
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.apiKey, showForm]);
+
+  /**
    * Reset the form to a chosen provider's defaults. This is the magic that
    * makes the "smart dropdown" feel right: picking Anthropic instantly
    * populates the URL, the default model, and the catalog the model
@@ -148,6 +182,10 @@ export function ModelAccountsSection({
       discoveryError: null,
       discoverySuccess: null
     }));
+    // The useEffect on form.providerKind below auto-fires refreshModels
+    // once React commits the state update — no setTimeout needed, and
+    // refreshModels reads from the latest render's form (not a stale
+    // closure).
   }
 
   function openAddForm(): void {

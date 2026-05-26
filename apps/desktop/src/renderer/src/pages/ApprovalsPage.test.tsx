@@ -1,68 +1,110 @@
 // @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SandboxDto } from "../types";
+const sample = [
+  {
+    id: "sb_one",
+    kind: "sandbox-promotion" as const,
+    title: "Promote sandbox sb_one…",
+    summary: "Workspace: /tmp/x · 1024 bytes of diff",
+    riskLevel: "medium" as const,
+    createdAt: "2026-05-15T10:00:00Z",
+    payload: { sandboxId: "sb_one", workspacePath: "/tmp/x" }
+  }
+];
 
-const activeSandbox: SandboxDto = {
-  id: "sandbox_approval_1",
-  sessionId: "session_test",
-  runId: "run_test",
-  workspacePath: "/tmp/workspace",
-  sandboxPath: "/tmp/sandbox/workspace",
-  backend: "local",
-  status: "active",
-  resourceLimits: { cpu: 1, memoryMb: 512, diskMb: 512 },
-  networkPolicy: "deny",
-  diff: "--- a/calculator.py\n+++ b/calculator.py\n@@\n-    return a - b\n+    return a + b\n",
-  testResults: [{ command: "pytest", exitCode: 0 }],
-  approvalId: null,
-  createdAt: "2026-05-02T19:49:39.448Z",
-  updatedAt: "2026-05-02T19:49:39.448Z",
-  promotedAt: null,
-  destroyedAt: null,
-  lastError: null
-};
+let listPending: ReturnType<typeof vi.fn>;
+let approveSandbox: ReturnType<typeof vi.fn>;
+let rejectSandbox: ReturnType<typeof vi.fn>;
 
-afterEach(() => {
-  Reflect.deleteProperty(window, "squidbot");
+beforeEach(() => {
+  vi.resetModules();
+  listPending = vi.fn(async () => sample);
+  approveSandbox = vi.fn(async (id: string) => ({ id, status: "promoted" }));
+  rejectSandbox = vi.fn(async (id: string) => ({ id, status: "rejected" }));
+  Object.defineProperty(window, "squidbot", {
+    configurable: true,
+    value: { listPendingApprovals: listPending, approveSandbox, rejectSandbox }
+  });
 });
+afterEach(() => { cleanup(); Reflect.deleteProperty(window, "squidbot"); });
 
 describe("ApprovalsPage", () => {
-  it("loads pending sandboxes and approves the selected item", async () => {
-    vi.resetModules();
-    const sandboxes = [activeSandbox];
-    const listSandboxes = vi.fn(async ({ status }: { status?: string } = {}) =>
-      status === "active" ? sandboxes : sandboxes.filter((sandbox) => sandbox.status === status)
-    );
-    const approveSandbox = vi.fn(async (sandboxId: string) => {
-      const sandbox = sandboxes.find((candidate) => candidate.id === sandboxId);
-      if (!sandbox) {
-        throw new Error("Sandbox not found");
-      }
-      sandbox.status = "promoted";
-      sandbox.approvalId = "approval_test";
-      return sandbox;
-    });
+  it("renders the queue from listPendingApprovals", async () => {
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => expect(screen.getByText(/Promote sandbox sb_one/i)).toBeTruthy());
+    expect(screen.getByText(/1024 bytes of diff/i)).toBeTruthy();
+  });
 
+  it("shows an empty state when nothing is pending", async () => {
+    listPending.mockResolvedValueOnce([]);
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => expect(screen.getByText(/no pending approvals/i)).toBeTruthy());
+  });
+
+  it("clicking Approve calls approveSandbox with the sandbox id", async () => {
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => screen.getByText(/Promote sandbox sb_one/i));
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+    await waitFor(() => expect(approveSandbox).toHaveBeenCalledWith("sb_one"));
+  });
+
+  it("clicking Reject calls rejectSandbox", async () => {
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => screen.getByText(/Promote sandbox sb_one/i));
+    fireEvent.click(screen.getByRole("button", { name: /^reject$/i }));
+    await waitFor(() => expect(rejectSandbox).toHaveBeenCalledWith("sb_one"));
+  });
+});
+
+describe("ApprovalsPage — connector-call kind", () => {
+  beforeEach(() => {
     Object.defineProperty(window, "squidbot", {
       configurable: true,
       value: {
-        listSandboxes,
-        approveSandbox,
-        rejectSandbox: vi.fn()
+        listPendingApprovals: vi.fn(async () => [
+          {
+            id: "ap_cc1",
+            kind: "connector-call",
+            title: "Allow github.createIssue?",
+            summary: "Args: { title: 'Bug', repo: 'foo' }",
+            riskLevel: "high",
+            createdAt: new Date().toISOString(),
+            payload: {
+              connectorName: "github",
+              operationId: "createIssue",
+              args: { title: "Bug" }
+            }
+          }
+        ]),
+        approveConnectorCall: vi.fn(async () => ({ ok: true, result: { number: 42 } })),
+        rejectConnectorCall: vi.fn(async () => ({ ok: true }))
       }
     });
+  });
 
+  it("renders connector-call rows and routes Approve to approveConnectorCall", async () => {
     const { ApprovalsPage } = await import("./ApprovalsPage");
     render(<ApprovalsPage />);
+    await waitFor(() => screen.getByText(/github\.createIssue/i));
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    await waitFor(() =>
+      expect((window as unknown as { squidbot: { approveConnectorCall: ReturnType<typeof vi.fn> } }).squidbot.approveConnectorCall).toHaveBeenCalledWith("ap_cc1")
+    );
+  });
 
-    expect((await screen.findAllByText("sandbox_approval_1")).length).toBeGreaterThanOrEqual(1);
-
-    fireEvent.click(screen.getByRole("button", { name: /Approve/i }));
-
-    await waitFor(() => {
-      expect(approveSandbox).toHaveBeenCalledWith("sandbox_approval_1");
-    });
+  it("routes Reject to rejectConnectorCall", async () => {
+    const { ApprovalsPage } = await import("./ApprovalsPage");
+    render(<ApprovalsPage />);
+    await waitFor(() => screen.getByText(/github\.createIssue/i));
+    fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+    await waitFor(() =>
+      expect((window as unknown as { squidbot: { rejectConnectorCall: ReturnType<typeof vi.fn> } }).squidbot.rejectConnectorCall).toHaveBeenCalledWith("ap_cc1")
+    );
   });
 });

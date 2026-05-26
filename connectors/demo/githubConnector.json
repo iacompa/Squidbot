@@ -1,12 +1,13 @@
 {
   "name": "github",
   "systemType": "version_control",
-  "description": "GitHub repository, issue, pull request, and Actions connector. Fixture mode is enabled by default.",
+  "description": "GitHub repository, issue, pull request, and Actions connector.",
   "protocol": "rest",
   "auth": {
     "type": "bearer",
     "scopes": ["repo:read", "repo:write", "pull_request:write", "actions:write"]
   },
+  "testEndpoint": { "method": "GET", "path": "/user" },
   "permissions": [
     { "name": "repoRead", "riskLevel": "low", "requiresApproval": false },
     { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true },
@@ -42,7 +43,7 @@
   "dataClassifications": ["public"],
   "rateLimits": { "callsPerMinute": 60 },
   "costOwner": "free",
-  "fixtureMode": true,
+  "fixtureMode": false,
   "fixtureData": "../../docs/demoData/devIntegration/github.json",
   "readWrite": {
     "read": ["listBranches", "fetchFile", "searchCode", "readDiff", "listIssues", "getWorkflowRunStatus", "fetchWorkflowLogs"],

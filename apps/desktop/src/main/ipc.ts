@@ -2,7 +2,17 @@ import path from "node:path";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import { validateProviderApiUrl } from "./urlGuards.js";
-import { ConnectorRegistry, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
+import { BlueprintRegistry } from "@squidbot/blueprints";
+import {
+  ConnectorRegistry,
+  executeRealHttpCall,
+  getApproval,
+  installDeveloperWorkflowConnectors,
+  listOpenApprovals,
+  McpClientManager,
+  registerConnectorTools,
+  resolveApproval
+} from "@squidbot/connectors";
 import { EvalResultStore, SkillVariantStore } from "@squidbot/evals";
 import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEngine } from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
@@ -72,11 +82,15 @@ import type {
   ConnectorDto,
   EnterpriseProfileCreateRequestDto,
   JobCreateRequestDto,
+  McpServerDto,
+  McpServerInputDto,
+  McpServerTestResultDto,
   MemoryGraphDetailDto,
   MessagingAllowlistRuleDto,
   MessagingChannelDto,
   MessagingDeliveryRuleDto,
   OnboardingAnswerDto,
+  PendingApprovalDto,
   SettingsDto,
   SquidbotCommandDescriptorDto,
   SquidbotCommandId,
@@ -125,13 +139,23 @@ function readSettings(database: SquidDatabase, paths: DesktopAppPaths): Settings
     },
     connectors,
     connectorSettings: Object.fromEntries(
-      connectors.map((connector) => [
-        connector.name,
-        {
-          baseUrl: typeof settings[`${connector.name}.baseUrl`] === "string" ? (settings[`${connector.name}.baseUrl`] as string) : undefined,
-          apiKeyConfigured: typeof settings[`${connector.name}.apiKey`] === "string" && Boolean(settings[`${connector.name}.apiKey`])
-        }
-      ])
+      connectors.map((connector) => {
+        const status = settings[`${connector.name}.lastTest.status`];
+        const at = settings[`${connector.name}.lastTest.at`];
+        const message = settings[`${connector.name}.lastTest.message`];
+        return [
+          connector.name,
+          {
+            baseUrl: typeof settings[`${connector.name}.baseUrl`] === "string"
+              ? (settings[`${connector.name}.baseUrl`] as string) : undefined,
+            apiKeyConfigured: typeof settings[`${connector.name}.apiKey`] === "string"
+              && Boolean(settings[`${connector.name}.apiKey`]),
+            lastTest: typeof status === "string" && typeof at === "string"
+              ? { status, at, message: typeof message === "string" ? message : undefined }
+              : undefined
+          }
+        ];
+      })
     )
   };
 }
@@ -161,6 +185,25 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
   const connectorRegistry = new ConnectorRegistry(database);
   installDeveloperWorkflowConnectors(connectorRegistry);
   registerConnectorTools(toolRegistry, connectorRegistry);
+
+  // Spawn enabled MCP servers into the same ToolRegistry. We don't await
+  // — startup shouldn't block on slow MCP servers. Tools that aren't yet
+  // registered when an agent message arrives simply aren't available;
+  // they appear on the next runtime construction.
+  const mcpManager = new McpClientManager(toolRegistry);
+  void mcpManager.spawnAll(
+    database.listMcpServers()
+      .filter((s) => s.enabled)
+      .map((s) => ({
+        name: s.name,
+        transport: "stdio" as const,
+        command: s.command,
+        args: s.args,
+        env: s.env,
+        riskLevel: s.riskLevel
+      }))
+  );
+
   return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry });
 }
 
@@ -557,6 +600,263 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       });
       return updated;
     });
+  });
+
+  ipcMain.handle("squidbot:listPendingApprovals", (): PendingApprovalDto[] => {
+    // Two sources merged into a single queue for the renderer:
+    //   - active sandboxes still pending promotion approval (legacy v1 source)
+    //   - rows in the pending_approvals table (Task 1.4) — currently only
+    //     connector-call kind, but the DTO `kind` discriminator keeps future
+    //     kinds (high-risk-tool, memory-deletion, …) easy to slot in.
+    const sandboxRows: PendingApprovalDto[] = database
+      .listSandboxes({ status: "active" })
+      .map((sandbox) => ({
+        id: sandbox.id,
+        kind: "sandbox-promotion" as const,
+        title: `Promote sandbox ${sandbox.id.slice(0, 12)}…`,
+        summary: `Workspace: ${sandbox.workspacePath} · ${sandbox.diff.length} bytes of diff`,
+        riskLevel: "medium" as const,
+        createdAt: sandbox.createdAt,
+        payload: { sandboxId: sandbox.id, workspacePath: sandbox.workspacePath }
+      }));
+
+    const tableRows: PendingApprovalDto[] = listOpenApprovals(database).map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      summary: row.summary,
+      riskLevel: row.riskLevel,
+      createdAt: row.createdAt,
+      payload: row.payload as PendingApprovalDto["payload"]
+    }));
+
+    // Most-recent first across both sources.
+    return [...tableRows, ...sandboxRows].sort((a, b) =>
+      a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0
+    );
+  });
+
+  ipcMain.handle("squidbot:testConnector", async (_event, connectorName: string) => {
+    const registry = new ConnectorRegistry(database);
+    installDeveloperWorkflowConnectors(registry);
+    const manifest = registry.getConnector(connectorName);
+    if (!manifest) {
+      return { ok: false, code: "not_found", message: `Connector ${connectorName} not installed.` };
+    }
+
+    // Resolve a test endpoint: explicit manifest.testEndpoint OR auto-fallback
+    // to the first low-risk no-arg GET op (no path placeholders, permission's
+    // riskLevel === "low").
+    let testEp: { method: string; path: string } | null = null;
+    if (manifest.testEndpoint) {
+      testEp = manifest.testEndpoint;
+    } else {
+      const auto = manifest.endpoints.find((ep) => {
+        const perm = manifest.permissions.find((p) => p.name === ep.permission);
+        const hasPlaceholders = /\{[^}]+\}/.test(ep.path);
+        return ep.method === "GET" && perm?.riskLevel === "low" && !hasPlaceholders;
+      });
+      if (auto) testEp = { method: auto.method, path: auto.path };
+    }
+    if (!testEp) {
+      return {
+        ok: false,
+        code: "no_test_op",
+        message: "Connector has no eligible no-arg GET; configure manifest.testEndpoint."
+      };
+    }
+
+    const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
+    const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
+    if (!baseUrl) {
+      return { ok: false, code: "not_configured", message: "Base URL not configured." };
+    }
+
+    // Synthesize a minimal ConnectorEndpoint for the test call. We don't need
+    // real schemas — executeRealHttpCall only reads method, path, and uses the
+    // manifest's auth config for headers.
+    const syntheticEp = {
+      operationId: "__test__",
+      method: testEp.method,
+      path: testEp.path,
+      description: "Connectivity test",
+      permission: "low",
+      inputSchema: {},
+      outputSchema: {},
+      dataClassifications: [] as string[]
+    };
+    const result = await executeRealHttpCall(manifest, syntheticEp, {}, { baseUrl, apiKey });
+
+    // Persist the result to settings so the UI can display status without
+    // having to re-test on every render.
+    const status = result.ok ? "ok" : result.code;
+    const at = new Date().toISOString();
+    database.setSetting(`${manifest.name}.lastTest.status`, status);
+    database.setSetting(`${manifest.name}.lastTest.at`, at);
+    if (!result.ok) {
+      database.setSetting(`${manifest.name}.lastTest.message`, result.message);
+    } else {
+      // Clear stale error message on a successful test.
+      database.deleteSetting(`${manifest.name}.lastTest.message`);
+    }
+    return result.ok
+      ? { ok: true, durationMs: result.durationMs }
+      : { ok: false, code: result.code, message: result.message, durationMs: result.durationMs };
+  });
+
+  ipcMain.handle("squidbot:approveConnectorCall", async (_event, approvalId: string) => {
+    const row = getApproval(database, approvalId);
+    if (!row) return { ok: false, error: "Approval not found" };
+    if (row.kind !== "connector-call") return { ok: false, error: `Wrong kind: ${row.kind}` };
+    if (row.resolvedAt) return { ok: false, error: `Already ${row.resolution}` };
+
+    const { connectorName, operationId, args } = row.payload as Record<string, unknown>;
+    const registry = new ConnectorRegistry(database);
+    installDeveloperWorkflowConnectors(registry);
+    const manifest = registry.getConnector(connectorName as string);
+    if (!manifest) return { ok: false, error: `Connector not found: ${String(connectorName)}` };
+    const endpoint = manifest.endpoints.find((ep) => ep.operationId === operationId);
+    if (!endpoint) return { ok: false, error: `Endpoint not found: ${String(operationId)}` };
+
+    const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
+    const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
+    if (!baseUrl) return { ok: false, error: "Base URL not configured." };
+
+    const httpResult = await executeRealHttpCall(
+      manifest,
+      endpoint,
+      (args as Record<string, unknown>) ?? {},
+      { baseUrl, apiKey }
+    );
+    resolveApproval(database, approvalId, {
+      resolution: "approved",
+      result: httpResult.ok
+        ? { status: httpResult.status, body: httpResult.body }
+        : { error: httpResult.code, message: httpResult.message }
+    });
+    return httpResult.ok
+      ? { ok: true, result: httpResult.body }
+      : { ok: false, error: `${httpResult.code}: ${httpResult.message}` };
+  });
+
+  ipcMain.handle("squidbot:rejectConnectorCall", async (_event, approvalId: string, reason?: string) => {
+    resolveApproval(database, approvalId, { resolution: "rejected", reason });
+    return { ok: true as const };
+  });
+
+  function mcpRowToDto(row: ReturnType<SquidDatabase["getMcpServer"]>): McpServerDto | null {
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      command: row.command,
+      args: row.args,
+      env: row.env,
+      riskLevel: row.riskLevel,
+      enabled: row.enabled,
+      lastConnectedAt: row.lastConnectedAt,
+      lastError: row.lastError,
+      toolCount: 0
+    };
+  }
+
+  ipcMain.handle("squidbot:listMcpServers", (): McpServerDto[] => {
+    return database.listMcpServers().map((s) => ({
+      id: s.id,
+      name: s.name,
+      command: s.command,
+      args: s.args,
+      env: s.env,
+      riskLevel: s.riskLevel,
+      enabled: s.enabled,
+      lastConnectedAt: s.lastConnectedAt,
+      lastError: s.lastError,
+      toolCount: 0
+    }));
+  });
+
+  ipcMain.handle("squidbot:addMcpServer", async (_event, input: McpServerInputDto): Promise<McpServerDto> => {
+    const now = new Date().toISOString();
+    const saved = database.saveMcpServer({
+      id: createId("mcp"),
+      name: input.name,
+      transport: "stdio",
+      command: input.command,
+      args: input.args,
+      env: input.env,
+      riskLevel: input.riskLevel,
+      enabled: input.enabled,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    if (saved.enabled) {
+      // Spawn in a throwaway registry to validate the server is healthy.
+      // The real registration happens lazily inside createRuntime() on the
+      // next chat request — no need to share state with the persistent pool.
+      try {
+        const tempRegistry = new ToolRegistry();
+        const tempManager = new McpClientManager(tempRegistry);
+        await tempManager.spawnAll([{
+          name: saved.name,
+          transport: "stdio",
+          command: saved.command,
+          args: saved.args,
+          env: saved.env,
+          riskLevel: saved.riskLevel
+        }]);
+        database.updateMcpServer(saved.name, {
+          lastConnectedAt: new Date().toISOString(),
+          lastError: null
+        });
+        await tempManager.shutdown();
+      } catch (err) {
+        database.updateMcpServer(saved.name, {
+          lastError: err instanceof Error ? err.message : String(err)
+        });
+      }
+    }
+
+    const dto = mcpRowToDto(database.getMcpServer(saved.name));
+    if (!dto) throw new Error(`MCP server save failed: ${saved.name}`);
+    return dto;
+  });
+
+  ipcMain.handle("squidbot:updateMcpServer", async (_event, name: string, input: Partial<McpServerInputDto>): Promise<McpServerDto> => {
+    database.updateMcpServer(name, input);
+    const dto = mcpRowToDto(database.getMcpServer(name));
+    if (!dto) throw new Error(`MCP server not found: ${name}`);
+    return dto;
+  });
+
+  ipcMain.handle("squidbot:removeMcpServer", async (_event, name: string): Promise<void> => {
+    database.deleteMcpServer(name);
+  });
+
+  ipcMain.handle("squidbot:testMcpServer", async (_event, input: McpServerInputDto): Promise<McpServerTestResultDto> => {
+    const start = Date.now();
+    const tempRegistry = new ToolRegistry();
+    const manager = new McpClientManager(tempRegistry);
+    try {
+      await manager.spawnAll([{
+        name: input.name,
+        transport: "stdio",
+        command: input.command,
+        args: input.args,
+        env: input.env,
+        riskLevel: input.riskLevel
+      }]);
+      const clients = manager.clients();
+      const found = clients.find((c) => c.name === input.name);
+      if (!found) {
+        return { ok: false, code: "spawn_failed", message: "Server failed to spawn." };
+      }
+      return { ok: true, toolCount: found.tools().length, durationMs: Date.now() - start };
+    } catch (err) {
+      return { ok: false, code: "test_error", message: err instanceof Error ? err.message : String(err) };
+    } finally {
+      await manager.shutdown();
+    }
   });
 
   ipcMain.handle("squidbot:listSkills", () => createSkillService(database, paths).listSkills(100));
@@ -1003,6 +1303,50 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   ipcMain.handle("squidbot:mergeMemoryGraphNodes", (_event, targetNodeId: string, sourceNodeId: string) =>
     new MemoryGraphStore(database).mergeNodes(targetNodeId, sourceNodeId)
   );
+
+  // ---------------- Blueprints ----------------
+  // Phase 2 AI Studio Blueprints: install / get / list / export / delete /
+  // listVersions. The registry wraps SquidDatabase via the structural
+  // BlueprintStore interface — no nominal coupling — so future stores can
+  // implement the same shape (e.g. a remote registry sync) without changing
+  // these handlers.
+  const blueprintRegistry = new BlueprintRegistry(database);
+
+  ipcMain.handle("squidbot:listBlueprints", () => {
+    return { blueprints: blueprintRegistry.list() };
+  });
+
+  ipcMain.handle("squidbot:getBlueprint", (_event, slug: string) => {
+    const manifest = blueprintRegistry.get(slug);
+    if (!manifest) throw new Error(`Blueprint not found: ${slug}`);
+    return { manifest };
+  });
+
+  ipcMain.handle("squidbot:installBlueprint", (_event, manifest: unknown, actor?: string) => {
+    const result = blueprintRegistry.install(
+      manifest as Parameters<BlueprintRegistry["install"]>[0],
+      actor ?? "user"
+    );
+    if (!result.ok) {
+      throw new Error(`Invalid Blueprint: ${result.errors.join("; ")}`);
+    }
+    return { id: result.id, slug: result.manifest.slug };
+  });
+
+  ipcMain.handle("squidbot:exportBlueprint", (_event, slug: string) => {
+    const manifest = blueprintRegistry.get(slug);
+    if (!manifest) throw new Error(`Blueprint not found: ${slug}`);
+    return { json: JSON.stringify(manifest, null, 2) };
+  });
+
+  ipcMain.handle("squidbot:deleteBlueprint", (_event, slug: string, actor?: string) => {
+    blueprintRegistry.uninstall(slug, actor ?? "user");
+    return { ok: true };
+  });
+
+  ipcMain.handle("squidbot:listBlueprintVersions", (_event, slug: string) => {
+    return { versions: blueprintRegistry.versions(slug) };
+  });
 
   // ---------------- Identity / Profile / Trust / Onboarding ----------------
 

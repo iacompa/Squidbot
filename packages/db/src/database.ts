@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -154,6 +155,43 @@ export type ConnectorRecord = {
   name: string;
   manifest: unknown;
   createdAt: string;
+};
+
+export type McpServerRiskLevel = "low" | "medium" | "high" | "critical";
+
+export type StoredMcpServer = {
+  id: string;
+  name: string;
+  transport: "stdio";
+  command: string;
+  argsJson: string;
+  envJson: string;
+  riskLevel: McpServerRiskLevel;
+  enabled: number;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type McpServerRecord = {
+  id: string;
+  name: string;
+  transport: "stdio";
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  riskLevel: McpServerRiskLevel;
+  enabled: boolean;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type McpServerInput = Omit<McpServerRecord, "lastConnectedAt" | "lastError"> & {
+  lastConnectedAt?: string | null;
+  lastError?: string | null;
 };
 
 export type StoredModelUsage = {
@@ -402,6 +440,36 @@ export type JobRunRecord = {
   durationMs: number;
   summary: string | null;
   error: string | null;
+};
+
+export type BlueprintStatus = "draft" | "pilot" | "stable" | "archived";
+
+export type BlueprintInput = {
+  slug: string;
+  name: string;
+  manifest_json: string;
+  status: BlueprintStatus;
+  current_version: string;
+};
+
+export type StoredBlueprint = {
+  id: string;
+  slug: string;
+  name: string;
+  manifest_json: string;
+  status: string;
+  current_version: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredBlueprintVersion = {
+  id: string;
+  blueprint_id: string;
+  version: string;
+  manifest_json: string;
+  createdAt: string;
+  createdBy: string;
 };
 
 export class SquidDatabase {
@@ -1317,6 +1385,77 @@ export class SquidDatabase {
     return row ? parseConnector(row) : null;
   }
 
+  saveMcpServer(input: McpServerInput): McpServerRecord {
+    this.db
+      .prepare(
+        `INSERT INTO mcp_servers
+         (id, name, transport, command, argsJson, envJson, riskLevel, enabled, lastConnectedAt, lastError, createdAt, updatedAt)
+         VALUES (@id, @name, @transport, @command, @argsJson, @envJson, @riskLevel, @enabled, @lastConnectedAt, @lastError, @createdAt, @updatedAt)
+         ON CONFLICT(name) DO UPDATE SET
+           command = excluded.command,
+           argsJson = excluded.argsJson,
+           envJson = excluded.envJson,
+           riskLevel = excluded.riskLevel,
+           enabled = excluded.enabled,
+           lastConnectedAt = excluded.lastConnectedAt,
+           lastError = excluded.lastError,
+           updatedAt = excluded.updatedAt`
+      )
+      .run({
+        id: input.id,
+        name: input.name,
+        transport: input.transport,
+        command: input.command,
+        argsJson: JSON.stringify(input.args),
+        envJson: JSON.stringify(input.env),
+        riskLevel: input.riskLevel,
+        enabled: input.enabled ? 1 : 0,
+        lastConnectedAt: input.lastConnectedAt ?? null,
+        lastError: input.lastError ?? null,
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt
+      });
+
+    const saved = this.getMcpServer(input.name);
+    if (!saved) {
+      throw new Error(`MCP server was not saved: ${input.name}`);
+    }
+    return saved;
+  }
+
+  listMcpServers(): McpServerRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM mcp_servers ORDER BY name ASC")
+      .all() as StoredMcpServer[];
+    return rows.map(parseMcpServer);
+  }
+
+  getMcpServer(name: string): McpServerRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM mcp_servers WHERE name = ?")
+      .get(name) as StoredMcpServer | undefined;
+    return row ? parseMcpServer(row) : null;
+  }
+
+  updateMcpServer(
+    name: string,
+    updates: Partial<Pick<McpServerInput, "enabled" | "lastConnectedAt" | "lastError" | "command" | "args" | "env" | "riskLevel">>
+  ): void {
+    const existing = this.getMcpServer(name);
+    if (!existing) {
+      throw new Error(`MCP server not found: ${name}`);
+    }
+    this.saveMcpServer({
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  deleteMcpServer(name: string): void {
+    this.db.prepare("DELETE FROM mcp_servers WHERE name = ?").run(name);
+  }
+
   getModelUsage(provider: string, usageDate: string): ModelUsageRecord | null {
     const row = this.db
       .prepare(
@@ -1369,6 +1508,103 @@ export class SquidDatabase {
       .all(limit) as StoredModelUsage[];
 
     return rows.map(parseModelUsage);
+  }
+
+  // === Blueprints ===
+  // AI Studio v1 — Phase 2 of vs-openclaw-hermes roadmap.
+  // saveBlueprint() upserts the identity row and appends a version atomically.
+  // Callers may invoke saveBlueprint repeatedly with the same current_version
+  // to persist edits without bumping the manifest's semver — the UNIQUE
+  // constraint on (blueprint_id, version) in blueprint_versions is swallowed
+  // silently in that case.
+
+  saveBlueprint(input: BlueprintInput, actor: string): string {
+    const existing = this.db
+      .prepare("SELECT id, createdAt FROM blueprints WHERE slug = ?")
+      .get(input.slug) as { id: string; createdAt: string } | undefined;
+
+    const id = existing?.id ?? randomUUID();
+    const now = new Date().toISOString();
+    const createdAt = existing?.createdAt ?? now;
+
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO blueprints (id, slug, name, manifest_json, status, current_version, createdAt, updatedAt)
+           VALUES (@id, @slug, @name, @manifest_json, @status, @current_version, @createdAt, @updatedAt)
+           ON CONFLICT(slug) DO UPDATE SET
+             name = excluded.name,
+             manifest_json = excluded.manifest_json,
+             status = excluded.status,
+             current_version = excluded.current_version,
+             updatedAt = excluded.updatedAt`
+        )
+        .run({
+          id,
+          slug: input.slug,
+          name: input.name,
+          manifest_json: input.manifest_json,
+          status: input.status,
+          current_version: input.current_version,
+          createdAt,
+          updatedAt: now
+        });
+
+      try {
+        // Always append a version row. If the caller saved without bumping
+        // current_version, UNIQUE (blueprint_id, version) will throw — we
+        // swallow that specific error so "save without bumping version" works.
+        this.db
+          .prepare(
+            `INSERT INTO blueprint_versions (id, blueprint_id, version, manifest_json, createdAt, createdBy)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          )
+          .run(randomUUID(), id, input.current_version, input.manifest_json, now, actor);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // SQLITE_CONSTRAINT_UNIQUE — same (blueprint_id, version) already saved.
+        if (!/UNIQUE/i.test(message)) {
+          throw error;
+        }
+      }
+    });
+    tx();
+    return id;
+  }
+
+  getBlueprint(slug: string): StoredBlueprint | null {
+    const row = this.db
+      .prepare("SELECT * FROM blueprints WHERE slug = ?")
+      .get(slug) as StoredBlueprint | undefined;
+    return row ?? null;
+  }
+
+  getBlueprintById(id: string): StoredBlueprint | null {
+    const row = this.db
+      .prepare("SELECT * FROM blueprints WHERE id = ?")
+      .get(id) as StoredBlueprint | undefined;
+    return row ?? null;
+  }
+
+  listBlueprints(): StoredBlueprint[] {
+    // rowid is a deterministic tiebreaker when two rows share createdAt (ms precision).
+    return this.db
+      .prepare("SELECT * FROM blueprints ORDER BY createdAt DESC, rowid DESC")
+      .all() as StoredBlueprint[];
+  }
+
+  deleteBlueprint(id: string): void {
+    this.db.prepare("DELETE FROM blueprints WHERE id = ?").run(id);
+  }
+
+  listBlueprintVersions(blueprintId: string): StoredBlueprintVersion[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM blueprint_versions
+         WHERE blueprint_id = ?
+         ORDER BY createdAt ASC`
+      )
+      .all(blueprintId) as StoredBlueprintVersion[];
   }
 }
 
@@ -1425,6 +1661,23 @@ function parseConnector(row: StoredConnector): ConnectorRecord {
     name: row.name,
     manifest: JSON.parse(row.manifest) as unknown,
     createdAt: row.created_at
+  };
+}
+
+function parseMcpServer(row: StoredMcpServer): McpServerRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    transport: row.transport,
+    command: row.command,
+    args: JSON.parse(row.argsJson) as string[],
+    env: JSON.parse(row.envJson) as Record<string, string>,
+    riskLevel: row.riskLevel,
+    enabled: row.enabled === 1,
+    lastConnectedAt: row.lastConnectedAt,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 

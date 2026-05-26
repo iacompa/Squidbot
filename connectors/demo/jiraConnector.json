@@ -4,6 +4,7 @@
   "description": "Jira issue tracker connector with fixture-backed issue reads and approval-gated writes.",
   "protocol": "rest",
   "auth": { "type": "bearer", "scopes": ["jira:read", "jira:write"] },
+  "testEndpoint": { "method": "GET", "path": "/rest/api/3/myself" },
   "permissions": [
     { "name": "issueRead", "riskLevel": "low", "requiresApproval": false },
     { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true }
@@ -18,7 +19,7 @@
   ],
   "dataClassifications": ["public"],
   "costOwner": "free",
-  "fixtureMode": true,
+  "fixtureMode": false,
   "fixtureData": "../../docs/demoData/devIntegration/jira.json",
   "readWrite": {
     "read": ["listIssues"],

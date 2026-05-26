@@ -12,9 +12,17 @@
     "rebuild:native": "npm run rebuild:electron",
     "preview": "node ../../scripts/ensure-electron-native.mjs && electron-vite preview",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "web:serve": "tsx scripts/serve-web.mjs",
+    "test:web": "playwright test",
+    "test:visual": "playwright test test/visual.spec.ts",
+    "test:touch": "playwright test test/touch-targets.spec.ts",
+    "test:a11y": "playwright test test/a11y.spec.ts",
+    "test:responsive": "npm run audit:renderer-imports && npm run test && npm run test:web",
+    "audit:renderer-imports": "node scripts/audit-renderer-imports.mjs"
   },
   "dependencies": {
+    "@squidbot/blueprints": "0.1.0",
     "@squidbot/connectors": "0.1.0",
     "@squidbot/core": "0.1.0",
     "@squidbot/db": "0.1.0",
@@ -28,17 +36,23 @@
     "@squidbot/team": "0.1.0",
     "@vitejs/plugin-react": "^4.4.1",
     "electron-vite": "^3.1.0",
+    "express": "^5.2.1",
     "lucide-react": "^0.503.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@electron/rebuild": "^4.0.4",
+    "@playwright/test": "^1.60.0",
     "@testing-library/react": "^16.3.2",
+    "@types/express": "^5.0.6",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "@types/supertest": "^7.2.0",
     "electron": "^39.8.9",
     "jsdom": "^29.1.1",
+    "supertest": "^7.2.2",
     "vite": "^6.3.4"
   }
 }

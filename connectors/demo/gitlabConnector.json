@@ -1,12 +1,13 @@
 {
   "name": "gitlab",
   "systemType": "version_control",
-  "description": "GitLab repository, issue, merge request, and pipeline connector. Fixture mode is enabled by default.",
+  "description": "GitLab repository, issue, merge request, and pipeline connector.",
   "protocol": "rest",
   "auth": {
     "type": "bearer",
     "scopes": ["read_repository", "write_repository", "api"]
   },
+  "testEndpoint": { "method": "GET", "path": "/user" },
   "permissions": [
     { "name": "repoRead", "riskLevel": "low", "requiresApproval": false },
     { "name": "issueWrite", "riskLevel": "high", "requiresApproval": true },
@@ -40,7 +41,7 @@
   "dataClassifications": ["public"],
   "rateLimits": { "callsPerMinute": 60 },
   "costOwner": "free",
-  "fixtureMode": true,
+  "fixtureMode": false,
   "fixtureData": "../../docs/demoData/devIntegration/gitlab.json",
   "readWrite": {
     "read": ["listBranches", "fetchFile", "searchCode", "readDiff", "listIssues", "getPipelineStatus", "fetchPipelineLogs"],

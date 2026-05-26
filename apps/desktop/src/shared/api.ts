@@ -110,7 +110,11 @@ export type SettingsDto = {
     costOwner: string;
   };
   connectors: ConnectorDto[];
-  connectorSettings: Record<string, { baseUrl?: string; apiKeyConfigured: boolean }>;
+  connectorSettings: Record<string, {
+    baseUrl?: string;
+    apiKeyConfigured: boolean;
+    lastTest?: { status: string; at: string; message?: string };
+  }>;
 };
 
 export type ConnectorDto = {
@@ -122,6 +126,32 @@ export type ConnectorDto = {
   costOwner: string;
   operations: string[];
 };
+
+export type McpServerDto = {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  enabled: boolean;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  toolCount: number;
+};
+
+export type McpServerInputDto = {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  enabled: boolean;
+};
+
+export type McpServerTestResultDto =
+  | { ok: true; toolCount: number; durationMs: number }
+  | { ok: false; code: string; message: string };
 
 export type ReflectionDto = {
   id: string;
@@ -174,6 +204,40 @@ export type SandboxDto = {
   promotedAt: string | null;
   destroyedAt: string | null;
   lastError: string | null;
+};
+
+/**
+ * The renderer asks for one stable list of "things waiting for approval"; the
+ * main process can later compose this from multiple sources. For v1 the only
+ * source is active sandboxes (which need promotion approval). The `kind`
+ * discriminator is the future-proofing pin — adding "high-risk-tool" or
+ * "memory-deletion" approval kinds later doesn't change the renderer.
+ */
+export type PendingApprovalDto = {
+  /** Stable id — sandbox id for v1; future kinds may use other ids. */
+  id: string;
+  /** Discriminator for the approval source. */
+  kind: "sandbox-promotion" | "connector-call";
+  /** Human-friendly title rendered in the approvals queue row. */
+  title: string;
+  /** One-line context about what's being approved. */
+  summary: string;
+  /** Risk level for visual treatment. */
+  riskLevel: "low" | "medium" | "high" | "critical";
+  /** ISO timestamp of when this entered the queue. */
+  createdAt: string;
+  /** Kind-specific data the page may need to drive approve/reject actions. */
+  payload: {
+    // sandbox-promotion fields
+    sandboxId?: string;
+    workspacePath?: string;
+    // connector-call fields (Task 1.6)
+    connectorName?: string;
+    operationId?: string;
+    args?: Record<string, unknown>;
+    callerSessionId?: string;
+    callerRunId?: string;
+  };
 };
 
 export type SkillManifestDto = {
@@ -936,6 +1000,24 @@ export type SquidbotApi = {
   getSandbox: (sandboxId: string) => Promise<SandboxDto | null>;
   approveSandbox: (sandboxId: string) => Promise<SandboxDto>;
   rejectSandbox: (sandboxId: string) => Promise<SandboxDto>;
+  listPendingApprovals: () => Promise<PendingApprovalDto[]>;
+  testConnector: (connectorName: string) => Promise<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    durationMs?: number;
+  }>;
+  approveConnectorCall: (approvalId: string) => Promise<{
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+  }>;
+  rejectConnectorCall: (approvalId: string, reason?: string) => Promise<{ ok: true }>;
+  listMcpServers: () => Promise<McpServerDto[]>;
+  addMcpServer: (input: McpServerInputDto) => Promise<McpServerDto>;
+  updateMcpServer: (name: string, input: Partial<McpServerInputDto>) => Promise<McpServerDto>;
+  removeMcpServer: (name: string) => Promise<void>;
+  testMcpServer: (input: McpServerInputDto) => Promise<McpServerTestResultDto>;
   listSkills: () => Promise<SkillDto[]>;
   getSkill: (skillId: string, version?: string) => Promise<SkillDetailDto | null>;
   evaluateSkill: (skillId: string, version?: string) => Promise<SkillEvaluationResultDto>;
@@ -1036,6 +1118,19 @@ export type SquidbotApi = {
   archiveMemoryGraphNode: (nodeId: string) => Promise<MemoryGraphNodeDto>;
   deleteMemoryGraphNode: (nodeId: string) => Promise<MemoryGraphNodeDto>;
   mergeMemoryGraphNodes: (targetNodeId: string, sourceNodeId: string) => Promise<MemoryGraphNodeDto>;
+
+  // ---------------- Blueprints (AI Studio Phase 2) ----------------
+  // The manifest type is intentionally `unknown` here — the renderer parses
+  // it via the @squidbot/blueprints types when it actually consumes manifests
+  // (in StudioPage etc.), keeping this shared API surface self-contained and
+  // free of cross-package type imports, the same convention as the rest of
+  // this file.
+  listBlueprints: () => Promise<{ blueprints: unknown[] }>;
+  getBlueprint: (slug: string) => Promise<{ manifest: unknown }>;
+  installBlueprint: (manifest: unknown, actor?: string) => Promise<{ id: string; slug: string }>;
+  exportBlueprint: (slug: string) => Promise<{ json: string }>;
+  deleteBlueprint: (slug: string, actor?: string) => Promise<{ ok: boolean }>;
+  listBlueprintVersions: (slug: string) => Promise<{ versions: unknown[] }>;
 
   // ---------------- Identity / Trust / Profile / Onboarding ----------------
   getIdentityReport: () => Promise<IdentityReportDto>;

@@ -1,19 +1,222 @@
-import { useEffect, useState } from "react";
-import { ArrowRight, BookOpen, FolderOpen, KeyRound, Plug, Save, Wand2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, BookOpen, FolderOpen, Plug, RefreshCw, ShieldCheck, Wand2 } from "lucide-react";
 import { squidbotApi } from "../lib/api";
-import { ModelAccountsSection } from "../components/ModelAccountsSection";
+import { GovernanceSection, type GovernanceSectionHandle } from "../components/GovernanceSection";
+import { IdentitySection } from "../components/IdentitySection";
+import { ProfileSection, type ProfileSectionHandle } from "../components/ProfileSection";
+import { SkillsSection, type SkillsSectionHandle } from "../components/SkillsSection";
 import type { SettingsDto } from "../../../shared/api";
 import type { EnterpriseProfileDto, PageId } from "../types";
+
+/**
+ * Settings is the four-tab "local runtime" destination introduced in the
+ * sidebar reorg (Task 1.7). The left rail switches between:
+ *
+ *   • General    — workspace + paths + onboarding shortcut + Docs accordion.
+ *                  (Model accounts + connectors moved to IntegrationsPage.)
+ *   • Profile    — Identity (read-only "whoami" summary) + Profiles config.
+ *   • Skills     — installed skills + manifest detail.
+ *   • Governance — security control plane.
+ *
+ * Tab state is mirrored to localStorage so a hot-reload or app restart
+ * keeps you on the same tab. The deprecated PageIds (identity / profiles /
+ * skills / governance) redirect here via `initialTab` in Task 1.8.
+ */
+export type SettingsTab = "general" | "profile" | "skills" | "governance";
 
 type SettingsPageProps = {
   settings: SettingsDto;
   onSettingsChange: (settings: SettingsDto) => void;
   /**
    * Optional navigation hook so the Settings page can deep-link to other
-   * pages (e.g. the Onboarding wizard). Wired from `App.tsx`.
+   * pages (e.g. the Onboarding wizard or the Integrations destination).
+   * Wired from `App.tsx`.
    */
   onNavigate?: (pageId: PageId) => void;
+  /**
+   * Optional initial tab — used when the App.tsx redirect map routes
+   * deprecated PageIds (identity / profiles / skills / governance) to
+   * SettingsPage with a tab hint.
+   */
+  initialTab?: SettingsTab;
 };
+
+const TAB_STORAGE_KEY = "settings.activeTab";
+
+function loadInitialTab(initialFromProps?: SettingsTab): SettingsTab {
+  if (initialFromProps) return initialFromProps;
+  try {
+    const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
+    if (
+      stored === "general" ||
+      stored === "profile" ||
+      stored === "skills" ||
+      stored === "governance"
+    ) {
+      return stored;
+    }
+  } catch {
+    /* localStorage may be unavailable (incognito, SSR). Fall through. */
+  }
+  return "general";
+}
+
+export function SettingsPage({ settings, onSettingsChange, onNavigate, initialTab }: SettingsPageProps) {
+  const [tab, setTab] = useState<SettingsTab>(() => loadInitialTab(initialTab));
+  // Section handles + per-tab loading flags so each tab's Refresh button
+  // can disable while in-flight. The standalone pages do this same dance;
+  // we keep the parity so users get the spinner UX they're used to.
+  const profileRef = useRef<ProfileSectionHandle | null>(null);
+  const skillsRef = useRef<SkillsSectionHandle | null>(null);
+  const governanceRef = useRef<GovernanceSectionHandle | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  // ProfileSection consumes formOpen / onFormOpenChange because the standalone
+  // ProfilesPage owns the "New profile" toggle in its header. Inside Settings
+  // we don't surface that toggle in the header strip (the section can grow its
+  // own form trigger in a future task), so we just keep local state and never
+  // open it from a toolbar — the section still renders correctly with formOpen
+  // pinned to false.
+  const [profileFormOpen, setProfileFormOpen] = useState(false);
+
+  function switchTab(next: SettingsTab): void {
+    setTab(next);
+    try {
+      window.localStorage.setItem(TAB_STORAGE_KEY, next);
+    } catch {
+      /* localStorage may be unavailable; tab still switches in-memory. */
+    }
+  }
+
+  return (
+    <main className="page-panel settings-page settings-page--tabbed">
+      <header className="page-header">
+        <div>
+          <p className="section-label">Settings</p>
+          <h2>Local runtime</h2>
+        </div>
+      </header>
+
+      <div className="settings-shell">
+        <nav className="settings-rail" role="tablist" aria-label="Settings sections">
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "general"}
+            onClick={() => switchTab("general")}
+          >
+            General
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "profile"}
+            onClick={() => switchTab("profile")}
+          >
+            Profile
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "skills"}
+            onClick={() => switchTab("skills")}
+          >
+            Skills
+          </button>
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === "governance"}
+            onClick={() => switchTab("governance")}
+          >
+            Governance
+          </button>
+        </nav>
+
+        <div className="settings-content">
+          {tab === "general" && (
+            <GeneralTab settings={settings} onSettingsChange={onSettingsChange} onNavigate={onNavigate} />
+          )}
+
+          {tab === "profile" && (
+            <>
+              <div className="settings-tab-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={profileLoading}
+                  onClick={() => void profileRef.current?.refresh()}
+                  aria-label="Refresh profile"
+                >
+                  <RefreshCw size={15} className={profileLoading ? "spin" : ""} aria-hidden />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <IdentitySection readonly />
+              <ProfileSection
+                ref={profileRef}
+                formOpen={profileFormOpen}
+                onFormOpenChange={setProfileFormOpen}
+                onLoadingChange={setProfileLoading}
+              />
+            </>
+          )}
+
+          {tab === "skills" && (
+            <>
+              <div className="settings-tab-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void skillsRef.current?.refresh()}
+                  aria-label="Refresh skills"
+                >
+                  <RefreshCw size={15} aria-hidden />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <SkillsSection ref={skillsRef} />
+            </>
+          )}
+
+          {tab === "governance" && (
+            <>
+              <div className="settings-tab-toolbar">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void governanceRef.current?.simulate()}
+                  aria-label="Simulate governance policy"
+                >
+                  <ShieldCheck size={15} aria-hidden />
+                  <span>Simulate</span>
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void governanceRef.current?.refresh()}
+                  aria-label="Refresh governance"
+                >
+                  <RefreshCw size={15} aria-hidden />
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <GovernanceSection ref={governanceRef} />
+            </>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// -------------------------------------------------------------------------
+// GeneralTab — workspace + paths + onboarding shortcut + docs accordion.
+// Everything that used to live directly inside SettingsPage minus the
+// connector + model-routing blocks (those moved to IntegrationsPage in
+// Task 1.4). The Connectors heading row stays as a sign-post so an operator
+// who still expects to find connectors here at least sees "we know about
+// them, they live in Integrations now".
+// -------------------------------------------------------------------------
 
 const GENERIC_PROFILE_ID = "profile_seed_generic_business";
 
@@ -54,16 +257,23 @@ const DOC_TOPICS: DocTopic[] = [
     pageLabel: "Open chat"
   },
   {
+    title: "Integrations (connect your tools)",
+    body:
+      "Save model accounts (OpenRouter / OpenAI / Anthropic / Groq / Together / Ollama / Custom), configure connectors (Stripe / GitHub / Slack / …), and wire messaging channels — all in one destination. SquidBot uses the active model account for reasoning and the saved connectors for action.",
+    page: "integrations",
+    pageLabel: "Open Integrations"
+  },
+  {
     title: "Model accounts (BYOK)",
     body:
-      "Save multiple model accounts — OpenRouter, OpenAI, Anthropic, Groq, Together, Ollama, or any OpenAI-compatible endpoint — and switch the active one any time. SquidBot can switch on its own when you ask it to in chat. Configure them below in this page, or from the CLI: `squidbot model accounts add`."
+      "Save multiple model accounts — OpenRouter, OpenAI, Anthropic, Groq, Together, Ollama, or any OpenAI-compatible endpoint — and switch the active one any time. SquidBot can switch on its own when you ask it to in chat. Configure them in the Integrations page → AI models tab, or from the CLI: `squidbot model accounts add`."
   },
   {
     title: "Identity",
     body:
       "What SquidBot believes it is right now: which model account is active, its bonded skills, the policies it's enforcing, the memories that shape its answers. Open this when you want to understand why SquidBot just behaved the way it did.",
-    page: "identity",
-    pageLabel: "Open identity"
+    page: "settings",
+    pageLabel: "Open Settings → Profile"
   },
   {
     title: "Trust report",
@@ -76,36 +286,36 @@ const DOC_TOPICS: DocTopic[] = [
     title: "Enterprise profiles",
     body:
       "A profile is a pre-tuned bundle: vocabulary, sensitivity defaults, policy packs, default skills. Start with the Generic Business profile (the default) and let onboarding personalise it — or pick a vertical preset.",
-    page: "profiles",
-    pageLabel: "Open profiles"
+    page: "settings",
+    pageLabel: "Open Settings → Profile"
   },
   {
     title: "Memory",
     body:
       "Every memory has provenance — what created it, when, and the trace it came from. SquidBot retrieves relevant memories before each turn and can cite them in its answers. Curate, delete, or pin memories here.",
-    page: "memory",
-    pageLabel: "Open memory"
+    page: "history",
+    pageLabel: "Open History → Memory"
   },
   {
     title: "Traces",
     body:
       "Every chat turn and every task run is recorded as a trace: which model, which tools, which approvals, which cost. Replay any of them. Search across all of them. Export them for compliance.",
-    page: "traces",
-    pageLabel: "Open traces"
+    page: "history",
+    pageLabel: "Open History → Activity"
   },
   {
     title: "Skills, Jobs, and Teams",
     body:
       "Skills are reusable capabilities SquidBot can compose. Jobs are scheduled work. Teams are multi-agent collaborations with a shared blackboard. All optional — you can use SquidBot without any of them.",
-    page: "skills",
-    pageLabel: "Open skills"
+    page: "settings",
+    pageLabel: "Open Settings → Skills"
   },
   {
     title: "Governance & approvals",
     body:
       "Tools have risk levels. Risky tools require explicit human approval; low-risk ones run automatically. The Governance page shows the policy engine state — who can do what, what's allowed, what's been audited.",
-    page: "governance",
-    pageLabel: "Open governance"
+    page: "settings",
+    pageLabel: "Open Settings → Governance"
   },
   {
     title: "Sandboxes & evaluations",
@@ -116,19 +326,18 @@ const DOC_TOPICS: DocTopic[] = [
   }
 ];
 
-type ConnectorDrafts = Record<string, { apiKey: string; baseUrl: string }>;
+type GeneralTabProps = {
+  settings: SettingsDto;
+  onSettingsChange: (settings: SettingsDto) => void;
+  onNavigate?: (pageId: PageId) => void;
+};
 
-export function SettingsPage({ settings, onSettingsChange, onNavigate }: SettingsPageProps) {
-  const [connectorDrafts, setConnectorDrafts] = useState<ConnectorDrafts>(() => buildConnectorDrafts(settings));
+function GeneralTab({ settings, onSettingsChange, onNavigate }: GeneralTabProps) {
   // Active enterprise profile drives the onboarding-shortcut copy: a fresh
   // install on the default Generic Business shows "Start onboarding", while
   // an operator who's already configured a custom or vertical profile sees
   // "Re-run onboarding".
   const [activeProfile, setActiveProfile] = useState<EnterpriseProfileDto | null>(null);
-
-  useEffect(() => {
-    setConnectorDrafts(buildConnectorDrafts(settings));
-  }, [settings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,34 +369,8 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
     }
   }
 
-  async function saveModelProvider(provider: "local" | "api" | "mock"): Promise<void> {
-    onSettingsChange(await squidbotApi.saveSetting("model.provider", provider));
-  }
-
-  function updateConnectorDraft(connectorName: string, key: "apiKey" | "baseUrl", value: string): void {
-    setConnectorDrafts((current) => ({
-      ...current,
-      [connectorName]: {
-        ...(current[connectorName] ?? { apiKey: "", baseUrl: "" }),
-        [key]: value
-      }
-    }));
-  }
-
-  async function saveConnectorSetting(connectorName: string, key: "apiKey" | "baseUrl"): Promise<void> {
-    const value = connectorDrafts[connectorName]?.[key] ?? "";
-    onSettingsChange(await squidbotApi.saveConnectorSetting(connectorName, key, value));
-  }
-
   return (
-    <main className="page-panel settings-page">
-      <header className="page-header">
-        <div>
-          <p className="section-label">Settings</p>
-          <h2>Local runtime</h2>
-        </div>
-      </header>
-
+    <>
       {onNavigate && (
         <section className="settings-shortcut" aria-label="Onboarding shortcut">
           <div className="settings-shortcut__icon" aria-hidden>
@@ -261,52 +444,6 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
           </button>
         </div>
 
-        <div className="settings-row">
-          <div>
-            <h3>Model provider</h3>
-            <p>
-              Current provider: {settings.modelSettings.provider} ({settings.modelSettings.costOwner})
-            </p>
-          </div>
-          <div className="segmented-control" aria-label="Model provider">
-            <button
-              className={settings.modelSettings.provider === "local" ? "selected" : ""}
-              type="button"
-              onClick={() => void saveModelProvider("local")}
-            >
-              Local
-            </button>
-            <button
-              className={settings.modelSettings.provider === "api" ? "selected" : ""}
-              type="button"
-              onClick={() => void saveModelProvider("api")}
-            >
-              <KeyRound size={14} />
-              BYOK
-            </button>
-            <button
-              className={settings.modelSettings.provider === "mock" ? "selected" : ""}
-              type="button"
-              onClick={() => void saveModelProvider("mock")}
-            >
-              Mock
-            </button>
-          </div>
-        </div>
-
-        <div className="settings-row wide">
-          <div>
-            <h3>Model budget</h3>
-            <p>
-              API usage today: {settings.modelSettings.apiUsedTokens} tokens
-              {settings.modelSettings.apiRemainingTokens !== undefined
-                ? `, ${settings.modelSettings.apiRemainingTokens} remaining`
-                : ", no budget set"}
-              , ${settings.modelSettings.apiCost.toFixed(6)} estimated
-            </p>
-          </div>
-        </div>
-
         <div className="settings-row wide">
           <div>
             <h3>Local database</h3>
@@ -324,106 +461,13 @@ export function SettingsPage({ settings, onSettingsChange, onNavigate }: Setting
         <div className="settings-row wide connector-settings-heading">
           <div>
             <h3>Connectors</h3>
-            <p>{settings.connectors.length} installed</p>
+            <p>
+              {settings.connectors.length} installed — manage them in Integrations.
+            </p>
           </div>
           <Plug size={18} />
         </div>
       </section>
-
-      <ModelAccountsSection />
-
-
-      <section className="connector-settings-list" aria-label="Connector settings">
-        {settings.connectors.length === 0 ? (
-          <div className="empty-state compact">
-            <h3>No connectors installed</h3>
-            <p>Install a connector from the CLI to configure it here.</p>
-          </div>
-        ) : (
-          settings.connectors.map((connector) => {
-            const draft = connectorDrafts[connector.name] ?? { apiKey: "", baseUrl: "" };
-            const connectorSettings = settings.connectorSettings[connector.name];
-            return (
-              <article className="connector-settings-card" key={connector.name}>
-                <div className="connector-card-header">
-                  <div>
-                    <span>{connector.systemType}</span>
-                    <h3>{connector.name}</h3>
-                    <p>{connector.description}</p>
-                  </div>
-                  <div className="connector-meta">
-                    <span>{connector.protocol}</span>
-                    <span>{connector.fixtureMode ? "fixture" : "real"}</span>
-                    <span>{connector.costOwner}</span>
-                  </div>
-                </div>
-
-                <div className="connector-operations" aria-label={`${connector.name} operations`}>
-                  {connector.operations.map((operation) => (
-                    <code key={operation}>{operation}</code>
-                  ))}
-                </div>
-
-                <div className="connector-config-grid">
-                  <label>
-                    <span>Base URL</span>
-                    <div className="connector-input-row">
-                      <input
-                        autoComplete="off"
-                        onChange={(event) => updateConnectorDraft(connector.name, "baseUrl", event.target.value)}
-                        placeholder="Optional"
-                        type="url"
-                        value={draft.baseUrl}
-                      />
-                      <button
-                        className="secondary-button"
-                        onClick={() => void saveConnectorSetting(connector.name, "baseUrl")}
-                        type="button"
-                      >
-                        <Save size={15} />
-                        <span>Save</span>
-                      </button>
-                    </div>
-                  </label>
-
-                  <label>
-                    <span>API key {connectorSettings?.apiKeyConfigured ? "(set)" : ""}</span>
-                    <div className="connector-input-row">
-                      <input
-                        autoComplete="off"
-                        onChange={(event) => updateConnectorDraft(connector.name, "apiKey", event.target.value)}
-                        placeholder="Optional"
-                        type="password"
-                        value={draft.apiKey}
-                      />
-                      <button
-                        className="secondary-button"
-                        onClick={() => void saveConnectorSetting(connector.name, "apiKey")}
-                        type="button"
-                      >
-                        <Save size={15} />
-                        <span>Save</span>
-                      </button>
-                    </div>
-                  </label>
-                </div>
-              </article>
-            );
-          })
-        )}
-      </section>
-    </main>
-  );
-}
-
-function buildConnectorDrafts(settings: SettingsDto): ConnectorDrafts {
-  return Object.fromEntries(
-    settings.connectors.map((connector) => [
-      connector.name,
-      {
-        apiKey: "",
-        baseUrl: settings.connectorSettings[connector.name]?.baseUrl ?? ""
-      }
-    ])
+    </>
   );
 }

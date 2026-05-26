@@ -17,7 +17,7 @@ function severityClass(severity: string): string {
   return "medium";
 }
 
-export function AffordancePage() {
+export function GapsPage() {
   const [status, setStatus] = useState<"open" | "resolved" | "wontfix" | "all">("open");
   const [gaps, setGaps] = useState<AffordanceGapDto[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
