@@ -19,6 +19,7 @@ import {
 } from "./memory.js";
 import { ModelRouter, type ModelRouterSettings } from "./modelRouter.js";
 import { PolicyEngine } from "./policyEngine.js";
+import type { GovernanceEnforcer } from "@squidbot/governance";
 import { summarizeWorkspace } from "./repoTask.js";
 import { createSession } from "./session.js";
 import { registerTerminalTools } from "./terminalTools.js";
@@ -45,6 +46,7 @@ export type AgentRuntimeOptions = {
   modelRouter?: ModelRouter;
   toolRegistry?: ToolRegistry;
   policyEngine?: PolicyEngine;
+  governanceEnforcer?: GovernanceEnforcer;
 };
 
 export type RunTaskOptions = {
@@ -75,6 +77,7 @@ export class AgentRuntime {
   private modelRouter: ModelRouter;
   private readonly toolRegistry: ToolRegistry;
   private readonly policyEngine: PolicyEngine;
+  private readonly governanceEnforcer: GovernanceEnforcer | null;
   private messages: ChatMessage[] = [];
   /**
    * The id of the active model_account the current `modelRouter` was built
@@ -115,6 +118,7 @@ export class AgentRuntime {
     this.modelRouterAccountId = getActiveModelAccount(options.database)?.id ?? null;
     this.toolRegistry = options.toolRegistry ?? new ToolRegistry();
     this.policyEngine = options.policyEngine ?? new PolicyEngine();
+    this.governanceEnforcer = options.governanceEnforcer ?? null;
 
     if (!options.toolRegistry) {
       registerWorkspaceTools(this.toolRegistry);
@@ -567,6 +571,36 @@ export class AgentRuntime {
         ok: false,
         output: { error: "Tool is not registered." }
       };
+    }
+
+    // Governance ABAC gate runs BEFORE the legacy PolicyEngine risk check.
+    // A deny converts to a structured tool-result so the model can react
+    // (e.g. switch tools, ask the operator) rather than the runtime throwing
+    // mid-turn. Without this, GovernanceEnforcer.assertAllowed existed but
+    // was never called from anywhere — the simulated policy in the UI had
+    // no relationship to actual runtime behavior.
+    if (this.governanceEnforcer) {
+      try {
+        this.governanceEnforcer.assertAllowed({
+          actor: { type: "system", id: `runtime:${this.sessionId}` },
+          action: "tool.invoke",
+          resource: { type: "tool", id: toolCall.name }
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        append("tool.denied", {
+          toolName: toolCall.name,
+          callId: toolCall.id,
+          actionDescription,
+          reason: `Blocked by governance: ${reason}`
+        });
+        return {
+          callId: toolCall.id,
+          toolName: toolCall.name,
+          ok: false,
+          output: { error: `Blocked by governance policy: ${reason}` }
+        };
+      }
     }
 
     const decision = this.policyEngine.evaluateTool(tool, toolCall.args);

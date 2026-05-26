@@ -17,7 +17,7 @@ import {
   resolveApproval
 } from "@squidbot/connectors";
 import { EvalResultStore, SkillVariantStore } from "@squidbot/evals";
-import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEngine } from "@squidbot/governance";
+import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, GovernanceEnforcer, GovernanceEngine, GovernancePolicyEngine } from "@squidbot/governance";
 import { MemoryGraphStore } from "@squidbot/memory";
 import { DeliveryRouter, getPlatformMatrixEntry, listPlatformMatrix, MessagingAdapterRegistry, MessagingGateway, MessagingStore } from "@squidbot/messaging";
 import { SandboxManager, sandboxFromRecord } from "@squidbot/sandbox";
@@ -209,7 +209,8 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
       }))
   );
 
-  return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry });
+  const governanceEnforcer = new GovernanceEnforcer(new GovernancePolicyEngine(database));
+  return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry, governanceEnforcer });
 }
 
 function createSkillService(database: SquidDatabase, paths: DesktopAppPaths): SkillService {
