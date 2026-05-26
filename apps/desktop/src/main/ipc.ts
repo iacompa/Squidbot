@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import { validateModelAccountApiUrl, validateProviderApiUrl } from "./urlGuards.js";
 import { replaceMcpManager } from "./mcpPool.js";
+import { McpCommandError, redactMcpEnv, validateMcpCommand } from "./mcpAllowlist.js";
 import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
   ConnectorRegistry,
@@ -765,7 +766,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       name: row.name,
       command: row.command,
       args: row.args,
-      env: row.env,
+      env: redactMcpEnv(row.env),
       riskLevel: row.riskLevel,
       enabled: row.enabled,
       lastConnectedAt: row.lastConnectedAt,
@@ -780,7 +781,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       name: s.name,
       command: s.command,
       args: s.args,
-      env: s.env,
+      env: redactMcpEnv(s.env),
       riskLevel: s.riskLevel,
       enabled: s.enabled,
       lastConnectedAt: s.lastConnectedAt,
@@ -790,6 +791,13 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:addMcpServer", async (_event, input: McpServerInputDto): Promise<McpServerDto> => {
+    try {
+      validateMcpCommand(input.command, input.args ?? []);
+    } catch (err) {
+      if (err instanceof McpCommandError) throw new Error(err.message);
+      throw err;
+    }
+
     const now = new Date().toISOString();
     const saved = database.saveMcpServer({
       id: createId("mcp"),
@@ -808,9 +816,9 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       // Spawn in a throwaway registry to validate the server is healthy.
       // The real registration happens lazily inside createRuntime() on the
       // next chat request — no need to share state with the persistent pool.
+      const tempRegistry = new ToolRegistry();
+      const tempManager = new McpClientManager(tempRegistry);
       try {
-        const tempRegistry = new ToolRegistry();
-        const tempManager = new McpClientManager(tempRegistry);
         await tempManager.spawnAll([{
           name: saved.name,
           transport: "stdio",
@@ -823,11 +831,16 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
           lastConnectedAt: new Date().toISOString(),
           lastError: null
         });
-        await tempManager.shutdown();
       } catch (err) {
         database.updateMcpServer(saved.name, {
           lastError: err instanceof Error ? err.message : String(err)
         });
+      } finally {
+        // Was previously inside the try block — a spawn failure orphaned
+        // the temp manager's subprocess(es). Finally guarantees cleanup
+        // even when spawnAll throws or the updateMcpServer call below
+        // throws an FK violation.
+        await tempManager.shutdown().catch(() => undefined);
       }
     }
 
@@ -837,6 +850,17 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:updateMcpServer", async (_event, name: string, input: Partial<McpServerInputDto>): Promise<McpServerDto> => {
+    if (input.command !== undefined || input.args !== undefined) {
+      const existing = database.getMcpServer(name);
+      const command = input.command ?? existing?.command ?? "";
+      const args = input.args ?? existing?.args ?? [];
+      try {
+        validateMcpCommand(command, args);
+      } catch (err) {
+        if (err instanceof McpCommandError) throw new Error(err.message);
+        throw err;
+      }
+    }
     database.updateMcpServer(name, input);
     const dto = mcpRowToDto(database.getMcpServer(name));
     if (!dto) throw new Error(`MCP server not found: ${name}`);
