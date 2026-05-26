@@ -10,6 +10,7 @@ export default defineConfig({
     plugins: [
       externalizeDepsPlugin({
         exclude: [
+          "@squidbot/blueprints",
           "@squidbot/connectors",
           "@squidbot/core",
           "@squidbot/db",
@@ -17,6 +18,7 @@ export default defineConfig({
           "@squidbot/governance",
           "@squidbot/memory",
           "@squidbot/messaging",
+          "@squidbot/models",
           "@squidbot/sandbox",
           "@squidbot/scheduler",
           "@squidbot/skills",
@@ -27,6 +29,7 @@ export default defineConfig({
     ],
     resolve: {
       alias: {
+        "@squidbot/blueprints": path.resolve(__dirname, "../../packages/blueprints/src"),
         "@squidbot/connectors": path.resolve(__dirname, "../../packages/connectors/src"),
         "@squidbot/core": path.resolve(__dirname, "../../packages/core/src"),
         "@squidbot/db": path.resolve(__dirname, "../../packages/db/src"),
@@ -34,6 +37,7 @@ export default defineConfig({
         "@squidbot/governance": path.resolve(__dirname, "../../packages/governance/src"),
         "@squidbot/memory": path.resolve(__dirname, "../../packages/memory/src"),
         "@squidbot/messaging": path.resolve(__dirname, "../../packages/messaging/src"),
+        "@squidbot/models": path.resolve(__dirname, "../../packages/models/src"),
         "@squidbot/sandbox": path.resolve(__dirname, "../../packages/sandbox/src"),
         "@squidbot/scheduler": path.resolve(__dirname, "../../packages/scheduler/src"),
         "@squidbot/skills": path.resolve(__dirname, "../../packages/skills/src"),
