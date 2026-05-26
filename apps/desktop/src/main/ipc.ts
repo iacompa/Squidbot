@@ -1462,6 +1462,37 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     }
   );
 
+  ipcMain.handle(
+    "squidbot:submitFeedback",
+    (_event, request: { message: string; page?: string; sentiment?: "positive" | "negative" | "neutral" }) => {
+      const message = typeof request?.message === "string" ? request.message.trim() : "";
+      if (!message) {
+        throw new Error("Feedback message is required.");
+      }
+      if (message.length > 4000) {
+        throw new Error("Feedback message exceeds 4000 characters.");
+      }
+      const sentiment =
+        request.sentiment === "positive" || request.sentiment === "negative" ? request.sentiment : "neutral";
+      const feedbackId = createId("feedback");
+      const submittedAt = new Date().toISOString();
+      database.appendEvent({
+        id: createId("evt"),
+        timestamp: submittedAt,
+        sessionId: "session_desktop_feedback",
+        type: "user.feedback.submitted",
+        data: {
+          runId: feedbackId,
+          message,
+          page: typeof request.page === "string" ? request.page.slice(0, 80) : null,
+          sentiment,
+          source: "desktop"
+        }
+      });
+      return { ok: true, feedbackId, submittedAt };
+    }
+  );
+
   ipcMain.handle("squidbot:listSquidbotCommands", () => SQUIDBOT_COMMAND_REGISTRY);
 
   ipcMain.handle("squidbot:runSquidbotCommand", async (_event, commandId: SquidbotCommandId): Promise<CommandRunResultDto> => {

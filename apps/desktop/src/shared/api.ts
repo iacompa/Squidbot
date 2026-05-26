@@ -1154,6 +1154,17 @@ export type SquidbotApi = {
    */
   runSquidbotCommand: (command: SquidbotCommandId) => Promise<CommandRunResultDto>;
   listSquidbotCommands: () => Promise<SquidbotCommandDescriptorDto[]>;
+  /**
+   * Record a user-submitted feedback message as an append-only event in the
+   * local trace log. Sentiment is optional (defaults to neutral). The page
+   * label is for in-app routing of follow-up — capped at 80 chars and never
+   * logged outside the local DB.
+   */
+  submitFeedback: (request: {
+    message: string;
+    page?: string;
+    sentiment?: "positive" | "negative" | "neutral";
+  }) => Promise<{ ok: true; feedbackId: string; submittedAt: string }>;
 };
 
 // ---------------- Identity / Profile DTOs ----------------

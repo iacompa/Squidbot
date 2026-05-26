@@ -4038,3 +4038,90 @@ body.no-scroll {
    ~2909 already collapses .identity-grid + .trust-grid. Both rules cascade
    down to mobile via the inclusive max-width matching, so the dedicated
    767px rules were redundant. Removed during cleanup. */
+
+.feedback-trigger {
+  margin: 12px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+}
+.feedback-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 18, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.feedback-modal {
+  background: var(--surface, #1b1f2a);
+  color: var(--text, #e8ecf2);
+  border-radius: 10px;
+  padding: 16px 18px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.feedback-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.feedback-modal__header h3 { margin: 0; font-size: 1rem; }
+.feedback-modal__sentiment {
+  display: flex;
+  gap: 6px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.sentiment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.sentiment-chip.is-selected {
+  background: rgba(120, 160, 255, 0.18);
+  border-color: rgba(120, 160, 255, 0.55);
+}
+.feedback-modal__textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font: inherit;
+}
+.feedback-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.feedback-modal__success {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.feedback-modal__success code {
+  font-size: 0.8rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+}

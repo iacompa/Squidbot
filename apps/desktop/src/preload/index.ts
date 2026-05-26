@@ -125,7 +125,8 @@ const api: SquidbotApi = {
   inferOnboarding: (answers) => ipcRenderer.invoke("squidbot:inferOnboarding", answers),
   commitOnboarding: (answers, options) => ipcRenderer.invoke("squidbot:commitOnboarding", answers, options),
   runSquidbotCommand: (command) => ipcRenderer.invoke("squidbot:runSquidbotCommand", command),
-  listSquidbotCommands: () => ipcRenderer.invoke("squidbot:listSquidbotCommands")
+  listSquidbotCommands: () => ipcRenderer.invoke("squidbot:listSquidbotCommands"),
+  submitFeedback: (request) => ipcRenderer.invoke("squidbot:submitFeedback", request)
 };
 
 contextBridge.exposeInMainWorld("squidbot", api);

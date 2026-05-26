@@ -13,6 +13,7 @@ import {
   UsersRound
 } from "lucide-react";
 import { BurgerButton } from "./components/BurgerButton";
+import { FeedbackButton } from "./components/FeedbackButton";
 import { MobileNavBackdrop } from "./components/MobileNavBackdrop";
 import { useBreakpoint } from "./hooks/useBreakpoint";
 import { squidbotApi } from "./lib/api";
@@ -351,6 +352,8 @@ export function App() {
             })}
           </nav>
         )}
+
+        <FeedbackButton currentPage={activePage} />
 
         <div className="status-stack">
           <div className="status-row">
