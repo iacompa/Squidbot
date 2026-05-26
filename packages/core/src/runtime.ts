@@ -91,11 +91,19 @@ export class AgentRuntime {
   private readonly modelRouterIsInjected: boolean;
   /**
    * High-water mark of the last `resolvedAt` timestamp we surfaced to the
-   * agent as a resolved-approvals system note, keyed by sessionId. Used so
-   * that each `sendMessage` only surfaces approvals resolved *since* the
-   * previous turn — the agent doesn't see the same approval announced twice.
+   * agent as a resolved-approvals system note. Persisted in the settings
+   * table per session — without DB-backed storage, every fresh runtime
+   * (the desktop builds one per IPC message) reset the watermark to
+   * `Date.now() - 60s`, re-surfacing the same approvals each turn.
    */
-  private readonly lastResolvedAtBySession = new Map<string, string>();
+  private getLastResolvedAt(): string {
+    const stored = this.database.getSetting<string>(`chat.lastResolvedAt.${this.sessionId}`);
+    return stored ?? new Date(Date.now() - 60_000).toISOString();
+  }
+
+  private setLastResolvedAt(value: string): void {
+    this.database.setSetting(`chat.lastResolvedAt.${this.sessionId}`, value);
+  }
 
   constructor(options: AgentRuntimeOptions) {
     this.database = options.database;
@@ -175,9 +183,7 @@ export class AgentRuntime {
    * so this is just a read against that table.
    */
   private buildResolvedApprovalsNote(): string | null {
-    const lastSeen =
-      this.lastResolvedAtBySession.get(this.sessionId)
-      ?? new Date(Date.now() - 60_000).toISOString();
+    const lastSeen = this.getLastResolvedAt();
     const rows = this.database.db
       .prepare(
         `SELECT id, payloadJson, resolution, resolvedAt, resultJson
@@ -221,7 +227,7 @@ export class AgentRuntime {
     // next turn.
     const latestSurfaced = rows[rows.length - 1].resolvedAt;
     const bumped = new Date(new Date(latestSurfaced).getTime() + 1).toISOString();
-    this.lastResolvedAtBySession.set(this.sessionId, bumped);
+    this.setLastResolvedAt(bumped);
     return [
       "SYSTEM: Since your last message, the following connector approvals were resolved:",
       ...lines,
