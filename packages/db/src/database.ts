@@ -34,6 +34,11 @@ export type StoredTrace = {
   created_at: string;
 };
 
+export type PersistedChatMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+};
+
 export type ReflectionInput = {
   id: string;
   sessionId: string;
@@ -521,6 +526,30 @@ export class SquidDatabase {
          ORDER BY timestamp ASC`
       )
       .all() as StoredEvent[];
+  }
+
+  appendChatMessage(sessionId: string, message: PersistedChatMessage): void {
+    this.db
+      .prepare(
+        `INSERT INTO chat_messages (session_id, role, content)
+         VALUES (?, ?, ?)`
+      )
+      .run(sessionId, message.role, message.content);
+  }
+
+  listChatMessages(sessionId: string): PersistedChatMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT role, content
+         FROM chat_messages
+         WHERE session_id = ?
+         ORDER BY id ASC`
+      )
+      .all(sessionId) as Array<{ role: string; content: string }>;
+    return rows.map((r) => ({
+      role: r.role as PersistedChatMessage["role"],
+      content: r.content
+    }));
   }
 
   saveTrace(trace: TraceInput): void {

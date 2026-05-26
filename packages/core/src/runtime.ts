@@ -75,7 +75,7 @@ export class AgentRuntime {
   private modelRouter: ModelRouter;
   private readonly toolRegistry: ToolRegistry;
   private readonly policyEngine: PolicyEngine;
-  private readonly messages: ChatMessage[] = [];
+  private messages: ChatMessage[] = [];
   /**
    * The id of the active model_account the current `modelRouter` was built
    * against. When the agent (or the operator) switches accounts mid-session
@@ -123,6 +123,16 @@ export class AgentRuntime {
     // the operator to run an explicit setup step. Idempotent — existing profiles
     // are not overwritten and an already-active profile is not changed.
     installSeedProfiles(this.database);
+
+    // Hydrate prior conversation history for this session. The DB is the
+    // source of truth — a fresh runtime built for the same sessionId (which
+    // happens on every IPC sendChatMessage) sees everything sent on prior
+    // turns. Without this, multi-turn chat was silently broken: the UI looked
+    // like a conversation, but the model only ever saw the latest turn.
+    const persisted = this.database.listChatMessages(this.sessionId);
+    if (persisted.length > 0) {
+      this.messages = persisted.map((m) => ({ role: m.role, content: m.content }));
+    }
   }
 
   /**
@@ -230,6 +240,7 @@ export class AgentRuntime {
     append("session.started", { workspacePath: this.workspacePath });
     append("user.message", { content });
     this.messages.push({ role: "user", content });
+    this.database.appendChatMessage(this.sessionId, { role: "user", content });
 
     // Retrieve approved memories so the chat path can cite operator guardrails,
     // founder notes from onboarding, and other importance-ranked context the
@@ -281,6 +292,7 @@ export class AgentRuntime {
 
     const responseContent = formatAssistantResponse(modelResponse.content, toolResults);
     this.messages.push({ role: "assistant", content: responseContent });
+    this.database.appendChatMessage(this.sessionId, { role: "assistant", content: responseContent });
 
     const trace = buildTrace(runEvents);
     this.database.saveTrace({
