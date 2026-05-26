@@ -114,7 +114,7 @@ describe("executeRealHttpCall — error normalization", () => {
   it("returns code='auth' for 401", async () => {
     const restore = withStatus(401);
     try {
-      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "u", apiKey: "k" });
+      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "https://api.example", apiKey: "k" });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.code).toBe("auth");
     } finally { restore(); }
@@ -122,7 +122,7 @@ describe("executeRealHttpCall — error normalization", () => {
   it("returns code='forbidden' for 403", async () => {
     const restore = withStatus(403);
     try {
-      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "u", apiKey: "k" });
+      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "https://api.example", apiKey: "k" });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.code).toBe("forbidden");
     } finally { restore(); }
@@ -130,7 +130,7 @@ describe("executeRealHttpCall — error normalization", () => {
   it("returns code='not_found' for 404", async () => {
     const restore = withStatus(404);
     try {
-      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "u", apiKey: "k" });
+      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "https://api.example", apiKey: "k" });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.code).toBe("not_found");
     } finally { restore(); }
@@ -138,7 +138,7 @@ describe("executeRealHttpCall — error normalization", () => {
   it("returns code='rate_limit' for 429", async () => {
     const restore = withStatus(429);
     try {
-      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "u", apiKey: "k" });
+      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "https://api.example", apiKey: "k" });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.code).toBe("rate_limit");
     } finally { restore(); }
@@ -146,7 +146,7 @@ describe("executeRealHttpCall — error normalization", () => {
   it("returns code='server_error' for 500", async () => {
     const restore = withStatus(500);
     try {
-      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "u", apiKey: "k" });
+      const r = await executeRealHttpCall(manifest("bearer"), endpoint("GET", "/x"), {}, { baseUrl: "https://api.example", apiKey: "k" });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.code).toBe("server_error");
     } finally { restore(); }

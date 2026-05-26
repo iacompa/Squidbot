@@ -1,5 +1,6 @@
 import type { JsonObject, ToolContext } from "@squidbot/core";
 import type { ConnectorEndpoint, ConnectorManifest } from "./manifest.js";
+import { assertPublicHttpUrl, SsrfError } from "./ssrfGuard.js";
 
 const DEFAULT_GITHUB_TIMEOUT_MS = 15_000;
 
@@ -244,7 +245,7 @@ export type HttpCallResult =
   | { ok: true; status: number; durationMs: number; body: unknown }
   | {
       ok: false;
-      code: "auth" | "forbidden" | "not_found" | "rate_limit" | "server_error" | "timeout" | "network" | "unknown";
+      code: "auth" | "forbidden" | "not_found" | "rate_limit" | "server_error" | "timeout" | "network" | "ssrf" | "unknown";
       status?: number;
       durationMs: number;
       message: string;
@@ -356,6 +357,25 @@ export async function executeRealHttpCall(
       durationMs: Date.now() - start,
       message: err instanceof Error ? err.message : String(err)
     };
+  }
+
+  // SSRF guard: refuse to fetch private/loopback/link-local hosts. Catches
+  // cloud-metadata exfiltration (169.254.169.254), misconfigured baseUrls
+  // pointing at localhost, and accidental LAN hits. The generic connector
+  // HTTP path was previously unprotected — the github-read SSRF guard is
+  // narrower and was the only outbound defense.
+  try {
+    assertPublicHttpUrl(url);
+  } catch (err) {
+    if (err instanceof SsrfError) {
+      return {
+        ok: false,
+        code: "ssrf",
+        durationMs: Date.now() - start,
+        message: err.message
+      };
+    }
+    throw err;
   }
 
   const method = endpoint.method.toUpperCase();
