@@ -468,7 +468,11 @@ export class MemoryGraphStore {
     return { nodes: [...nodes.values()], edges: [...edges.values()] };
   }
 
-  hybridSearch(query: string, topK = 10): MemorySearchResult[] {
+  hybridSearch(
+    query: string,
+    topK = 10,
+    options: { maxSensitivity?: MemorySensitivity } = {}
+  ): MemorySearchResult[] {
     const fts = this.searchFTS(query, Math.max(topK, 10));
     const vector = this.searchVector(query, Math.max(topK, 10));
     const scores = new Map<string, MemorySearchResult>();
@@ -504,7 +508,16 @@ export class MemoryGraphStore {
       }
     }
 
+    // Enforce sensitivity scoping: never return nodes above the caller's
+    // allowed level. Defaults to the highest level (no filtering) so existing
+    // single-operator callers are unaffected; a scoped caller passes e.g.
+    // maxSensitivity: "public" and never sees restricted/secret memories.
+    const maxRank = options.maxSensitivity
+      ? memorySensitivityLevels.indexOf(options.maxSensitivity)
+      : memorySensitivityLevels.length - 1;
+
     return [...scores.values()]
+      .filter((result) => memorySensitivityLevels.indexOf(result.node.sensitivity) <= maxRank)
       .sort((a, b) => b.score - a.score || b.node.importance - a.node.importance)
       .slice(0, topK)
       .map((result, index) => ({ ...result, rank: index + 1 }));

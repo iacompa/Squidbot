@@ -50,7 +50,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | M1 | Structured/semantic memory | ✅ hybrid+Dreaming+Wiki | ✅ pluggable | ✅ typed graph + FTS + provenance | **8** | Real strength |
 | M2 | Vector/embedding retrieval | ✅ real embeds | ✅ | 🟡 **hash pseudo-embeddings** | **6** | Optional real local embeddings behind contract |
 | M3 | Contradiction detection | 🟡 (Wiki) | 🟡 | ⬜ missing (1.4) | **5** | Add `contradicts` edge + operator prompt |
-| M4 | Sensitivity-scoped retrieval | 🟡 | ✅ (promptware) | 🟥 labels not enforced (1.6) | **5** | Enforce at retrieval |
+| M4 | Sensitivity-scoped retrieval | 🟡 | ✅ (promptware) | 🟡 **`hybridSearch` enforces `maxSensitivity`** (tested) | **7** | store-level enforcement done; runtime passes highest level (single-operator) — multi-tenant actor-privilege wiring is the remaining piece |
 | **REFLECTION / EVOLUTION** |
 | R1 | Reflection + missing-affordance capture | 🟡 | ✅ | ✅ taxonomy + gaps + graph | **8** | Strength |
 | R2 | Eval-gated skill evolution (variant→bench→canary→promote/rollback) | 🟡 | ✅ self-improve | ✅ **reflection→propose→static-gate→benchmark→canary, audited, never auto-promotes** | **8.5** | ✅ `runImprovementCycle` + `evolve auto` CLI; beats Hermes on auditability/eval-gating |
@@ -106,7 +106,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 **✅ RESOLVED this session:** BUG-001, BUG-002 (1.2+1.3), 1.7, 2.3, 2.4, 2.7. **2.6 verified NOT a bug** (owner bypasses RBAC permission grants by design, but ABAC deny/zero-spend/approval/sandbox still apply — gated correctly in `policyEngine.ts`).
 
 ### P1 — correctness / security
-- ✅ ~~1.7 FTS truncated to 12 tokens~~ · 1.4 Memory contradiction detection missing · 1.5 memory approval check-then-insert race · 1.6 sensitivity labels not enforced at retrieval
+- ✅ ~~1.7 FTS truncated to 12 tokens~~ · ✅ ~~1.6 sensitivity labels not enforced at retrieval~~ *(store-level `maxSensitivity` enforcement)* · 1.4 Memory contradiction detection missing *(needs semantic judgment)* · 1.5 memory approval check-then-insert race *(low impact — synchronous single-process)*
 - ✅ ~~2.1 connector creds leak into traces~~ · ✅ ~~2.2 approval queue bypasses governance~~ · ✅ ~~2.3 BYOK→local fallback silent~~ · ✅ ~~2.4 trace dropped when sendMessage throws~~ · ✅ ~~2.7 BYOK fetch has no timeout~~ · 2.6 owner role bypasses RBAC *(by design — closed)*
 - ✅ ~~3.1 per-account budget keyed by provider not account~~ · 3.6 tool args not validated vs inputSchema *(deferred — breakage risk; loop now surfaces tool errors for self-correction)*
 
