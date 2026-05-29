@@ -1,3 +1,4 @@
+export * from "./autonomyLoop.js";
 export * from "./benchmarkRunner.js";
 export * from "./canary.js";
 export * from "./comparison.js";

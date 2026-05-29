@@ -16,6 +16,7 @@ import {
   MutationProposer,
   promoteVariant,
   rollbackEvolution,
+  runImprovementCycle,
   runStaticChecks,
   SkillVariantStore
 } from "@squidbot/evals";
@@ -3283,6 +3284,40 @@ async function handleEvolveCommand(
     });
     refreshTraceForSession(database, "session_evolution");
     printJson({ variant });
+    return;
+  }
+
+  if (subcommand === "auto") {
+    const skillRef = collectFlagValue(parts, "--skill");
+    const datasetId = collectFlagValue(parts, "--dataset");
+    if (!skillRef || !datasetId) {
+      throw new Error(
+        "Usage: npm run evolve -- auto --skill <skillId> --dataset <datasetId> [--from-reflection <id>|--from-gap <id>|--from-eval <id>|--instruction <text>]"
+      );
+    }
+    // The full self-improvement cycle: propose → static-check gate → benchmark
+    // baseline vs candidate → open a canary only on a strict win. Never
+    // auto-promotes to stable (that stays canary/operator gated).
+    const result = await runImprovementCycle(database, {
+      skillId: resolveSkillReference(skills, skillRef) ?? skillRef,
+      datasetId,
+      skillsRoot: path.join(appDataDir, "skills"),
+      fromReflection: collectFlagValue(parts, "--from-reflection"),
+      fromGap: collectFlagValue(parts, "--from-gap"),
+      fromEval: collectFlagValue(parts, "--from-eval"),
+      instruction: collectFlagValue(parts, "--instruction")
+    });
+    refreshTraceForSession(database, "session_evolution");
+    printJson({
+      outcome: result.outcome,
+      variantId: result.variant.id,
+      state: result.variant.state,
+      baselineScore: result.baselineScore,
+      candidateScore: result.candidateScore,
+      comparison: result.comparison,
+      promotedToStable: result.promotedToStable,
+      reason: result.reason
+    });
     return;
   }
 
