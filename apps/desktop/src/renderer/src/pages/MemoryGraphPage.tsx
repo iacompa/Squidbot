@@ -146,6 +146,15 @@ export function MemoryGraphPage({ embedded = false }: MemoryGraphPageProps = {})
     if (!detail) {
       return;
     }
+    // Soft-delete is destructive (drops the node from active retrieval) — guard
+    // it behind a confirmation so a stray click can't wipe a memory.
+    if (
+      typeof window !== "undefined" &&
+      typeof window.confirm === "function" &&
+      !window.confirm(`Delete memory node "${detail.node.title}"? It will be removed from active retrieval.`)
+    ) {
+      return;
+    }
     await squidbotApi.deleteMemoryGraphNode(detail.node.id);
     setSelectedId(null);
     await refreshAll();
