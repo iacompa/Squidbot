@@ -1567,8 +1567,9 @@ async function handleTrustCommand(
 
   if (subcommand === "packet") {
     const framework = (collectFlagValue(parts, "--framework") ?? "soc2") as ComplianceFramework;
-    if (framework !== "soc2" && framework !== "gdpr") {
-      throw new Error("--framework must be soc2 or gdpr");
+    const supportedFrameworks: ComplianceFramework[] = ["soc2", "gdpr", "hipaa", "pci_dss", "iso27001"];
+    if (!supportedFrameworks.includes(framework)) {
+      throw new Error("--framework must be one of: soc2, gdpr, hipaa, pci_dss, iso27001");
     }
     const packet = buildCompliancePacket({ database, trustReport: report, framework });
     const outputPath = collectFlagValue(parts, "--out");

@@ -76,6 +76,7 @@ import {
 import { discoverProviderModels } from "@squidbot/models";
 import {
   buildCompliancePacket,
+  type ComplianceFramework,
   buildTrustReport,
   digestTrustReport,
   formatTrustReportMarkdown,
@@ -1491,8 +1492,9 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     return digestTrustReport(report);
   });
 
-  ipcMain.handle("squidbot:buildCompliancePacket", (_event, framework: "soc2" | "gdpr") => {
-    if (framework !== "soc2" && framework !== "gdpr") {
+  ipcMain.handle("squidbot:buildCompliancePacket", (_event, framework: ComplianceFramework) => {
+    const supportedFrameworks: ComplianceFramework[] = ["soc2", "gdpr", "hipaa", "pci_dss", "iso27001"];
+    if (!supportedFrameworks.includes(framework)) {
       throw new Error(`Unsupported framework: ${framework}`);
     }
     installSeedProfiles(database);

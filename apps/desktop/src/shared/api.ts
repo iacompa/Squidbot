@@ -1140,7 +1140,9 @@ export type SquidbotApi = {
   createEnterpriseProfile: (input: EnterpriseProfileCreateRequestDto) => Promise<EnterpriseProfileDto>;
   getTrustReport: () => Promise<TrustReportDto>;
   getTrustDigest: () => Promise<TrustDigestDto>;
-  buildCompliancePacket: (framework: "soc2" | "gdpr") => Promise<CompliancePacketDto>;
+  buildCompliancePacket: (
+    framework: "soc2" | "gdpr" | "hipaa" | "pci_dss" | "iso27001"
+  ) => Promise<CompliancePacketDto>;
   getOnboardingQuestions: () => Promise<OnboardingQuestionDto[]>;
   inferOnboarding: (answers: OnboardingAnswerDto[]) => Promise<OnboardingInferenceDto>;
   commitOnboarding: (

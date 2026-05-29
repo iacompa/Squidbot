@@ -7,7 +7,7 @@ import { sha256, stableJson } from "./internal.js";
 
 export const COMPLIANCE_PACKET_SCHEMA_VERSION = "1";
 
-export type ComplianceFramework = "soc2" | "gdpr";
+export type ComplianceFramework = "soc2" | "gdpr" | "hipaa" | "pci_dss" | "iso27001";
 
 export type ComplianceControlEvidence = {
   controlId: string;
@@ -129,6 +129,145 @@ function controlsForFramework(framework: ComplianceFramework): ControlTemplate[]
     ];
   }
 
+  if (framework === "hipaa") {
+    return [
+      {
+        id: "HIPAA-164.308(a)(1)",
+        title: "Security Management Process — information system activity review.",
+        trustField: (report) => report.audit.entryCount > 0,
+        evidenceBuilder: (report) => [
+          `Hash-chained audit ledger records every state change (${report.audit.entryCount} entries; chain ${report.audit.chainValid ? "valid" : "FAILED"}).`,
+          `Activity review supported by trace replay and the last-24h volume of ${report.audit.last24hCount} entries.`
+        ],
+        fallbackNotes: "Audit ledger is empty; the first operation starts the tamper-evident chain."
+      },
+      {
+        id: "HIPAA-164.312(a)(1)",
+        title: "Technical safeguards — access control (RBAC/ABAC + minimum necessary).",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          `RBAC + ABAC enforcement active with ${report.policy.abacRuleCount} ABAC rule(s); ${report.policy.denyDecisionCount} deny verdict(s) recorded.`,
+          "High-stakes (healthcare) profiles default to read-only until writes are explicitly enabled with approvals."
+        ]
+      },
+      {
+        id: "HIPAA-164.312(b)",
+        title: "Audit controls — record and examine activity in systems with ePHI.",
+        trustField: (report) => report.audit.chainValid,
+        evidenceBuilder: (report) => [
+          `Append-only, hash-chained ledger (latest hash: ${report.audit.latestEntryHash ?? "n/a"}). Retroactive edits break the chain and are detectable.`
+        ]
+      },
+      {
+        id: "HIPAA-164.312(a)(2)(iv)",
+        title: "Encryption and decryption — ePHI protected at rest.",
+        trustField: (report) => report.vault.encryptedAtRest,
+        evidenceBuilder: (report) => [
+          `Local encrypted vault uses ${report.vault.algorithm}; the master key lives outside the database it protects.`,
+          "Secrets are redacted before persistence — never written to traces or audit details in plaintext."
+        ]
+      },
+      {
+        id: "HIPAA-164.312(c)(1)",
+        title: "Integrity — protect ePHI from improper alteration.",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          "Write operations are staged in a copy-on-write sandbox (network deny by default) and require an approval gate before promotion.",
+          `Sandbox activity: ${report.sandbox.activeCount} active, ${report.sandbox.promotedCount} promoted, ${report.sandbox.rejectedCount} rejected.`
+        ]
+      }
+    ];
+  }
+
+  if (framework === "pci_dss") {
+    return [
+      {
+        id: "PCI-3.5",
+        title: "Protect stored account data — render sensitive data unreadable.",
+        trustField: (report) => report.vault.encryptedAtRest,
+        evidenceBuilder: (report) => [
+          `Credentials stored via the local encrypted vault (${report.vault.algorithm}); ${report.vault.secretReferenceCount} secret reference(s), ${report.vault.rotatedSecretCount} with rotation history.`,
+          "Redaction removes PAN-like and secret patterns from traces/logs before they are persisted."
+        ]
+      },
+      {
+        id: "PCI-7.2",
+        title: "Restrict access by business need-to-know (RBAC).",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          `Role-based + attribute-based access control with ${report.policy.abacRuleCount} ABAC rule(s); deny-by-default for unscoped actions.`,
+          `Policy packs available: ${report.policy.policyPacks.map((pack) => pack.id).join(", ")}.`
+        ]
+      },
+      {
+        id: "PCI-10.2",
+        title: "Log all access to system components and cardholder data.",
+        trustField: (report) => report.audit.entryCount > 0,
+        evidenceBuilder: (report) => [
+          `Hash-chained audit ledger: ${report.audit.entryCount} entries, chain ${report.audit.chainValid ? "valid" : "FAILED"}.`,
+          "Each entry links actor, action, resource, and outcome; the chain makes log tampering evident."
+        ],
+        fallbackNotes: "Audit ledger is empty; the chain starts on the first operation."
+      },
+      {
+        id: "PCI-6.5",
+        title: "Develop and maintain secure systems — change management.",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          "Changes are staged in an isolated sandbox and promoted only through an approval gate linked to the run trace.",
+          `Sandbox: ${report.sandbox.activeCount} active / ${report.sandbox.promotedCount} promoted / ${report.sandbox.rejectedCount} rejected.`
+        ]
+      }
+    ];
+  }
+
+  if (framework === "iso27001") {
+    return [
+      {
+        id: "ISO-A.5.15",
+        title: "Access control — policy for access to information.",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          `RBAC + ABAC enforced (${report.policy.abacRuleCount} rule(s)); ${report.policy.denyDecisionCount} deny verdict(s) recorded over the ledger lifetime.`
+        ]
+      },
+      {
+        id: "ISO-A.8.15",
+        title: "Logging — events are recorded and protected.",
+        trustField: (report) => report.audit.entryCount > 0,
+        evidenceBuilder: (report) => [
+          `Append-only hash-chained ledger (${report.audit.entryCount} entries; chain ${report.audit.chainValid ? "valid" : "FAILED"}).`
+        ],
+        fallbackNotes: "Audit ledger is empty; logging begins on the first operation."
+      },
+      {
+        id: "ISO-A.8.24",
+        title: "Use of cryptography — secrets protected at rest.",
+        trustField: (report) => report.vault.encryptedAtRest,
+        evidenceBuilder: (report) => [
+          `Local encrypted vault uses ${report.vault.algorithm} with the master key held outside the protected database.`
+        ]
+      },
+      {
+        id: "ISO-A.8.16",
+        title: "Monitoring activities — anomalies and capability gaps are tracked.",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          `Affordance-gap log captures unmet capability requirements — open: ${report.affordanceGaps.openCount}, resolved: ${report.affordanceGaps.resolvedCount}, high-severity open: ${report.affordanceGaps.highSeverityOpenCount}.`
+        ]
+      },
+      {
+        id: "ISO-A.8.32",
+        title: "Change management — controlled promotion of changes.",
+        trustField: () => true,
+        evidenceBuilder: (report) => [
+          "All write operations are staged in a sandbox and require an approval gate before promotion to the real workspace.",
+          `Sandbox: ${report.sandbox.activeCount} active / ${report.sandbox.promotedCount} promoted / ${report.sandbox.rejectedCount} rejected.`
+        ]
+      }
+    ];
+  }
+
   return [
     {
       id: "GDPR-Art5",
@@ -199,6 +338,9 @@ function controlsForFramework(framework: ComplianceFramework): ControlTemplate[]
 
 function frameworkTitle(framework: ComplianceFramework): string {
   if (framework === "soc2") return "SOC 2 Type II — Common Criteria Evidence";
+  if (framework === "hipaa") return "HIPAA Security Rule (45 CFR §164) Evidence";
+  if (framework === "pci_dss") return "PCI DSS v4.0 Control Evidence";
+  if (framework === "iso27001") return "ISO/IEC 27001:2022 Annex A Control Evidence";
   return "GDPR Article-Level Evidence";
 }
 

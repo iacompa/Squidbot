@@ -207,6 +207,29 @@ describe("compliance packet", () => {
     expect(packet.markdown).toContain("GDPR Article-Level Evidence");
   });
 
+  it.each([
+    ["hipaa", "HIPAA-", "HIPAA"],
+    ["pci_dss", "PCI-", "PCI DSS"],
+    ["iso27001", "ISO-", "ISO/IEC 27001"]
+  ] as const)("generates a %s packet with framework-specific controls", (framework, controlPrefix, titleFragment) => {
+    database = tempDb();
+    installSeedProfiles(database);
+    activateProfile(database, "profile_seed_engineering_shop");
+    const ledger = new AuditLedger(database);
+    ledger.append({ actorType: "user", actorId: "user_test", action: "test.action", resourceType: "test", resourceId: "abc", outcome: "ok" });
+    const identityReport = buildIdentityReport(database, new ToolRegistry());
+    const trustReport = buildTrustReport({ database, identityReport });
+
+    const packet = buildCompliancePacket({ database, trustReport, framework });
+
+    expect(packet.framework).toBe(framework);
+    expect(packet.controls.length).toBeGreaterThan(0);
+    // Controls must be framework-specific, not the SOC2/GDPR fallback set.
+    expect(packet.controls.every((control) => control.controlId.startsWith(controlPrefix))).toBe(true);
+    expect(packet.markdown).toContain(titleFragment);
+    expect(packet.digest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it("two packets generated at the same instant from same state produce same digest", () => {
     database = tempDb();
     const identityReport = buildIdentityReport(database, new ToolRegistry());

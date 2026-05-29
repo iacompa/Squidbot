@@ -27,7 +27,7 @@ export function TrustPage() {
   const [report, setReport] = useState<TrustReportDto | null>(null);
   const [digest, setDigest] = useState<TrustDigestDto | null>(null);
   const [packet, setPacket] = useState<CompliancePacketDto | null>(null);
-  const [framework, setFramework] = useState<"soc2" | "gdpr">("soc2");
+  const [framework, setFramework] = useState<"soc2" | "gdpr" | "hipaa" | "pci_dss" | "iso27001">("soc2");
   const [loading, setLoading] = useState(false);
   const [generatingPacket, setGeneratingPacket] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -283,16 +283,21 @@ export function TrustPage() {
           <section className="trust-card trust-card--full" aria-label="Compliance packet generator">
             <h3>Compliance evidence packet</h3>
             <p className="muted">
-              Generate a SOC2 or GDPR control-evidence packet drawn from the live audit ledger and policy state.
+              Generate a SOC2, GDPR, HIPAA, PCI DSS, or ISO 27001 control-evidence packet drawn from the live audit ledger and policy state.
             </p>
             <div className="compliance-controls">
               <select
                 value={framework}
-                onChange={(event) => setFramework(event.target.value === "gdpr" ? "gdpr" : "soc2")}
+                onChange={(event) =>
+                  setFramework(event.target.value as "soc2" | "gdpr" | "hipaa" | "pci_dss" | "iso27001")
+                }
                 aria-label="Compliance framework"
               >
                 <option value="soc2">SOC 2</option>
                 <option value="gdpr">GDPR</option>
+                <option value="hipaa">HIPAA</option>
+                <option value="pci_dss">PCI DSS</option>
+                <option value="iso27001">ISO 27001</option>
               </select>
               <button
                 type="button"
