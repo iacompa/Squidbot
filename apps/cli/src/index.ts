@@ -533,9 +533,15 @@ async function main(): Promise<void> {
           return;
         }
 
-        const result = await runtime.sendMessage(answer);
-        console.log(result.content);
-        deliverMessagingRunSummary(database, result.runId, result.content);
+        // A single failed turn must not kill the whole REPL session — print
+        // the error and keep prompting (3.9).
+        try {
+          const result = await runtime.sendMessage(answer);
+          console.log(result.content);
+          deliverMessagingRunSummary(database, result.runId, result.content);
+        } catch (error) {
+          console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
 
