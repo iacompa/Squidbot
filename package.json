@@ -32,6 +32,7 @@
     "eval": "npm run ensure:node-native && npm run eval -w apps/cli --",
     "evolve": "npm run ensure:node-native && npm run evolve -w apps/cli --",
     "messaging": "npm run ensure:node-native && npm run messaging -w apps/cli --",
+    "mcp": "npm run ensure:node-native && npm run mcp -w apps/cli --",
     "governance": "npm run ensure:node-native && npm run governance -w apps/cli --",
     "project:status": "npm run ensure:node-native && npm run project:status -w apps/cli --",
     "doctor": "npm run ensure:node-native && npm run doctor -w apps/cli --",

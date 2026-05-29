@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools } from "@squidbot/connectors";
+import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools, SquidbotMcpServer } from "@squidbot/connectors";
 import { initializeDatabase, type SandboxRecord } from "@squidbot/db";
 import {
   BenchmarkRunner,
@@ -75,10 +75,12 @@ import {
   getLatestTrace,
   inferOnboardingProfile,
   installSeedProfiles,
+  EventLog,
   listModelAccounts,
   listProfiles,
   listRuns,
   loadOrCreateMasterKey,
+  PolicyEngine,
   PROVIDER_PRESETS,
   redactAccount,
   redactValue,
@@ -256,6 +258,11 @@ async function main(): Promise<void> {
 
     if (args.command === "messaging") {
       await handleMessagingCommand(database, args, splitCommandParts(args.message));
+      return;
+    }
+
+    if (args.command === "mcp") {
+      await handleMcpCommand(database, args, splitCommandParts(args.message));
       return;
     }
 
@@ -682,6 +689,52 @@ function indentBlock(value: string, prefix: string): string {
 
 function splitCommandParts(value: string | undefined): string[] {
   return value?.split(/\s+/).filter(Boolean) ?? [];
+}
+
+/**
+ * `npm run mcp -- serve [--workspace <path>]` — run SquidBot as an MCP server
+ * over stdio so Claude Desktop / Cursor / any MCP client can call its tools.
+ * Every call is governed by the PolicyEngine and audited to the event log.
+ */
+async function handleMcpCommand(
+  database: ReturnType<typeof initializeDatabase>,
+  args: { workspace?: string },
+  parts: string[]
+): Promise<void> {
+  const sub = parts[0] ?? "serve";
+  if (sub !== "serve") {
+    throw new Error("Usage: npm run mcp -- serve [--workspace <path>]");
+  }
+
+  const workspacePath = args.workspace
+    ? resolveFromInvocationCwd(args.workspace)
+    : database.getSetting<string>("workspacePath") ?? resolveFromInvocationCwd(".");
+
+  const toolRegistry = new ToolRegistry();
+  registerWorkspaceTools(toolRegistry);
+  registerTerminalTools(toolRegistry);
+  registerTestTools(toolRegistry);
+  registerModelAccountTools(toolRegistry, database);
+  const connectorRegistry = new ConnectorRegistry(database);
+  installDeveloperWorkflowConnectors(connectorRegistry);
+  registerConnectorTools(toolRegistry, connectorRegistry);
+
+  const server = new SquidbotMcpServer(toolRegistry, {
+    policyEngine: new PolicyEngine(),
+    eventLog: new EventLog(database),
+    database,
+    workspacePath
+  });
+
+  // Diagnostics go to STDERR — stdout is the JSON-RPC channel and any stray
+  // byte there corrupts the MCP protocol stream the client is parsing.
+  console.error(
+    `SquidBot MCP server ready over stdio — ${toolRegistry.list().length} governed tools (workspace: ${workspacePath}). Ctrl+C to stop.`
+  );
+  await server.serveStdio();
+  // Keep the process (and DB connection) alive while the stdio transport
+  // services requests via its stdin/stdout listeners.
+  await new Promise<void>(() => undefined);
 }
 
 function createRuntime(options: { database: ReturnType<typeof initializeDatabase>; workspacePath: string; sessionId?: string }): AgentRuntime {

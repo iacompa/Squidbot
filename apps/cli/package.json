@@ -20,6 +20,7 @@
     "eval": "tsx src/index.ts eval",
     "evolve": "tsx src/index.ts evolve",
     "messaging": "tsx src/index.ts messaging",
+    "mcp": "tsx src/index.ts mcp",
     "governance": "tsx src/index.ts governance",
     "project:status": "tsx src/index.ts project:status",
     "doctor": "tsx src/index.ts doctor",

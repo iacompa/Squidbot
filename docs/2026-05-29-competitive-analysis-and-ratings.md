@@ -79,7 +79,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | I5 | Web/PWA reach | ✅ | ✅ | 🟡 web bridge (no auth) | **5** | Auth the bridge (5.7) |
 | **INTEGRATIONS** |
 | N1 | MCP client (consume servers) | ✅ | ✅ | ✅ pooled client | **8** | Strength |
-| N2 | MCP server (expose self) | ✅ | ✅ | ⬜ **absent** | **N/A** | Add — unlocks Claude-driven testing |
+| N2 | MCP server (expose self) | ✅ | ✅ | ✅ **stdio server, 68 governed tools** | **8.5** | ✅ ADDED — `npm run mcp -- serve`; PolicyEngine-gated + audited; Claude can drive SquidBot |
 | N3 | Connector framework + OpenAPI import | ✅ | 🟡 | ✅ registry+importer+HTTP | **8** | Strength |
 | N4 | Real dev integrations (GitHub etc.) | ✅ skills | ✅ | 🟡 GitHub read real; writes gated | **6** | E2E PR-creation UX |
 | **AI STUDIO (the centerpiece differentiator)** |
@@ -161,6 +161,8 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 ---
 
 ## 6. Progress Log
+
+- **2026-05-29 — N2 MCP SERVER MODE shipped (feature).** New `packages/connectors/src/mcpServer.ts` (`SquidbotMcpServer`) exposes the tool registry over MCP stdio; every `callTool` is gated by the same `PolicyEngine` the runtime uses and audited to the event log. New CLI command `npm run mcp -- serve [--workspace <path>]`. Tests: `mcpServer.test.ts` (list / allowed-call / policy-deny / unknown-tool). Verified end-to-end: real MCP `initialize`+`tools/list` handshake over stdio returned 68 governed tools. SquidBot now has MCP **client + server** (parity with OpenClaw/Hermes). Design: `docs/superpowers/specs/2026-05-29-mcp-server-mode-design.md`. **N2 N/A → 8.5.**
 
 - **2026-05-29 — BUG-001 (P0) agentic tool loop FIXED.** Root-caused by code read (`sendMessage` called the model once, ran tools, returned — model never saw results). Fix (TDD, 3 new tests): extended `ChatMessage` with `toolCalls`/`toolCallId`; rewrote `sendMessage` as a bounded loop (cap 8 + identical-call dedup) that feeds tool results back; `apiProvider` now serializes `tool_calls`/`tool` for real OpenAI APIs; deterministic provider terminates by summarizing results. **C1 rating 3 → 8.5.** Verified: full `npm run test` green, `npm run typecheck` clean.
 - **2026-05-29 — 2.4 trace-on-throw FIXED.** `sendMessage` wrapped in try/catch/finally so a failed run still persists a trace (with an `error` event) to History + audit. New test `runtime-trace-integrity.test.ts`. **O1 strengthened.**
