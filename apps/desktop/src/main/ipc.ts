@@ -5,6 +5,7 @@ import { validateModelAccountApiUrl, validateProviderApiUrl } from "./urlGuards.
 import { replaceMcpManager } from "./mcpPool.js";
 import { McpCommandError, redactMcpEnv, validateMcpCommand } from "./mcpAllowlist.js";
 import { withApprovalLock } from "./approvalLock.js";
+import { checkConnectorApprovalGovernance } from "./connectorApproval.js";
 import { BlueprintRegistry } from "@squidbot/blueprints";
 import {
   ConnectorRegistry,
@@ -758,6 +759,20 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       const baseUrl = database.getSetting<string>(`${manifest.name}.baseUrl`);
       const apiKey = database.getSetting<string>(`${manifest.name}.apiKey`) ?? null;
       if (!baseUrl) return { ok: false, error: "Base URL not configured." };
+
+      // Re-check governance before executing — approving in the UI must not
+      // bypass the same ABAC/RBAC policy the runtime applies to the tool call.
+      const gate = checkConnectorApprovalGovernance(
+        new GovernanceEnforcer(new GovernancePolicyEngine(database)),
+        {
+          connectorName: String(connectorName),
+          operationId: String(operationId),
+          sessionId: (row as { callerSessionId?: string }).callerSessionId
+        }
+      );
+      if (!gate.allowed) {
+        return { ok: false, error: `Blocked by governance policy: ${gate.reason}` };
+      }
 
       const httpResult = await executeRealHttpCall(
         manifest,

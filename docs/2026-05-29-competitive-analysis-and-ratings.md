@@ -56,7 +56,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | R2 | Eval-gated skill evolution (variant→bench→canary→promote/rollback) | 🟡 | ✅ self-improve | ✅ **reflection→propose→static-gate→benchmark→canary, audited, never auto-promotes** | **8.5** | ✅ `runImprovementCycle` + `evolve auto` CLI; beats Hermes on auditability/eval-gating |
 | R3 | Skills system | ✅ AgentSkills | ✅ + Hub (19k) | 🟡 manifest+evaluator, few skills | **7** | Add reference skills; importer |
 | **SAFETY / GOVERNANCE (SquidBot's moat)** |
-| G1 | Approval-gating high-risk actions | ✅ | ✅ | ✅ queue + risk tiers + lock | **8.5** | Approval path → governance (2.2) |
+| G1 | Approval-gating high-risk actions | ✅ | ✅ | ✅ queue + risk tiers + lock + **governance re-check on execute** | **9** | ✅ 2.2 fixed — approving in UI can't bypass ABAC/RBAC |
 | G2 | Chained-hash tamper-evident audit | ⬜ | ⬜ | ✅ **unique** | **9** | Keep; surface in every flow |
 | G3 | RBAC/ABAC + policy packs | 🟡 scopes | 🟡 | ✅ full engine, wired to runtime | **8.5** | Owner-role RBAC bypass (2.6) |
 | G4 | Secrets at rest | ✅ keychain/Bitwarden | ✅ Bitwarden | ✅ **AES-256-GCM; key in 0600 file outside DB; legacy-key migration** | **8.5** | ✅ **FIXED** (BUG-002 1.2+1.3) — TDD'd, security harness green |
@@ -107,7 +107,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ### P1 — correctness / security
 - ✅ ~~1.7 FTS truncated to 12 tokens~~ · 1.4 Memory contradiction detection missing · 1.5 memory approval check-then-insert race · 1.6 sensitivity labels not enforced at retrieval
-- ✅ ~~2.3 BYOK→local fallback silent~~ · ✅ ~~2.4 trace dropped when sendMessage throws~~ · ✅ ~~2.7 BYOK fetch has no timeout~~ · 2.1 connector responses leak creds into traces · 2.2 approval queue bypasses governance · 2.6 owner role bypasses RBAC *(by design — closed)*
+- ✅ ~~2.1 connector creds leak into traces~~ · ✅ ~~2.2 approval queue bypasses governance~~ · ✅ ~~2.3 BYOK→local fallback silent~~ · ✅ ~~2.4 trace dropped when sendMessage throws~~ · ✅ ~~2.7 BYOK fetch has no timeout~~ · 2.6 owner role bypasses RBAC *(by design — closed)*
 - ✅ ~~3.1 per-account budget keyed by provider not account~~ · 3.6 tool args not validated vs inputSchema *(deferred — breakage risk; loop now surfaces tool errors for self-correction)*
 
 ### P2 — UX / robustness
@@ -162,6 +162,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ## 6. Progress Log
 
+- **2026-05-29 — 2.2 approval execution now governance-gated.** Approving a queued connector call in the UI executed the HTTP request without re-checking governance — bypassing the ABAC/RBAC policy the runtime applies to the same tool. Added `checkConnectorApprovalGovernance` (mirrors the runtime gate: `tool.invoke` on `connector.<name>.<op>`); `approveConnectorCall` blocks before executing if denied. Extracted + unit-tested (3 tests). **G1 8.5 → 9.**
 - **2026-05-29 — 5.7 web bridge method-dispatch hardened.** The `/api/:method` bridge dispatched any path to `invoke` — `__proto__`/`constructor`/etc. were a prototype-pollution vector. Added `isSafeBridgeMethod` (camelCase-only, denylist of prototype member names) → 400 before dispatch. 17 new assertions. **I5 5 → 7** (token-auth remains a deployment-phase concern; localhost-only by design).
 - **2026-05-29 — G7 compliance packets +HIPAA/PCI/ISO.** Extended the generator from SOC2/GDPR to also produce **HIPAA Security Rule, PCI DSS v4.0, and ISO/IEC 27001:2022** control-evidence packets, each mapping real SquidBot evidence (hash-chained audit, RBAC/ABAC, encrypted vault, sandbox staging, redaction, affordance gaps). Wired end-to-end (governance generator + IPC handler + CLI `trust packet --framework` + TrustPage selector). 3 new tests. **G7 8 → 9** — a differentiator neither OpenClaw nor Hermes has at all.
 - **2026-05-29 — R2 AUTONOMY LOOP shipped (feature).** New `packages/evals/src/autonomyLoop.ts` (`runImprovementCycle`): a reflection/gap/eval trigger → `MutationProposer` proposes a skill variant → `runStaticChecks` safety gate → benchmark baseline vs candidate → `compareEvalRuns` → opens a **canary only on a strict win**, and **never auto-promotes to stable** (promotion stays canary/operator-gated — the explicit anti-goal of "untested auto-promotion"). Every step audited. CLI: `npm run evolve -- auto --skill <id> --dataset <id> --from-reflection <id>`. Test `autonomyLoop.test.ts` asserts the trigger, eval-gate, never-stable invariant, and audit events. This is SquidBot's "self-improving + auditable" thesis — it beats Hermes's self-improvement on eval-gating + auditability. **R2 7 → 8.5.**
