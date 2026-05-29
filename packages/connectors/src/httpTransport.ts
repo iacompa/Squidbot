@@ -249,6 +249,8 @@ export type HttpCallResult =
       status?: number;
       durationMs: number;
       message: string;
+      /** The parsed server error response, preserved for diagnostics/traces. */
+      body?: unknown;
     };
 
 /**
@@ -423,7 +425,10 @@ export async function executeRealHttpCall(
         ? parsed.slice(0, 500)
         : parsed && typeof parsed === "object" && "message" in parsed
           ? String((parsed as Record<string, unknown>).message).slice(0, 500)
-          : `HTTP ${response.status}`
+          : `HTTP ${response.status}`,
+      // Preserve the full parsed error body — a structured error without a
+      // `message` field was previously reduced to "HTTP <status>".
+      body: parsed
     };
   } catch (err) {
     clearTimeout(timer);
