@@ -59,6 +59,7 @@ import {
   computeTraceMetrics,
   createCustomProfile,
   createId,
+  createSecretCipher,
   deleteModelAccount,
   describeForWhoami,
   ensureLegacyAccountMigrated,
@@ -77,6 +78,7 @@ import {
   listModelAccounts,
   listProfiles,
   listRuns,
+  loadOrCreateMasterKey,
   PROVIDER_PRESETS,
   redactAccount,
   redactValue,
@@ -93,6 +95,7 @@ import {
   type ModelAccountInput,
   type OnboardingAnswer,
   type OnboardingQuestion,
+  type SecretCipher,
   type ProviderKind
 } from "@squidbot/core";
 
@@ -138,10 +141,20 @@ function resolveFromInvocationCwd(targetPath: string): string {
   return path.resolve(invocationCwd, targetPath);
 }
 
+// Decrypts/encrypts BYOK keys in model_accounts. Master key lives in a 0600
+// file under appDataDir (never in the DB). Set once at startup in main().
+let cliSecretCipher: SecretCipher | undefined;
+// Path to the governance vault's master-key file (outside the DB).
+let cliVaultKeyFile: string | undefined;
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const config = ensureLocalConfig();
   const database = initializeDatabase(config.databasePath);
+  cliSecretCipher = createSecretCipher(
+    loadOrCreateMasterKey({ keyFilePath: path.join(config.appDataDir, "secret.key") })
+  );
+  cliVaultKeyFile = path.join(config.appDataDir, "vault.master.key");
 
   try {
     if (args.command === "init") {
@@ -690,7 +703,8 @@ function createRuntime(options: { database: ReturnType<typeof initializeDatabase
     database: options.database,
     workspacePath: options.workspacePath,
     sessionId: options.sessionId,
-    toolRegistry
+    toolRegistry,
+    secretCipher: cliSecretCipher
   });
 }
 
@@ -1044,7 +1058,7 @@ async function handleMessagingCommand(database: ReturnType<typeof initializeData
 }
 
 async function handleGovernanceCommand(database: ReturnType<typeof initializeDatabase>, parts: string[]): Promise<void> {
-  const governance = new GovernanceEngine(database);
+  const governance = new GovernanceEngine(database, undefined, cliVaultKeyFile);
   const subcommand = parts[0] ?? "status";
 
   if (subcommand === "bootstrap") {
@@ -1877,12 +1891,12 @@ async function handleModelAccountsCommand(
 ): Promise<void> {
   // Always honour legacy settings on first use so operators who upgrade
   // don't suddenly see an empty list.
-  ensureLegacyAccountMigrated(database);
+  ensureLegacyAccountMigrated(database, cliSecretCipher);
 
   const subcommand = parts[0] ?? "list";
 
   if (subcommand === "list" || subcommand === "ls") {
-    const accounts = listModelAccounts(database).map((account) => redactAccount(account));
+    const accounts = listModelAccounts(database, cliSecretCipher).map((account) => redactAccount(account));
     if (parts.includes("--json")) {
       printJson({ accounts });
       return;
@@ -1919,7 +1933,7 @@ async function handleModelAccountsCommand(
   }
 
   if (subcommand === "current" || subcommand === "active") {
-    const active = getActiveModelAccount(database);
+    const active = getActiveModelAccount(database, cliSecretCipher);
     if (parts.includes("--json")) {
       printJson({ account: active ? redactAccount(active) : null });
       return;
@@ -1968,7 +1982,7 @@ async function handleModelAccountsCommand(
       activate
     };
 
-    const account = upsertModelAccount(database, input);
+    const account = upsertModelAccount(database, input, cliSecretCipher);
     const redacted = redactAccount(account);
     if (parts.includes("--json")) {
       printJson({ account: redacted });
@@ -2003,7 +2017,7 @@ async function handleModelAccountsCommand(
 
   if (subcommand === "remove" || subcommand === "delete" || subcommand === "rm") {
     if (!positionalName) throw new Error("Usage: npm run model -- accounts remove <name>");
-    const target = getModelAccountByName(database, positionalName);
+    const target = getModelAccountByName(database, positionalName, cliSecretCipher);
     const removed = deleteModelAccount(database, positionalName);
     if (!removed) throw new Error(`Model account "${positionalName}" not found.`);
     console.log(`Removed model account: ${target?.name ?? positionalName}`);
@@ -2013,7 +2027,7 @@ async function handleModelAccountsCommand(
   if (subcommand === "test") {
     const name = positionalName;
     if (!name) throw new Error("Usage: npm run model -- accounts test <name>");
-    const account = getModelAccountByName(database, name);
+    const account = getModelAccountByName(database, name, cliSecretCipher);
     if (!account) throw new Error(`Model account "${name}" not found.`);
     if (!account.apiKey && getProviderPreset(account.providerKind).requiresApiKey) {
       throw new Error(`Model account "${name}" has no API key set.`);
@@ -2117,7 +2131,7 @@ async function handleDoctorCommand(database: ReturnType<typeof initializeDatabas
     detail: fixtureOk ? "examples/buggy-python is ready for the killer demo" : "calculator fixture is missing or already fixed"
   });
 
-  const governance = new GovernanceEngine(database);
+  const governance = new GovernanceEngine(database, undefined, cliVaultKeyFile);
   try {
     governance.bootstrap();
     checks.push({ name: "governance", ok: true, detail: "bootstrap succeeded" });

@@ -2,8 +2,8 @@ import type { SquidDatabase } from "@squidbot/db";
 import { LocalEncryptedVault } from "./localEncryptedVault.js";
 
 export class SecretVault extends LocalEncryptedVault {
-  constructor(database: SquidDatabase, masterKey?: string) {
-    super(database, masterKey);
+  constructor(database: SquidDatabase, masterKey?: string, keyFilePath?: string) {
+    super(database, masterKey, keyFilePath);
   }
 
   providers(): Array<{ id: string; status: "available" | "fixture" | "optional"; description: string }> {

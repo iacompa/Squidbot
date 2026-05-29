@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import fs from "node:fs";
 import type { SquidDatabase } from "@squidbot/db";
 import { DEFAULT_TENANT_ID, type SecretReferenceRecord } from "./types.js";
 import { nowIso } from "./internal.js";
@@ -6,7 +7,7 @@ import { SecretReferenceStore } from "./secretReferences.js";
 
 const VAULT_KEY_SETTING = "vault.localMasterKey";
 
-export type VaultKeySource = "explicit" | "env" | "generated" | "setting";
+export type VaultKeySource = "explicit" | "env" | "generated" | "setting" | "file";
 
 export type VaultKeyStatus = {
   hasKey: true;
@@ -28,20 +29,49 @@ function generateFreshSeed(): string {
   return randomBytes(32).toString("base64");
 }
 
+/**
+ * Resolve the vault master-key seed from a file OUTSIDE the database. If a
+ * legacy in-DB key exists, migrate its value to the file (so ciphertext written
+ * under it still decrypts) and clear it from the settings table. This closes
+ * the "encryption is theater" hole where the key sat in the same DB it protects.
+ */
+function resolveFileSeed(database: SquidDatabase, keyFilePath: string): string {
+  const legacy = database.getSetting<string>(VAULT_KEY_SETTING);
+  if (legacy && legacy.length > 0) {
+    if (!fs.existsSync(keyFilePath)) {
+      fs.writeFileSync(keyFilePath, legacy, { encoding: "utf8", mode: 0o600 });
+      fs.chmodSync(keyFilePath, 0o600);
+    }
+    // Remove the key from the DB now that it lives in the file.
+    database.setSetting(VAULT_KEY_SETTING, "");
+  }
+  if (fs.existsSync(keyFilePath)) {
+    const seed = fs.readFileSync(keyFilePath, "utf8").trim();
+    if (seed.length > 0) return seed;
+  }
+  const fresh = generateFreshSeed();
+  fs.writeFileSync(keyFilePath, fresh, { encoding: "utf8", mode: 0o600 });
+  fs.chmodSync(keyFilePath, 0o600);
+  return fresh;
+}
+
 export class LocalEncryptedVault {
   private readonly references: SecretReferenceStore;
   private readonly key: Buffer;
   private readonly keyId: string;
   private readonly keySource: VaultKeySource;
 
-  constructor(private readonly database: SquidDatabase, masterKey?: string) {
+  constructor(private readonly database: SquidDatabase, masterKey?: string, keyFilePath?: string) {
     this.references = new SecretReferenceStore(database);
 
     // Source precedence:
     // 1. Explicit constructor arg (tests pass a stable string)
     // 2. SQUIDBOT_LOCAL_SECRET_KEY env var (production deployments inject this)
-    // 3. Previously generated key stored in settings (persistent on this machine)
-    // 4. Freshly generated random key (persisted to settings for next boot)
+    // 3. A key FILE outside the DB (desktop/CLI pass appDataDir/vault.master.key);
+    //    migrates any legacy in-DB key to the file on first use.
+    // 4. Legacy key stored in the settings table (back-compat for installs/tests
+    //    that don't pass a keyFilePath).
+    // 5. Freshly generated random key (persisted to settings for next boot).
     //
     // We NEVER fall back to a hardcoded string default — that would mean
     // every fresh install on every machine shares the same encryption key,
@@ -53,6 +83,9 @@ export class LocalEncryptedVault {
     } else if (process.env.SQUIDBOT_LOCAL_SECRET_KEY) {
       seed = process.env.SQUIDBOT_LOCAL_SECRET_KEY;
       this.keySource = "env";
+    } else if (keyFilePath) {
+      seed = resolveFileSeed(this.database, keyFilePath);
+      this.keySource = "file";
     } else {
       const existing = this.database.getSetting<string>(VAULT_KEY_SETTING);
       if (existing && existing.length > 0) {

@@ -671,10 +671,11 @@ function validateRelationship(from: MemoryNodeRecord, to: MemoryNodeRecord, type
 }
 
 function toFtsQuery(query: string): string {
-  return tokenize(query)
-    .slice(0, 12)
-    .map((token) => `${token}*`)
-    .join(" OR ");
+  // Dedupe and keep up to 256 prefix terms. The old 12-token cap silently
+  // dropped everything past the 12th word, so longer queries (a pasted error,
+  // a multi-sentence task) missed obviously-relevant memories.
+  const tokens = [...new Set(tokenize(query))].slice(0, 256);
+  return tokens.map((token) => `${token}*`).join(" OR ");
 }
 
 function tokenize(text: string): string[] {

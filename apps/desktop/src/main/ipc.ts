@@ -35,6 +35,7 @@ import {
   computeTraceMetrics,
   createCustomProfile,
   createId,
+  createSecretCipher,
   deleteModelAccount,
   describeForWhoami,
   formatOnboardingSummary,
@@ -51,6 +52,7 @@ import {
   listModelAccounts,
   listProfiles,
   listRuns,
+  loadOrCreateMasterKey,
   mergeWithLiveModels,
   parseStoredTrace,
   PROVIDER_PRESETS,
@@ -68,7 +70,8 @@ import {
   type JsonObject,
   type ModelAccountInput,
   type OnboardingAnswer,
-  type ProviderKind
+  type ProviderKind,
+  type SecretCipher
 } from "@squidbot/core";
 import { discoverProviderModels } from "@squidbot/models";
 import {
@@ -177,6 +180,14 @@ function readConnectors(database: SquidDatabase): ConnectorDto[] {
   }));
 }
 
+// Decrypts BYOK keys read from model_accounts and encrypts them on write. The
+// master key lives in a 0600 file under appDataDir — never in the SQLite DB it
+// protects. Set once in registerIpcHandlers (where appDataDir is known).
+let desktopSecretCipher: SecretCipher | undefined;
+// Path to the governance vault's master-key file (outside the DB). Passing this
+// to GovernanceEngine migrates any legacy in-DB vault key out on first use.
+let desktopVaultKeyFile: string | undefined;
+
 function createRuntime(database: SquidDatabase, workspacePath: string, sessionId?: string): AgentRuntime {
   const toolRegistry = new ToolRegistry();
   registerWorkspaceTools(toolRegistry);
@@ -210,7 +221,7 @@ function createRuntime(database: SquidDatabase, workspacePath: string, sessionId
   );
 
   const governanceEnforcer = new GovernanceEnforcer(new GovernancePolicyEngine(database));
-  return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry, governanceEnforcer });
+  return new AgentRuntime({ database, workspacePath, sessionId, toolRegistry, governanceEnforcer, secretCipher: desktopSecretCipher });
 }
 
 function createSkillService(database: SquidDatabase, paths: DesktopAppPaths): SkillService {
@@ -255,10 +266,17 @@ function createMessagingGateway(database: SquidDatabase, paths: DesktopAppPaths)
 }
 
 function createGovernance(database: SquidDatabase): GovernanceEngine {
-  return new GovernanceEngine(database);
+  return new GovernanceEngine(database, undefined, desktopVaultKeyFile);
 }
 
 export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPaths): void {
+  // Build the at-rest secret cipher from a master key stored OUTSIDE the DB
+  // (a 0600 key file under appDataDir, or the SQUIDBOT_LOCAL_SECRET_KEY env).
+  desktopSecretCipher = createSecretCipher(
+    loadOrCreateMasterKey({ keyFilePath: path.join(paths.appDataDir, "secret.key") })
+  );
+  desktopVaultKeyFile = path.join(paths.appDataDir, "vault.master.key");
+
   ipcMain.handle("squidbot:chooseWorkspace", async () => {
     const result = await dialog.showOpenDialog({
       title: "Choose SquidBot Workspace",
@@ -354,8 +372,8 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   // populate the model dropdown after a key is pasted in.
 
   ipcMain.handle("squidbot:listModelAccounts", () => {
-    const accounts = listModelAccounts(database);
-    const active = getActiveModelAccount(database);
+    const accounts = listModelAccounts(database, desktopSecretCipher);
+    const active = getActiveModelAccount(database, desktopSecretCipher);
     return {
       activeAccountName: active?.name ?? null,
       accounts: accounts.map((account) => redactAccount(account))
@@ -363,7 +381,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
   });
 
   ipcMain.handle("squidbot:upsertModelAccount", (_event, input: ModelAccountInput) => {
-    const saved = upsertModelAccount(database, coerceModelAccountInput(input));
+    const saved = upsertModelAccount(database, coerceModelAccountInput(input), desktopSecretCipher);
     return redactAccount(saved);
   });
 

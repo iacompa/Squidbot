@@ -7,6 +7,12 @@ export type ModelMode = "mock" | "local" | "byok";
 export type ChatMessage = {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
+  /** Tool calls requested by an assistant turn (drives the agentic loop). */
+  toolCalls?: ToolCall[];
+  /** Links a `tool` result message back to the assistant tool call it answers. */
+  toolCallId?: string;
+  /** Optional tool name on a `tool` result message (aids provider serialization). */
+  name?: string;
 };
 
 export type ToolSchema = {

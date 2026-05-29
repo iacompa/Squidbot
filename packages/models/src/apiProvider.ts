@@ -7,6 +7,8 @@ export type ApiModelProviderOptions = {
   apiUrl?: string | null;
   modelName?: string | null;
   costPerToken?: number;
+  /** Abort a BYOK HTTP call after this many ms. Default 60_000. */
+  fetchTimeoutMs?: number;
 };
 
 export class ApiModelProvider implements ModelProvider {
@@ -19,12 +21,14 @@ export class ApiModelProvider implements ModelProvider {
   readonly costPerToken: number;
   private readonly apiKey?: string | null;
   private readonly apiUrl?: string | null;
+  private readonly fetchTimeoutMs: number;
 
   constructor(options: ApiModelProviderOptions = {}) {
     this.apiKey = options.apiKey;
     this.apiUrl = options.apiUrl;
     this.modelName = options.modelName ?? "byok-openai-compatible";
     this.costPerToken = options.costPerToken ?? 0.00001;
+    this.fetchTimeoutMs = options.fetchTimeoutMs ?? 60_000;
   }
 
   estimateTokens = estimateRequestTokens;
@@ -71,17 +75,32 @@ export class ApiModelProvider implements ModelProvider {
     const { sanitizedTools, reverseToolNameMap } = sanitizeToolNamesForOpenAi(request.tools);
     const body = {
       model: this.modelName,
-      messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
+      messages: request.messages.map((message) => serializeMessageForOpenAi(message)),
       tools: sanitizedTools
     };
-    const response = await fetch(this.apiUrl!, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify(body)
-    });
+    // Bound the request so a hung or unresponsive endpoint can't block the
+    // agent loop forever. Translate the abort into a clear, actionable error.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(this.apiUrl!, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`BYOK API request timed out after ${this.fetchTimeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       throw new Error(`BYOK API request failed with ${response.status}: ${await response.text()}`);
@@ -178,6 +197,38 @@ function sanitizeToolNamesForOpenAi(tools: ToolSchema[]): {
     };
   });
   return { sanitizedTools, reverseToolNameMap };
+}
+
+/**
+ * Serialize a SquidBot ChatMessage into the OpenAI chat-completions wire shape.
+ * Assistant turns that requested tools carry a `tool_calls` array; tool-result
+ * turns carry `tool_call_id` linking back to the call they answer. OpenAI (and
+ * compatible gateways) REQUIRE this pairing — a bare `role: "tool"` message
+ * with no preceding assistant `tool_calls` is rejected, which is exactly what
+ * a naive agentic loop would send.
+ */
+function serializeMessageForOpenAi(message: ChatMessage): Record<string, unknown> {
+  if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+    return {
+      role: "assistant",
+      // OpenAI permits null content alongside tool_calls; some strict gateways
+      // reject an empty string, so coalesce empty → null.
+      content: message.content && message.content.length > 0 ? message.content : null,
+      tool_calls: message.toolCalls.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: { name: sanitizeToolName(call.name), arguments: JSON.stringify(call.args ?? {}) }
+      }))
+    };
+  }
+  if (message.role === "tool") {
+    return {
+      role: "tool",
+      content: message.content,
+      tool_call_id: message.toolCallId ?? ""
+    };
+  }
+  return { role: message.role, content: message.content };
 }
 
 function sanitizeToolName(name: string): string {

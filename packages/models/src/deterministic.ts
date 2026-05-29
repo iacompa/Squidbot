@@ -9,6 +9,30 @@ function firstSystemMessage(messages: ModelProviderRequest["messages"]): string 
   return messages.find((message) => message.role === "system")?.content ?? null;
 }
 
+/**
+ * Collect tool-result messages that appear AFTER the latest user message —
+ * i.e. tools that ran for the current turn. Used by the agentic loop so the
+ * deterministic provider knows to summarize-and-stop instead of re-calling.
+ */
+function collectFreshToolResults(
+  messages: ModelProviderRequest["messages"]
+): Array<{ name?: string; content: string }> {
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  const out: Array<{ name?: string; content: string }> = [];
+  for (let i = lastUserIdx + 1; i < messages.length; i++) {
+    if (messages[i].role === "tool") {
+      out.push({ name: messages[i].name, content: messages[i].content });
+    }
+  }
+  return out;
+}
+
 function isIdentityIntent(message: string): boolean {
   return (
     /\bwho\s+are\s+you\b/i.test(message) ||
@@ -149,6 +173,30 @@ export function generateDeterministicResponse(options: {
   let content =
     options.contentPrefix ??
     "Deterministic provider is active. I can safely inspect a local workspace and return traceable tool calls.";
+
+  // Agentic-loop termination: if tools have already run for the latest user
+  // turn (there are tool-result messages after the last user message), the
+  // model's job now is to SUMMARIZE the results and stop — not to call the
+  // same tool again. Without this the deterministic provider would re-emit the
+  // identical tool call on every loop iteration because it keys its decision
+  // off the latest user message, which never changes mid-turn.
+  const freshToolResults = collectFreshToolResults(options.request.messages);
+  if (freshToolResults.length > 0) {
+    const summary = freshToolResults.map((entry) => `- ${entry.name ?? "tool"}: ${entry.content}`).join("\n");
+    const finalContent = `I ran the requested ${freshToolResults.length === 1 ? "tool" : "tools"} and reviewed the output.\n\nTool results:\n${summary}`;
+    const promptTokens = estimateRequestTokens(options.request.messages, options.request.tools);
+    const tokenUsage = usageFromText(promptTokens, finalContent);
+    return {
+      provider: options.provider,
+      modelName: options.modelName,
+      mode: options.mode,
+      costOwner: options.costOwner,
+      content: finalContent,
+      toolCalls: [],
+      tokenUsage,
+      costEstimate: options.costPerToken ? tokenUsage.totalTokens * options.costPerToken : 0
+    };
+  }
 
   if (isIdentityIntent(rawMessage)) {
     content = buildIdentityResponse(systemPrompt, rawMessage);

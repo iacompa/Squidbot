@@ -326,6 +326,32 @@ describe("ApiModelProvider — cost reporting", () => {
     }
   });
 
+  it("aborts a BYOK request that exceeds the configured fetch timeout", async () => {
+    const original = globalThis.fetch;
+    // A fetch that never resolves on its own — it only settles when the
+    // AbortSignal fires. Without a timeout the agent would hang forever.
+    globalThis.fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }))
+        );
+      })
+    ) as typeof fetch;
+    try {
+      const provider = new ApiModelProvider({
+        apiKey: "k",
+        apiUrl: "https://slow.example/v1/chat/completions",
+        modelName: "m",
+        fetchTimeoutMs: 30
+      });
+      await expect(
+        provider.generate({ sessionId: "s", runId: "r", messages: [{ role: "user", content: "hi" }], tools: [] })
+      ).rejects.toThrow(/timed out/i);
+    } finally {
+      globalThis.fetch = original;
+    }
+  }, 2000);
+
   it("guards against an invalid cost field (NaN, missing, non-number)", async () => {
     // Some providers send `cost: null` or a string by mistake. We should not
     // propagate a NaN cost into the trace / model_usage table.

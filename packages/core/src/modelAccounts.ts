@@ -1,5 +1,6 @@
 import type { SquidDatabase } from "@squidbot/db";
 import { createId } from "./types.js";
+import type { SecretCipher } from "./secretCrypto.js";
 
 /**
  * Model accounts are first-class, named records of "where to call an LLM" —
@@ -263,13 +264,15 @@ type StoredModelAccount = {
   updatedAt: string;
 };
 
-function parseAccount(row: StoredModelAccount): ModelAccount {
+function parseAccount(row: StoredModelAccount, cipher?: SecretCipher): ModelAccount {
   return {
     id: row.id,
     name: row.name,
     providerKind: row.providerKind,
     apiUrl: row.apiUrl,
-    apiKey: row.apiKey,
+    // Decrypt the at-rest key. `decrypt` passes through legacy plaintext rows
+    // unchanged, so this is safe whether or not the row was ever encrypted.
+    apiKey: row.apiKey === null ? null : cipher ? cipher.decrypt(row.apiKey) : row.apiKey,
     apiModel: row.apiModel,
     costPerToken: row.costPerToken,
     dailyBudgetTokens: row.dailyBudgetTokens,
@@ -290,21 +293,21 @@ export function redactAccount(account: ModelAccount): RedactedModelAccount {
 const ACCOUNT_COLUMNS = `id, name, providerKind, apiUrl, apiKey, apiModel,
   costPerToken, dailyBudgetTokens, description, isActive, createdAt, updatedAt`;
 
-export function listModelAccounts(database: SquidDatabase): ModelAccount[] {
+export function listModelAccounts(database: SquidDatabase, cipher?: SecretCipher): ModelAccount[] {
   const rows = database.db
     .prepare(`SELECT ${ACCOUNT_COLUMNS} FROM model_accounts ORDER BY isActive DESC, name ASC`)
     .all() as StoredModelAccount[];
-  return rows.map(parseAccount);
+  return rows.map((row) => parseAccount(row, cipher));
 }
 
-export function getModelAccountById(database: SquidDatabase, id: string): ModelAccount | null {
+export function getModelAccountById(database: SquidDatabase, id: string, cipher?: SecretCipher): ModelAccount | null {
   const row = database.db
     .prepare(`SELECT ${ACCOUNT_COLUMNS} FROM model_accounts WHERE id = ?`)
     .get(id) as StoredModelAccount | undefined;
-  return row ? parseAccount(row) : null;
+  return row ? parseAccount(row, cipher) : null;
 }
 
-export function getModelAccountByName(database: SquidDatabase, name: string): ModelAccount | null {
+export function getModelAccountByName(database: SquidDatabase, name: string, cipher?: SecretCipher): ModelAccount | null {
   const trimmed = name.trim();
   // Try exact match first, then case-insensitive — useful for chat-driven
   // switching where the model might emit "OpenRouter Gemini" instead of
@@ -312,29 +315,29 @@ export function getModelAccountByName(database: SquidDatabase, name: string): Mo
   const exact = database.db
     .prepare(`SELECT ${ACCOUNT_COLUMNS} FROM model_accounts WHERE name = ?`)
     .get(trimmed) as StoredModelAccount | undefined;
-  if (exact) return parseAccount(exact);
+  if (exact) return parseAccount(exact, cipher);
 
   const insensitive = database.db
     .prepare(`SELECT ${ACCOUNT_COLUMNS} FROM model_accounts WHERE LOWER(name) = LOWER(?)`)
     .get(trimmed) as StoredModelAccount | undefined;
-  return insensitive ? parseAccount(insensitive) : null;
+  return insensitive ? parseAccount(insensitive, cipher) : null;
 }
 
-export function getActiveModelAccount(database: SquidDatabase): ModelAccount | null {
+export function getActiveModelAccount(database: SquidDatabase, cipher?: SecretCipher): ModelAccount | null {
   // Active-account migration is *not* idempotent inside this read path —
   // it would break the "no flat settings → no accounts → zero-spend default"
   // contract. The caller is responsible for ensuring legacy migration ran.
   const row = database.db
     .prepare(`SELECT ${ACCOUNT_COLUMNS} FROM model_accounts WHERE isActive = 1 LIMIT 1`)
     .get() as StoredModelAccount | undefined;
-  return row ? parseAccount(row) : null;
+  return row ? parseAccount(row, cipher) : null;
 }
 
 // ---------------- Write paths ----------------
 
-export function upsertModelAccount(database: SquidDatabase, input: ModelAccountInput): ModelAccount {
+export function upsertModelAccount(database: SquidDatabase, input: ModelAccountInput, cipher?: SecretCipher): ModelAccount {
   const id = input.id ?? createId("model_account");
-  const existing = getModelAccountById(database, id);
+  const existing = getModelAccountById(database, id, cipher);
   const presetKind = input.providerKind ?? existing?.providerKind ?? "custom";
   const preset = getProviderPreset(presetKind);
   const resolvedUrl = input.apiUrl ?? existing?.apiUrl ?? preset.defaultApiUrl;
@@ -355,6 +358,9 @@ export function upsertModelAccount(database: SquidDatabase, input: ModelAccountI
     input.apiKey === null
       ? null
       : input.apiKey ?? existing?.apiKey ?? null;
+  // Encrypt at rest when a cipher is available. `apiKey` here is the plaintext
+  // (decrypted existing or fresh input); the column stores ciphertext.
+  const storedApiKey = apiKey === null ? null : cipher ? cipher.encrypt(apiKey) : apiKey;
   const costPerToken = input.costPerToken ?? existing?.costPerToken ?? 0;
   const dailyBudgetTokens = input.dailyBudgetTokens ?? existing?.dailyBudgetTokens ?? null;
   const description = input.description ?? existing?.description ?? null;
@@ -379,7 +385,7 @@ export function upsertModelAccount(database: SquidDatabase, input: ModelAccountI
         name: input.name.trim(),
         providerKind: presetKind,
         apiUrl: resolvedUrl,
-        apiKey,
+        apiKey: storedApiKey,
         apiModel: resolvedModel,
         costPerToken,
         dailyBudgetTokens,
@@ -404,7 +410,7 @@ export function upsertModelAccount(database: SquidDatabase, input: ModelAccountI
         name: input.name.trim(),
         providerKind: presetKind,
         apiUrl: resolvedUrl,
-        apiKey,
+        apiKey: storedApiKey,
         apiModel: resolvedModel,
         costPerToken,
         dailyBudgetTokens,
@@ -418,7 +424,7 @@ export function upsertModelAccount(database: SquidDatabase, input: ModelAccountI
     activateModelAccount(database, id);
   }
 
-  return getModelAccountById(database, id)!;
+  return getModelAccountById(database, id, cipher)!;
 }
 
 export function activateModelAccount(database: SquidDatabase, idOrName: string): ModelAccount {
@@ -463,7 +469,7 @@ export function deleteModelAccount(database: SquidDatabase, idOrName: string): b
  *
  * Idempotent — safe to call on every router construction.
  */
-export function ensureLegacyAccountMigrated(database: SquidDatabase): void {
+export function ensureLegacyAccountMigrated(database: SquidDatabase, cipher?: SecretCipher): void {
   const count = (database.db.prepare(`SELECT COUNT(*) as count FROM model_accounts`).get() as { count: number }).count;
   if (count > 0) return;
 
@@ -481,15 +487,19 @@ export function ensureLegacyAccountMigrated(database: SquidDatabase): void {
   const resolvedModel = apiModel && apiModel.trim().length > 0 ? apiModel.trim() : "google/gemini-2.0-flash-001";
   const providerKind = inferProviderKindFromUrl(resolvedUrl);
 
-  upsertModelAccount(database, {
-    name: "Legacy BYOK",
-    providerKind,
-    apiUrl: resolvedUrl,
-    apiKey: apiKey.trim(),
-    apiModel: resolvedModel,
-    description: "Auto-migrated from legacy model.* settings on first multi-account read.",
-    activate: true
-  });
+  upsertModelAccount(
+    database,
+    {
+      name: "Legacy BYOK",
+      providerKind,
+      apiUrl: resolvedUrl,
+      apiKey: apiKey.trim(),
+      apiModel: resolvedModel,
+      description: "Auto-migrated from legacy model.* settings on first multi-account read.",
+      activate: true
+    },
+    cipher
+  );
 }
 
 function inferProviderKindFromUrl(url: string): ProviderKind {

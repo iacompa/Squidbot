@@ -5,6 +5,7 @@ import { getActiveProfile, installSeedProfiles, type ProfileSensitivity } from "
 import { EventLog } from "./eventLog.js";
 import { buildIdentityReport, buildSystemPrompt } from "./identity.js";
 import { ensureLegacyAccountMigrated, getActiveModelAccount } from "./modelAccounts.js";
+import type { SecretCipher } from "./secretCrypto.js";
 import { registerModelAccountTools } from "./modelAccountTools.js";
 import {
   buildMemoryBulletin,
@@ -47,6 +48,12 @@ export type AgentRuntimeOptions = {
   toolRegistry?: ToolRegistry;
   policyEngine?: PolicyEngine;
   governanceEnforcer?: GovernanceEnforcer;
+  /**
+   * Decrypts BYOK API keys stored encrypted-at-rest in `model_accounts`. When
+   * omitted (tests, legacy installs), keys are read as plaintext. Production
+   * surfaces (desktop, CLI) inject one built from an out-of-DB master key.
+   */
+  secretCipher?: SecretCipher;
 };
 
 export type RunTaskOptions = {
@@ -78,6 +85,7 @@ export class AgentRuntime {
   private readonly toolRegistry: ToolRegistry;
   private readonly policyEngine: PolicyEngine;
   private readonly governanceEnforcer: GovernanceEnforcer | null;
+  private readonly secretCipher?: SecretCipher;
   private messages: ChatMessage[] = [];
   /**
    * The id of the active model_account the current `modelRouter` was built
@@ -113,7 +121,8 @@ export class AgentRuntime {
     this.workspacePath = options.workspacePath;
     this.sessionId = options.sessionId ?? createSession(options.workspacePath).id;
     this.eventLog = new EventLog(options.database);
-    this.modelRouter = options.modelRouter ?? createModelRouterFromSettings(options.database);
+    this.secretCipher = options.secretCipher;
+    this.modelRouter = options.modelRouter ?? createModelRouterFromSettings(options.database, this.secretCipher);
     this.modelRouterIsInjected = options.modelRouter !== undefined;
     this.modelRouterAccountId = getActiveModelAccount(options.database)?.id ?? null;
     this.toolRegistry = options.toolRegistry ?? new ToolRegistry();
@@ -156,7 +165,7 @@ export class AgentRuntime {
     if (this.modelRouterIsInjected) return;
     const activeId = getActiveModelAccount(this.database)?.id ?? null;
     if (activeId !== this.modelRouterAccountId) {
-      this.modelRouter = createModelRouterFromSettings(this.database);
+      this.modelRouter = createModelRouterFromSettings(this.database, this.secretCipher);
       this.modelRouterAccountId = activeId;
     }
   }
@@ -276,50 +285,137 @@ export class AgentRuntime {
     // pending tool result from a prior turn.
     const resolvedApprovalsNote = this.buildResolvedApprovalsNote();
 
-    const modelResponse = await this.modelRouter.generate({
-      sessionId: this.sessionId,
-      runId,
-      messages: this.buildMessagesForModel(
-        retrievedMemories.length > 0 ? memoryBulletin : undefined,
-        resolvedApprovalsNote ?? undefined
-      ),
-      tools: this.toolRegistry.list(),
-      emitEvent: append
-    });
-
-    append("model.response", {
-      content: modelResponse.content,
-      provider: modelResponse.provider,
-      costOwner: modelResponse.costOwner,
-      toolCalls: modelResponse.toolCalls
-    });
-
+    // Agentic tool loop: call the model, run any tools it requests, feed the
+    // results back into the conversation, and call the model again — repeating
+    // until it returns a final answer with no tool calls. Before this loop
+    // existed the model was called exactly once and never saw its own tool
+    // output, so every multi-step task ("read the file, then fix the bug")
+    // silently half-completed. Bounded by MAX_TOOL_ITERATIONS plus an
+    // identical-call dedup guard so a misbehaving model cannot spin forever.
+    const MAX_TOOL_ITERATIONS = 8;
     const toolResults: ToolResult[] = [];
+    const aggregatedToolCalls: ToolCall[] = [];
+    const executedSignatures = new Set<string>();
+    let finalContent = "";
+    // Declared outside the try so the `finally` can persist a trace whether the
+    // run succeeded or threw. A failed run must never silently vanish from the
+    // History page or the audit ledger.
+    let trace: Trace | undefined;
 
-    for (const toolCall of modelResponse.toolCalls) {
-      toolResults.push(await this.executeToolCall(toolCall, append, undefined, runId));
+    try {
+      for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+        const modelResponse = await this.modelRouter.generate({
+          sessionId: this.sessionId,
+          runId,
+          messages: this.buildMessagesForModel(
+            retrievedMemories.length > 0 ? memoryBulletin : undefined,
+            // The resolved-approvals note is a one-time context nudge — inject
+            // it only on the first model call, not on every loop iteration.
+            iteration === 0 ? (resolvedApprovalsNote ?? undefined) : undefined
+          ),
+          tools: this.toolRegistry.list(),
+          emitEvent: append
+        });
+
+        append("model.response", {
+          content: modelResponse.content,
+          provider: modelResponse.provider,
+          costOwner: modelResponse.costOwner,
+          toolCalls: modelResponse.toolCalls
+        });
+
+        finalContent = modelResponse.content;
+
+        if (modelResponse.toolCalls.length === 0) {
+          // The model produced its final answer with no further tool calls.
+          break;
+        }
+
+        // Record the assistant's tool-call turn in the working history so the
+        // next model call sees it paired with the tool results pushed below.
+        // Only the final answer is persisted to chat_messages — intermediate
+        // turns live in-memory for this turn and in the trace for audit, which
+        // keeps cross-session hydration a clean user/assistant transcript.
+        this.messages.push({
+          role: "assistant",
+          content: modelResponse.content,
+          toolCalls: modelResponse.toolCalls
+        });
+
+        // Stop if every requested call was already executed this turn — the
+        // model is repeating itself with no new information (no progress).
+        const progressing = modelResponse.toolCalls.some(
+          (call) => !executedSignatures.has(toolCallSignature(call))
+        );
+        if (!progressing) {
+          break;
+        }
+
+        for (const toolCall of modelResponse.toolCalls) {
+          executedSignatures.add(toolCallSignature(toolCall));
+          const result = await this.executeToolCall(toolCall, append, undefined, runId);
+          aggregatedToolCalls.push(toolCall);
+          toolResults.push(result);
+          this.messages.push({
+            role: "tool",
+            content: stringifyToolResult(result),
+            toolCallId: toolCall.id,
+            name: toolCall.name
+          });
+        }
+      }
+
+      // The model's final text is the answer. If it returned only tool calls
+      // and no closing text (some models do), fall back to a formatted summary
+      // of what ran so the user still gets a coherent response.
+      let responseContent =
+        finalContent.trim().length > 0 ? finalContent : formatAssistantResponse("", toolResults);
+
+      // If a configured PAID provider failed mid-turn and a free/local one
+      // answered instead, say so. The user must never silently believe their
+      // paid model produced the reply (trust + cost transparency). A free→free
+      // fallback (the default local→mock zero-spend path) is not surfaced.
+      const fellBackFromPaid = runEvents.some(
+        (event) =>
+          event.type === "model.fallback" &&
+          (event.data as { fromProvider?: string }).fromProvider === "api"
+      );
+      if (fellBackFromPaid) {
+        responseContent +=
+          "\n\n_Note: your configured paid model was unavailable, so this reply fell back to a local/free provider._";
+      }
+
+      this.messages.push({ role: "assistant", content: responseContent });
+      this.database.appendChatMessage(this.sessionId, { role: "assistant", content: responseContent });
+
+      trace = buildTrace(runEvents);
+      return {
+        sessionId: this.sessionId,
+        runId,
+        content: responseContent,
+        toolCalls: aggregatedToolCalls,
+        toolResults,
+        trace
+      };
+    } catch (error) {
+      // Record the failure as an event so the persisted trace explains why the
+      // run aborted, then rethrow so the caller can surface it.
+      append("error", {
+        message: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    } finally {
+      // Persist whatever trace we have. On success `trace` is already built; on
+      // failure we build from the events captured up to (and including) the
+      // error appended above.
+      const toPersist = trace ?? buildTrace(runEvents);
+      this.database.saveTrace({
+        id: toPersist.id,
+        sessionId: toPersist.sessionId,
+        events: toPersist,
+        createdAt: toPersist.createdAt
+      });
     }
-
-    const responseContent = formatAssistantResponse(modelResponse.content, toolResults);
-    this.messages.push({ role: "assistant", content: responseContent });
-    this.database.appendChatMessage(this.sessionId, { role: "assistant", content: responseContent });
-
-    const trace = buildTrace(runEvents);
-    this.database.saveTrace({
-      id: trace.id,
-      sessionId: trace.sessionId,
-      events: trace,
-      createdAt: trace.createdAt
-    });
-
-    return {
-      sessionId: this.sessionId,
-      runId,
-      content: responseContent,
-      toolCalls: modelResponse.toolCalls,
-      toolResults,
-      trace
-    };
   }
 
   async runTask(task: string, options: RunTaskOptions = {}): Promise<RepoTaskResult> {
@@ -903,14 +999,14 @@ export function getLatestTrace(database: SquidDatabase): Trace | null {
   return redactTrace(parseStoredTrace(database.getLatestTrace()));
 }
 
-function createModelRouterFromSettings(database: SquidDatabase): ModelRouter {
+function createModelRouterFromSettings(database: SquidDatabase, cipher?: SecretCipher): ModelRouter {
   // The model_accounts table is the new source of truth for BYOK config.
   // We hydrate any legacy flat model.* settings into a "Legacy BYOK" account
   // on first read (idempotent), then use the active account if one exists.
   // Operators who never touched model.* still get the existing fallback
   // (provider = "local" or "mock" via the legacy settings).
-  ensureLegacyAccountMigrated(database);
-  const activeAccount = getActiveModelAccount(database);
+  ensureLegacyAccountMigrated(database, cipher);
+  const activeAccount = getActiveModelAccount(database, cipher);
 
   const settings: ModelRouterSettings = activeAccount
     ? {
@@ -979,6 +1075,39 @@ function readPositiveNumberSetting(database: SquidDatabase, key: string): number
   }
 
   return null;
+}
+
+/**
+ * Stable identity for a tool call (name + args), used by the agentic loop to
+ * detect a model that requests the exact same call again without progress.
+ */
+function toolCallSignature(call: ToolCall): string {
+  let args: string;
+  try {
+    args = JSON.stringify(call.args ?? {});
+  } catch {
+    args = String(call.args);
+  }
+  return `${call.name}:${args}`;
+}
+
+/**
+ * Render a tool result as the message content fed back to the model on the
+ * next loop iteration. Bounded so a huge tool output cannot blow the context.
+ */
+function stringifyToolResult(result: ToolResult): string {
+  const status = result.ok ? "ok" : "error";
+  let body: string;
+  try {
+    body = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
+  } catch {
+    body = String(result.output);
+  }
+  const MAX = 8_000;
+  if (body.length > MAX) {
+    body = `${body.slice(0, MAX)}… [truncated ${body.length - MAX} chars]`;
+  }
+  return `[${result.toolName} ${status}] ${body}`;
 }
 
 function formatAssistantResponse(content: string, toolResults: ToolResult[]): string {

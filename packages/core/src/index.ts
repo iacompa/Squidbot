@@ -12,6 +12,7 @@ export * from "./policyEngine.js";
 export * from "./repoTask.js";
 export * from "./redaction.js";
 export * from "./runtime.js";
+export * from "./secretCrypto.js";
 export * from "./session.js";
 export * from "./terminalTools.js";
 export * from "./testTools.js";

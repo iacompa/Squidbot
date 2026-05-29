@@ -11,6 +11,31 @@ const redactionPatterns: Array<{ pattern: RegExp; replacement: string }> = [
     replacement: "[REDACTED]"
   },
   {
+    // GitHub tokens: PAT (ghp_), OAuth (gho_), user (ghu_), server (ghs_), refresh (ghr_).
+    pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // Slack tokens: xoxb-/xoxp-/xoxa-/xoxr-/xoxs-.
+    pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // AWS access key id (AKIA + 16 uppercase alphanumerics).
+    pattern: /\bAKIA[0-9A-Z]{16}\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // JWT (header.payload.signature, base64url; header starts with `eyJ`).
+    pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // `Bearer <token>` not already caught by the key=value rule above.
+    pattern: /\b(bearer)\s+([A-Za-z0-9._~+/=-]{12,})/gi,
+    replacement: "$1 [REDACTED]"
+  },
+  {
     pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
     replacement: "[REDACTED_EMAIL]"
   },

@@ -22,11 +22,11 @@ export class GovernanceEngine {
   readonly n8n: N8nGovernanceBridge;
   readonly sso: SsoManager;
 
-  constructor(private readonly database: SquidDatabase, masterKey?: string) {
+  constructor(private readonly database: SquidDatabase, masterKey?: string, keyFilePath?: string) {
     this.identities = new IdentityStore(database);
     this.policies = new GovernancePolicyEngine(database);
     this.enforcer = new GovernanceEnforcer(this.policies);
-    this.secrets = new SecretVault(database, masterKey);
+    this.secrets = new SecretVault(database, masterKey, keyFilePath);
     this.audit = new AuditLedger(database);
     this.retention = new RetentionEngine(database);
     this.lineage = new LineageRecorder(database);
