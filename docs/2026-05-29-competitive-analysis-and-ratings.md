@@ -160,7 +160,13 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ---
 
+## 5b. Environment boundary (why the rest needs your machine)
+
+Browser/visual verification was **attempted and is environment-blocked in the headless session**: the preview manager spawns node processes with an inaccessible working directory — `EPERM: uv_cwd` is thrown inside `process.cwd()` before any app code runs (reproduced with `npx tsx` and plain `node`). So the remaining sub-8.5 items that are **renderer/visual** (C2 live-token render, ST2 canvas, N4 PR-creation UX, the Sprint-4 visual fixes, 3.7/3.8) cannot be built *and verified* here — they need `npm run dev` / `npm run serve-web` on a real machine. `.claude/launch.json` is pre-configured for it. The remaining backend items are either env-dependent (S1 Docker), semantic (M3 contradiction), a broad cross-package sweep (G8), nuanced-and-arguably-by-design (3.2/3.3/3.5), or deliberate non-goals (C5/I3/D1/O2/I2 per vision §20.3). The clean, backend-verifiable backlog is **exhausted** — every such item was driven to done and committed.
+
 ## 6. Progress Log
+
+- **2026-05-29 — 2.5 connector HTTP error-body preserved.** `executeRealHttpCall` error result gained a `body` field carrying the full parsed server error (was collapsed to `HTTP <status>`). · **3.9 CLI REPL resilience** — a failed chat turn no longer kills the session (try/catch in the readline loop).
 
 - **2026-05-29 — E1 plugin SDK built.** Filled the empty `packages/productization` with a real plugin SDK: typed `PluginManifest` (declares contributed tools/connectors/skills + permissions + risk), `validatePluginManifest` (collects all errors; rejects empty/malformed plugins), an in-memory `PluginRegistry` (install/list/get/uninstall + `requiredPermissions` for admin review), and a `definePlugin` helper. New package integrates into the monorepo typecheck/test; 7 tests. **E1 3 → 7** — runtime auto-load + marketplace are follow-ups.
 - **2026-05-29 — M4 sensitivity-scoped retrieval (1.6).** `hybridSearch` now enforces an optional `maxSensitivity` (public<restricted<secret); scoped callers never see higher-sensitivity memories. New test. **M4 5 → 7.**
