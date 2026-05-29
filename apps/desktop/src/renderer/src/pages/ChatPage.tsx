@@ -235,7 +235,7 @@ export function ChatPage({
           placeholder={settings.workspacePath ? "Ask the mock agent..." : "Choose a workspace first"}
           value={input}
         />
-        <button className="primary-icon-button" disabled={isSending || !input.trim()} title="Send" type="submit">
+        <button className="primary-icon-button" disabled={isSending || !input.trim()} title="Send" aria-label="Send message" type="submit">
           <Send size={19} />
         </button>
       </form>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
+  BadgeCheck,
   Boxes,
   CalendarClock,
   FlaskConical,
@@ -43,7 +44,7 @@ const primaryPages: NavItem[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "approvals", label: "Approvals", icon: ShieldCheck },
-  { id: "trust", label: "Trust", icon: ShieldCheck },
+  { id: "trust", label: "Trust", icon: BadgeCheck },
   { id: "history", label: "History", icon: Activity },
   { id: "settings", label: "Settings", icon: Settings }
 ];
@@ -313,6 +314,7 @@ export function App() {
                 type="button"
                 className={`nav-item ${isActive ? "active" : ""}`}
                 aria-label={item.label}
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => handleNavigate(item.id)}
               >
                 <Icon size={18} aria-hidden />
@@ -350,6 +352,7 @@ export function App() {
                   type="button"
                   className={`nav-item ${isActive ? "active" : ""}`}
                   aria-label={item.label}
+                  aria-current={isActive ? "page" : undefined}
                   onClick={() => handleNavigate(item.id)}
                 >
                   <Icon size={15} aria-hidden />
