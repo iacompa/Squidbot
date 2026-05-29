@@ -124,6 +124,12 @@ export type ModelRouterSettings = {
   apiUrl?: string | null;
   apiModel?: string | null;
   apiBudgetTokens?: number | null;
+  /**
+   * Budget-accounting key for the BYOK ("api") provider. Defaults to "api".
+   * Set to the active model account's id so each account's daily spend is
+   * tracked independently instead of sharing one global "api" bucket.
+   */
+  apiBudgetKey?: string | null;
   localModel?: string | null;
 };
 

@@ -95,7 +95,10 @@ export class ModelRouter {
     cost: number;
   } {
     const budgetTokens = normalizeBudget(providerName === "api" ? this.settings.apiBudgetTokens : null);
-    const usage = this.budgetStore?.getModelUsage(providerName, date);
+    // BYOK usage is bucketed per account (apiBudgetKey), not under a shared
+    // "api" key — otherwise two paid accounts would share one daily budget.
+    const storeKey = providerName === "api" ? this.apiBudgetKey() : providerName;
+    const usage = this.budgetStore?.getModelUsage(storeKey, date);
     const usedTokens = usage?.tokens ?? 0;
     return {
       provider: providerName,
@@ -263,7 +266,13 @@ export class ModelRouter {
       return;
     }
 
-    this.budgetStore?.addModelUsage(provider.name, todayUtc(), tokenUsage.totalTokens, costEstimate);
+    this.budgetStore?.addModelUsage(this.apiBudgetKey(), todayUtc(), tokenUsage.totalTokens, costEstimate);
+  }
+
+  /** Per-account BYOK budget bucket — the active account id, or "api" if none. */
+  private apiBudgetKey(): string {
+    const key = this.settings.apiBudgetKey;
+    return key && key.length > 0 ? key : "api";
   }
 
   private providerOrder(): ModelProvider[] {

@@ -44,7 +44,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | C1 | Multi-step agentic tool loop (model sees tool results, iterates) | ✅ | ✅ | ✅ **real loop + cap(8) + dedup; results fed back** | **8.5** | ✅ **FIXED** (BUG-001) — TDD'd, full suite green |
 | C2 | Streaming tool/token output | ✅ | ✅ | ⬜ blocking only | **4** | Add streaming + cancellation |
 | C3 | Tool registry w/ schema, risk, permission, dry-run | ✅ | ✅ | ✅ strong (governance-gated) | **8** | Validate args vs inputSchema (3.6) |
-| C4 | Model router: capability/cost/latency + fallback + budgets | ✅ | ✅ | ✅ router+fallback+budget | **8** | Per-account budget (3.1); fetch timeout (2.7) |
+| C4 | Model router: capability/cost/latency + fallback + budgets | ✅ | ✅ | ✅ router+fallback+**per-account budget**+timeout+fallback-note | **8.5** | ✅ 2.7, 3.1, 2.3 all fixed |
 | C5 | Provider breadth (BYOK) | 60+ | 25+ | 🟡 1 OpenAI-compat + local + mock | **6** | Add Anthropic + Ollama native; provider catalog |
 | **MEMORY** |
 | M1 | Structured/semantic memory | ✅ hybrid+Dreaming+Wiki | ✅ pluggable | ✅ typed graph + FTS + provenance | **8** | Real strength |
@@ -108,7 +108,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 ### P1 — correctness / security
 - ✅ ~~1.7 FTS truncated to 12 tokens~~ · 1.4 Memory contradiction detection missing · 1.5 memory approval check-then-insert race · 1.6 sensitivity labels not enforced at retrieval
 - ✅ ~~2.3 BYOK→local fallback silent~~ · ✅ ~~2.4 trace dropped when sendMessage throws~~ · ✅ ~~2.7 BYOK fetch has no timeout~~ · 2.1 connector responses leak creds into traces · 2.2 approval queue bypasses governance · 2.6 owner role bypasses RBAC *(by design — closed)*
-- 3.1 per-account budget keyed by provider not account · 3.6 tool args not validated vs inputSchema *(deferred — breakage risk; loop now surfaces tool errors for self-correction)*
+- ✅ ~~3.1 per-account budget keyed by provider not account~~ · 3.6 tool args not validated vs inputSchema *(deferred — breakage risk; loop now surfaces tool errors for self-correction)*
 
 ### P2 — UX / robustness
 - 3.4 no streaming/cancellation · 3.7 React setState-after-unmount in ChatPage · 3.8 chat UI history lost on nav · 3.9 CLI REPL exits on first error
@@ -162,6 +162,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ## 6. Progress Log
 
+- **2026-05-29 — 3.1 per-account BYOK budget FIXED.** `ModelRouter` bucketed all BYOK usage under a shared "api" key, so two paid accounts shared one daily budget. Added `apiBudgetKey` (the active account id) — usage + budget checks are now per-account. New test in `router.test.ts`. **C4 8 → 8.5.**
 - **2026-05-29 — ST2 AI Studio Blueprint Catalog shipped (feature).** New renderer page `StudioPage.tsx` (AI Studio nav entry) lists installed blueprints from the existing blueprint IPC, shows each one's composition (agents/tools/connectors/policies/datasets/benchmarks/KPIs/graph), rollout status, and exports the manifest JSON. Reuses existing page CSS so it inherits the design system. Behavior-tested (`StudioPage.test.tsx` — render + list + export). Backend (BlueprintRegistry + IPC + preload) already existed; this makes the centerpiece tangible. **ST2 2 → 6** (catalog slice; the visual canvas / KPI dashboard / deploy+canary controls / benchmark-runner tabs from the design doc remain). NOTE: behavior-verified via tests; visual layout should be eyeballed in a running app.
 - **2026-05-29 — N2 MCP SERVER MODE shipped (feature).** New `packages/connectors/src/mcpServer.ts` (`SquidbotMcpServer`) exposes the tool registry over MCP stdio; every `callTool` is gated by the same `PolicyEngine` the runtime uses and audited to the event log. New CLI command `npm run mcp -- serve [--workspace <path>]`. Tests: `mcpServer.test.ts` (list / allowed-call / policy-deny / unknown-tool). Verified end-to-end: real MCP `initialize`+`tools/list` handshake over stdio returned 68 governed tools. SquidBot now has MCP **client + server** (parity with OpenClaw/Hermes). Design: `docs/superpowers/specs/2026-05-29-mcp-server-mode-design.md`. **N2 N/A → 8.5.**
 

@@ -74,6 +74,34 @@ describe("ModelRouter", () => {
     expect(events.map((event) => event.type)).toContain("model.result");
   });
 
+  it("tracks BYOK budget per account, not in a shared 'api' bucket", async () => {
+    const store = new MemoryBudgetStore();
+    const request = {
+      sessionId: "s",
+      runId: "r",
+      messages: [{ role: "user" as const, content: "list files" }],
+      tools: [{ name: "workspace.listFiles", description: "List files", inputSchema: {} }]
+    };
+
+    // Account A makes a call — its usage is recorded under its own key.
+    const routerA = new ModelRouter({
+      settings: { provider: "api", apiKey: "kA", apiBudgetTokens: 10_000, apiBudgetKey: "acct_A" },
+      budgetStore: store,
+      providers: [new ApiModelProvider({ apiKey: "kA" }), new MockModelProvider()]
+    });
+    await routerA.generate(request);
+    expect(routerA.getBudgetStatus("api").usedTokens).toBeGreaterThan(0);
+
+    // Account B shares the same store but a different key — it must NOT inherit
+    // account A's spend (the old code bucketed everything under "api").
+    const routerB = new ModelRouter({
+      settings: { provider: "api", apiKey: "kB", apiBudgetTokens: 10_000, apiBudgetKey: "acct_B" },
+      budgetStore: store,
+      providers: [new ApiModelProvider({ apiKey: "kB" }), new MockModelProvider()]
+    });
+    expect(routerB.getBudgetStatus("api").usedTokens).toBe(0);
+  });
+
   it("falls back when BYOK budget is exhausted", async () => {
     const store = new MemoryBudgetStore();
     const events: Array<{ type: ModelEventType; data: Record<string, unknown> }> = [];

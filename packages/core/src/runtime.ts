@@ -1018,6 +1018,8 @@ function createModelRouterFromSettings(database: SquidDatabase, cipher?: SecretC
         apiUrl: activeAccount.apiUrl,
         apiModel: activeAccount.apiModel,
         apiBudgetTokens: activeAccount.dailyBudgetTokens ?? readPositiveIntegerSetting(database, "model.budget.api"),
+        // Track this account's daily spend under its own id, not a shared bucket.
+        apiBudgetKey: activeAccount.id,
         localModel: database.getSetting<string>("model.localModel")
       }
     : {
