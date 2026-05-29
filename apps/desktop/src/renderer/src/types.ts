@@ -74,6 +74,7 @@ export type PageId =
   | "evals"
   | "sandboxes"
   | "gaps"
+  | "studio"           // NEW — AI Studio: blueprint catalog (Phase 2)
   // Deprecated but kept reachable through navRedirects — do NOT remove,
   // some pages call onNavigate("traces"|"memory"|...) and resolveNav handles
   // the redirect to the new destination.

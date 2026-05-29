@@ -4,6 +4,7 @@ import {
   Boxes,
   CalendarClock,
   FlaskConical,
+  LayoutTemplate,
   MessageSquare,
   Plug,
   Settings,
@@ -29,6 +30,7 @@ import { JobsPage } from "./pages/JobsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { SandboxesPage } from "./pages/SandboxesPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { StudioPage } from "./pages/StudioPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { TrustPage } from "./pages/TrustPage";
 import type { PageId, TraceDto } from "./types";
@@ -51,7 +53,8 @@ const advancedPages: NavItem[] = [
   { id: "teams", label: "Teams", icon: UsersRound },
   { id: "evals", label: "Evals", icon: FlaskConical },
   { id: "sandboxes", label: "Sandboxes", icon: Boxes },
-  { id: "gaps", label: "Gaps", icon: ShieldAlert }
+  { id: "gaps", label: "Gaps", icon: ShieldAlert },
+  { id: "studio", label: "AI Studio", icon: LayoutTemplate }
 ];
 
 const ADVANCED_OPEN_KEY = "sidebar.advancedOpen";
@@ -262,6 +265,10 @@ export function App() {
 
     if (activePage === "gaps") {
       return <GapsPage />;
+    }
+
+    if (activePage === "studio") {
+      return <StudioPage />;
     }
 
     return (

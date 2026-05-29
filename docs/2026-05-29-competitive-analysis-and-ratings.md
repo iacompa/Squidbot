@@ -84,7 +84,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | N4 | Real dev integrations (GitHub etc.) | ✅ skills | ✅ | 🟡 GitHub read real; writes gated | **6** | E2E PR-creation UX |
 | **AI STUDIO (the centerpiece differentiator)** |
 | ST1 | Blueprint backend (manifest/registry/versioning) | ⬜ | ⬜ | ✅ backend only | **7** | Backend solid |
-| ST2 | AI Studio UI (catalog, canvas, KPI, deploy) | ⬜ | ⬜ | 🟥 **designed, never built** | **2** | Build the UI — unique moat |
+| ST2 | AI Studio UI (catalog, canvas, KPI, deploy) | ⬜ | ⬜ | 🟡 **Blueprint Catalog page shipped (list+detail+export), behavior-tested** | **6** | ✅ catalog slice done (StudioPage); canvas/KPI-dashboard/deploy-controls/benchmark-runner tabs pending |
 | **DISTRIBUTION** |
 | D1 | Daemon/service, Docker, cloud deploy | ✅ rich | ✅ rich | ⬜ desktop only | **4** | Deferred (vision §20.3) |
 | D2 | Auto-update + doctor + migration import | ✅ | ✅ | 🟡 doctor yes; no updater/import | **6** | Doctor strong; rest deferred |
@@ -162,6 +162,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ## 6. Progress Log
 
+- **2026-05-29 — ST2 AI Studio Blueprint Catalog shipped (feature).** New renderer page `StudioPage.tsx` (AI Studio nav entry) lists installed blueprints from the existing blueprint IPC, shows each one's composition (agents/tools/connectors/policies/datasets/benchmarks/KPIs/graph), rollout status, and exports the manifest JSON. Reuses existing page CSS so it inherits the design system. Behavior-tested (`StudioPage.test.tsx` — render + list + export). Backend (BlueprintRegistry + IPC + preload) already existed; this makes the centerpiece tangible. **ST2 2 → 6** (catalog slice; the visual canvas / KPI dashboard / deploy+canary controls / benchmark-runner tabs from the design doc remain). NOTE: behavior-verified via tests; visual layout should be eyeballed in a running app.
 - **2026-05-29 — N2 MCP SERVER MODE shipped (feature).** New `packages/connectors/src/mcpServer.ts` (`SquidbotMcpServer`) exposes the tool registry over MCP stdio; every `callTool` is gated by the same `PolicyEngine` the runtime uses and audited to the event log. New CLI command `npm run mcp -- serve [--workspace <path>]`. Tests: `mcpServer.test.ts` (list / allowed-call / policy-deny / unknown-tool). Verified end-to-end: real MCP `initialize`+`tools/list` handshake over stdio returned 68 governed tools. SquidBot now has MCP **client + server** (parity with OpenClaw/Hermes). Design: `docs/superpowers/specs/2026-05-29-mcp-server-mode-design.md`. **N2 N/A → 8.5.**
 
 - **2026-05-29 — BUG-001 (P0) agentic tool loop FIXED.** Root-caused by code read (`sendMessage` called the model once, ran tools, returned — model never saw results). Fix (TDD, 3 new tests): extended `ChatMessage` with `toolCalls`/`toolCallId`; rewrote `sendMessage` as a bounded loop (cap 8 + identical-call dedup) that feeds tool results back; `apiProvider` now serializes `tool_calls`/`tool` for real OpenAI APIs; deterministic provider terminates by summarizing results. **C1 rating 3 → 8.5.** Verified: full `npm run test` green, `npm run typecheck` clean.
