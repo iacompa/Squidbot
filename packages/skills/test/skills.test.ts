@@ -200,8 +200,10 @@ describe("SkillService", () => {
 
     expect(installed.map((manifest) => manifest.id).sort()).toEqual([
       "skill_auto_fix_and_pr",
+      "skill_ci_failure_diagnosis",
       "skill_issue_triage",
-      "skill_pull_request_reviewer"
+      "skill_pull_request_reviewer",
+      "skill_release_notes"
     ]);
     expect(secondPass).toEqual([]);
     expect(service.getVersion("skill_issue_triage", "0.1.0")?.manifest.requiredTools).toContain("connector.github.listIssues");

@@ -54,7 +54,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | **REFLECTION / EVOLUTION** |
 | R1 | Reflection + missing-affordance capture | 🟡 | ✅ | ✅ taxonomy + gaps + graph | **8** | Strength |
 | R2 | Eval-gated skill evolution (variant→bench→canary→promote/rollback) | 🟡 | ✅ self-improve | ✅ **reflection→propose→static-gate→benchmark→canary, audited, never auto-promotes** | **8.5** | ✅ `runImprovementCycle` + `evolve auto` CLI; beats Hermes on auditability/eval-gating |
-| R3 | Skills system | ✅ AgentSkills | ✅ + Hub (19k) | 🟡 manifest+evaluator, few skills | **7** | Add reference skills; importer |
+| R3 | Skills system | ✅ AgentSkills | ✅ + Hub (19k) | ✅ manifest+evaluator + **5 governed reference skills** (triage, PR review, auto-fix-PR, CI-diagnosis, release-notes) | **8** | ⏸️ skill count is a scale-feature non-goal; eval-gating is the bet |
 | **SAFETY / GOVERNANCE (SquidBot's moat)** |
 | G1 | Approval-gating high-risk actions | ✅ | ✅ | ✅ queue + risk tiers + lock + **governance re-check on execute** | **9** | ✅ 2.2 fixed — approving in UI can't bypass ABAC/RBAC |
 | G2 | Chained-hash tamper-evident audit | ⬜ | ⬜ | ✅ **unique** | **9** | Keep; surface in every flow |

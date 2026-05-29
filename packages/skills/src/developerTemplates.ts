@@ -115,6 +115,79 @@ const developerWorkflowSkills: SkillManifest[] = [
     author: "SquidBot",
     tags: ["developer-workflow", "autofix", "pull-request"],
     domains: ["ci", "pull-requests", "issues"]
+  },
+  {
+    id: "skill_ci_failure_diagnosis",
+    name: "CI Failure Diagnosis",
+    version: "0.1.0",
+    description: "Fetch a failing CI run's logs, parse the failure, locate the implicated files, and draft a fix plan — read-only until an approval-gated patch.",
+    requiredTools: [
+      "connector.github.getWorkflowRunStatus",
+      "connector.github.fetchWorkflowLogs",
+      "workspace.readFile",
+      "workspace.searchFiles",
+      "test.run"
+    ],
+    prompts: {
+      planningPrompt: "Fetch the failing workflow logs, identify the failing test or step, locate the implicated files, and propose a minimal fix plan. Run verification only in a sandbox.",
+      reviewPrompt: "Cite the exact failing assertion and the file implicated. Do not modify the repository without an approval-gated patch."
+    },
+    testFixtures: [
+      {
+        id: "fixture_ci_failure",
+        name: "Fixture CI failure diagnosis",
+        task: "Fetch the github workflow logs and diagnose the failing run",
+        expectedResult: {
+          diagnosed: true,
+          connector: "github"
+        }
+      }
+    ],
+    permissions: {
+      "connector.github.getWorkflowRunStatus": { riskLevel: "low", scopes: ["actions:read"] },
+      "connector.github.fetchWorkflowLogs": { riskLevel: "low", scopes: ["actions:read"] },
+      "workspace.readFile": { riskLevel: "low" },
+      "workspace.searchFiles": { riskLevel: "low" },
+      "test.run": { riskLevel: "medium" }
+    },
+    createdAt: now,
+    updatedAt: now,
+    author: "SquidBot",
+    tags: ["developer-workflow", "ci", "diagnosis"],
+    domains: ["ci", "debugging"]
+  },
+  {
+    id: "skill_release_notes",
+    name: "Release Notes Drafter",
+    version: "0.1.0",
+    description: "Summarize merged pull requests and closed issues since the last release into structured release notes — a draft for operator review, never auto-published.",
+    requiredTools: ["connector.github.listIssues", "connector.github.listBranches", "connector.github.readDiff", "workspace.readFile"],
+    prompts: {
+      planningPrompt: "Collect merged PRs and closed issues for the release window, group them by type (feature / fix / chore), and draft concise release notes.",
+      reviewPrompt: "Keep entries to one line each, reference issue/PR numbers, and never auto-publish — the output is a draft for operator review."
+    },
+    testFixtures: [
+      {
+        id: "fixture_release_notes",
+        name: "Fixture release notes",
+        task: "List github issues and draft release notes",
+        expectedResult: {
+          drafted: true,
+          connector: "github"
+        }
+      }
+    ],
+    permissions: {
+      "connector.github.listIssues": { riskLevel: "low", scopes: ["repo:read"] },
+      "connector.github.listBranches": { riskLevel: "low", scopes: ["repo:read"] },
+      "connector.github.readDiff": { riskLevel: "low", scopes: ["repo:read"] },
+      "workspace.readFile": { riskLevel: "low" }
+    },
+    createdAt: now,
+    updatedAt: now,
+    author: "SquidBot",
+    tags: ["developer-workflow", "release"],
+    domains: ["releases", "documentation"]
   }
 ];
 
