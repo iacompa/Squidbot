@@ -89,7 +89,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | D1 | Daemon/service, Docker, cloud deploy | ✅ rich | ✅ rich | ⬜ desktop only | **4** | Deferred (vision §20.3) |
 | D2 | Auto-update + doctor + migration import | ✅ | ✅ | 🟡 doctor yes; no updater/import | **6** | Doctor strong; rest deferred |
 | **EXTENSIBILITY** |
-| E1 | Plugin SDK | ✅ ClawHub | ✅ | 🟥 `productization` empty | **3** | Build SDK scaffold |
+| E1 | Plugin SDK | ✅ ClawHub | ✅ | ✅ **`@squidbot/productization`: typed manifest + validator + registry + `definePlugin`** | **7** | real SDK scaffold (tested); runtime auto-load + marketplace are follow-ups |
 
 **Scorecard today (shipped/partial features):** mean ≈ **6.3/10**. Pillars where SquidBot already leads or ties (G2 audit, G3 RBAC, O1 traces, M1 memory, G1 approvals, ST1 blueprint backend) are 8–9. The drags are **core correctness (C1/C2), secrets-at-rest (G4), messaging reality (I3), and the unbuilt AI Studio UI (ST2)** — exactly the work list.
 
@@ -162,6 +162,10 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ## 6. Progress Log
 
+- **2026-05-29 — E1 plugin SDK built.** Filled the empty `packages/productization` with a real plugin SDK: typed `PluginManifest` (declares contributed tools/connectors/skills + permissions + risk), `validatePluginManifest` (collects all errors; rejects empty/malformed plugins), an in-memory `PluginRegistry` (install/list/get/uninstall + `requiredPermissions` for admin review), and a `definePlugin` helper. New package integrates into the monorepo typecheck/test; 7 tests. **E1 3 → 7** — runtime auto-load + marketplace are follow-ups.
+- **2026-05-29 — M4 sensitivity-scoped retrieval (1.6).** `hybridSearch` now enforces an optional `maxSensitivity` (public<restricted<secret); scoped callers never see higher-sensitivity memories. New test. **M4 5 → 7.**
+- **2026-05-29 — R3 reference skills.** Added CI-failure-diagnosis + release-notes governed skills (5 total). **R3 7 → 8.**
+- **2026-05-29 — Sprint 4 batch 2 (4.5, 4.10).** Settings-load failure → error+retry (no infinite skeleton); memory-node delete now confirms.
 - **2026-05-29 — C2 streaming + cancellation (backend).** `AgentRuntime.sendMessage` gained additive `{ onToken, signal }` options: the assembled answer streams to `onToken` in chunks (incremental delivery — a real streaming UX for the zero-spend/local default), and an aborted `AbortSignal` stops the loop before the next model call and returns a cancelled response. Fully additive (existing callers unchanged), 2 new tests. **C2 4 → 7** — renderer live-token render + a `cancelChat` IPC remain the UI wiring (need the running app to verify).
 - **2026-05-29 — Sprint 4 a11y batch (4.4, 4.11, 4.12).** Trust + Approvals no longer share the `ShieldCheck` icon (Trust → `BadgeCheck`); nav items now expose `aria-current="page"` when active; the icon-only Send button gained an `aria-label`. Typecheck clean, desktop suite 214 green.
 - **2026-05-29 — 2.2 approval execution now governance-gated.** Approving a queued connector call in the UI executed the HTTP request without re-checking governance — bypassing the ABAC/RBAC policy the runtime applies to the same tool. Added `checkConnectorApprovalGovernance` (mirrors the runtime gate: `tool.invoke` on `connector.<name>.<op>`); `approveConnectorCall` blocks before executing if denied. Extracted + unit-tested (3 tests). **G1 8.5 → 9.**
