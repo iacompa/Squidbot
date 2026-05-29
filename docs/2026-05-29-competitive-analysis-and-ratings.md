@@ -42,7 +42,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 |---|---|---|---|---|---|---|
 | **CORE AGENT** |
 | C1 | Multi-step agentic tool loop (model sees tool results, iterates) | ✅ | ✅ | ✅ **real loop + cap(8) + dedup; results fed back** | **8.5** | ✅ **FIXED** (BUG-001) — TDD'd, full suite green |
-| C2 | Streaming tool/token output | ✅ | ✅ | ⬜ blocking only | **4** | Add streaming + cancellation |
+| C2 | Streaming tool/token output | ✅ | ✅ | 🟡 **runtime onToken streaming + AbortSignal cancellation (backend, tested)** | **7** | renderer live-token render + cancelChat IPC are the remaining UI wiring |
 | C3 | Tool registry w/ schema, risk, permission, dry-run | ✅ | ✅ | ✅ strong (governance-gated) | **8** | Validate args vs inputSchema (3.6) |
 | C4 | Model router: capability/cost/latency + fallback + budgets | ✅ | ✅ | ✅ router+fallback+**per-account budget**+timeout+fallback-note | **8.5** | ✅ 2.7, 3.1, 2.3 all fixed |
 | C5 | Provider breadth (BYOK) | 60+ | 25+ | 🟡 1 OpenAI-compat + local + mock | **6** | Add Anthropic + Ollama native; provider catalog |
@@ -162,6 +162,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 
 ## 6. Progress Log
 
+- **2026-05-29 — C2 streaming + cancellation (backend).** `AgentRuntime.sendMessage` gained additive `{ onToken, signal }` options: the assembled answer streams to `onToken` in chunks (incremental delivery — a real streaming UX for the zero-spend/local default), and an aborted `AbortSignal` stops the loop before the next model call and returns a cancelled response. Fully additive (existing callers unchanged), 2 new tests. **C2 4 → 7** — renderer live-token render + a `cancelChat` IPC remain the UI wiring (need the running app to verify).
 - **2026-05-29 — Sprint 4 a11y batch (4.4, 4.11, 4.12).** Trust + Approvals no longer share the `ShieldCheck` icon (Trust → `BadgeCheck`); nav items now expose `aria-current="page"` when active; the icon-only Send button gained an `aria-label`. Typecheck clean, desktop suite 214 green.
 - **2026-05-29 — 2.2 approval execution now governance-gated.** Approving a queued connector call in the UI executed the HTTP request without re-checking governance — bypassing the ABAC/RBAC policy the runtime applies to the same tool. Added `checkConnectorApprovalGovernance` (mirrors the runtime gate: `tool.invoke` on `connector.<name>.<op>`); `approveConnectorCall` blocks before executing if denied. Extracted + unit-tested (3 tests). **G1 8.5 → 9.**
 - **2026-05-29 — 5.7 web bridge method-dispatch hardened.** The `/api/:method` bridge dispatched any path to `invoke` — `__proto__`/`constructor`/etc. were a prototype-pollution vector. Added `isSafeBridgeMethod` (camelCase-only, denylist of prototype member names) → 400 before dispatch. 17 new assertions. **I5 5 → 7** (token-auth remains a deployment-phase concern; localhost-only by design).

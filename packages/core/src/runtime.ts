@@ -248,7 +248,10 @@ export class AgentRuntime {
     ].join("\n");
   }
 
-  async sendMessage(content: string): Promise<AgentResponse> {
+  async sendMessage(
+    content: string,
+    options?: { onToken?: (delta: string) => void; signal?: AbortSignal }
+  ): Promise<AgentResponse> {
     // If the operator or a tool call has switched the active model account
     // between turns, swap the router before we make the next call.
     this.refreshModelRouterIfAccountChanged();
@@ -304,6 +307,12 @@ export class AgentRuntime {
 
     try {
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+        // Cooperative cancellation: if the caller aborted, stop before the
+        // next (potentially expensive) model call and return what we have.
+        if (options?.signal?.aborted) {
+          finalContent = finalContent.trim().length > 0 ? finalContent : "[Generation cancelled.]";
+          break;
+        }
         const modelResponse = await this.modelRouter.generate({
           sessionId: this.sessionId,
           runId,
@@ -383,6 +392,16 @@ export class AgentRuntime {
       if (fellBackFromPaid) {
         responseContent +=
           "\n\n_Note: your configured paid model was unavailable, so this reply fell back to a local/free provider._";
+      }
+
+      // Stream the final answer to the caller in chunks. The local/zero-spend
+      // providers complete synchronously, so this is incremental delivery of
+      // the assembled answer (a real streaming UX in the renderer); a BYOK SSE
+      // provider can later emit true token deltas through the same callback.
+      if (options?.onToken) {
+        for (const chunk of chunkForStreaming(responseContent)) {
+          options.onToken(chunk);
+        }
       }
 
       this.messages.push({ role: "assistant", content: responseContent });
@@ -1077,6 +1096,18 @@ function readPositiveNumberSetting(database: SquidDatabase, key: string): number
   }
 
   return null;
+}
+
+/**
+ * Split assembled text into streaming chunks (whitespace-delimited words,
+ * keeping trailing spaces) so the concatenation of all chunks is exactly the
+ * original text. Used to deliver the final answer incrementally to onToken.
+ */
+function chunkForStreaming(text: string): string[] {
+  if (text.length === 0) {
+    return [];
+  }
+  return text.match(/\S+\s*|\s+/g) ?? [text];
 }
 
 /**
