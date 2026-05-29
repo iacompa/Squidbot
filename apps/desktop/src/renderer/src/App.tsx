@@ -63,6 +63,7 @@ const ADVANCED_OPEN_KEY = "sidebar.advancedOpen";
 export function App() {
   const [activePage, setActivePage] = useState<PageId>("briefing");
   const [settings, setSettings] = useState<SettingsDto | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [, setLatestTrace] = useState<TraceDto | null>(null);
   const [, setTraces] = useState<TraceDto[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>();
@@ -128,8 +129,15 @@ export function App() {
   }, [isMobileNavOpen]);
 
   async function refreshSettings(): Promise<void> {
-    const nextSettings = await squidbotApi.getSettings();
-    setSettings(nextSettings);
+    try {
+      const nextSettings = await squidbotApi.getSettings();
+      setSettings(nextSettings);
+      setSettingsError(null);
+    } catch (error) {
+      // Don't leave the app on an infinite loading skeleton — surface the
+      // failure with a retry instead.
+      setSettingsError(error instanceof Error ? error.message : "Unable to load settings.");
+    }
   }
 
   async function refreshTraces(): Promise<void> {
@@ -203,6 +211,16 @@ export function App() {
 
   const renderPage = () => {
     if (!settings) {
+      if (settingsError) {
+        return (
+          <main className="page-panel">
+            <div className="error-strip">{settingsError}</div>
+            <button className="secondary-button" type="button" onClick={() => void refreshSettings()}>
+              <span>Retry</span>
+            </button>
+          </main>
+        );
+      }
       return <main className="page-panel skeleton-panel" />;
     }
 
