@@ -10,6 +10,31 @@ export type WebApiBridgeAdapter = {
   invoke: (method: string, ...args: unknown[]) => Promise<unknown>;
 };
 
+// Object/Function prototype member names that must never be dispatched —
+// they enable prototype-pollution / unexpected built-in access if a method
+// lookup ever indexes a plain object by the request path.
+const UNSAFE_METHOD_NAMES = new Set([
+  "__proto__",
+  "prototype",
+  "constructor",
+  "hasOwnProperty",
+  "isPrototypeOf",
+  "propertyIsEnumerable",
+  "toString",
+  "toLocaleString",
+  "valueOf"
+]);
+
+// Real IPC method names are camelCase identifiers (e.g. listBlueprints,
+// model_useAccount). Anything else — dotted paths, dashes, leading digits,
+// empty — is rejected.
+const SAFE_METHOD_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+
+/** True only for a well-formed, non-prototype-pollution IPC method name. */
+export function isSafeBridgeMethod(method: string): boolean {
+  return typeof method === "string" && SAFE_METHOD_PATTERN.test(method) && !UNSAFE_METHOD_NAMES.has(method);
+}
+
 /**
  * Mounts POST /api/:method routes on the given Express app. Each request
  * body is { args: unknown[] }; the response is the JSON result of the
@@ -25,6 +50,11 @@ export function mountWebApiBridge(app: Express, adapter: WebApiBridgeAdapter): v
 
   app.post("/api/:method", async (req, res) => {
     const { method } = req.params;
+    // Reject prototype-pollution / malformed method names before dispatch.
+    if (!isSafeBridgeMethod(method)) {
+      res.status(400).json({ error: `Invalid method name: ${method}` });
+      return;
+    }
     const body = (req.body ?? {}) as { args?: unknown[] };
     const args = Array.isArray(body.args) ? body.args : [];
     try {

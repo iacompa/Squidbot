@@ -1,7 +1,23 @@
 import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { mountWebApiBridge } from "./webApiBridge";
+import { isSafeBridgeMethod, mountWebApiBridge } from "./webApiBridge";
+
+describe("isSafeBridgeMethod", () => {
+  it.each(["__proto__", "constructor", "prototype", "hasOwnProperty", "toString", "valueOf", "", "has-dash", "123abc", "model.useAccount"])(
+    "rejects unsafe / prototype-pollution / malformed method %s",
+    (method) => {
+      expect(isSafeBridgeMethod(method)).toBe(false);
+    }
+  );
+
+  it.each(["listBlueprints", "sendChatMessage", "getTrace", "model_useAccount", "buildCompliancePacket"])(
+    "allows a well-formed IPC method name %s",
+    (method) => {
+      expect(isSafeBridgeMethod(method)).toBe(true);
+    }
+  );
+});
 
 describe("webApiBridge", () => {
   it("invokes the registered IPC handler and returns the result as JSON", async () => {
@@ -42,6 +58,15 @@ describe("webApiBridge", () => {
     const res = await request(app).post("/api/bogus").send({ args: [] });
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "boom" });
+  });
+
+  it("rejects a prototype-pollution method name with 400 and never invokes the adapter", async () => {
+    const invoke = vi.fn(async () => ({ ok: true }));
+    const app = express();
+    mountWebApiBridge(app, { invoke });
+    const res = await request(app).post("/api/__proto__").send({ args: [] });
+    expect(res.status).toBe(400);
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("treats missing body.args as empty array", async () => {
