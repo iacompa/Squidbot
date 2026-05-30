@@ -2,6 +2,7 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { execFileSync } from "node:child_process";
 import { buildHelpText, getCliVersion } from "./cliHelpers.js";
+import { checkForUpdates, exportMigrationBundle, importMigrationBundle } from "./migrate.js";
 import fs from "node:fs";
 import path from "node:path";
 import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools, SquidbotMcpServer } from "@squidbot/connectors";
@@ -304,6 +305,42 @@ async function main(): Promise<void> {
       // Local-first: the data is computed from the local DB and never leaves.
       process.stdout.write(exportPrometheusMetrics(database));
       return;
+    }
+
+    if (args.command === "update") {
+      const current = getCliVersion();
+      const result = await checkForUpdates(current);
+      printJson(result);
+      if (!result.upToDate) process.exitCode = result.upToDate === false ? 2 : 1;
+      return;
+    }
+
+    if (args.command === "migrate") {
+      const parts = splitCommandParts(args.message);
+      const sub = parts[0];
+      if (sub === "export") {
+        const outFile = collectFlagValue(parts, "--out");
+        const bundle = exportMigrationBundle(database);
+        const json = JSON.stringify(bundle, null, 2);
+        if (outFile) {
+          fs.writeFileSync(resolveFromInvocationCwd(outFile), json, "utf8");
+          console.log(`Exported migration bundle to ${outFile}`);
+        } else {
+          process.stdout.write(json + "\n");
+        }
+        return;
+      }
+      if (sub === "import") {
+        const inFile = collectFlagValue(parts, "--from");
+        if (!inFile) throw new Error("Usage: npm run migrate -- import --from <bundle.json> [--overwrite]");
+        const raw = fs.readFileSync(resolveFromInvocationCwd(inFile), "utf8");
+        const bundle = JSON.parse(raw) as Parameters<typeof importMigrationBundle>[1];
+        const overwrite = parts.includes("--overwrite");
+        const result = importMigrationBundle(database, bundle, { overwrite });
+        printJson({ ok: true, ...result });
+        return;
+      }
+      throw new Error("Usage: npm run migrate -- export [--out file.json] | import --from file.json [--overwrite]");
     }
 
     if (args.command === "memory") {

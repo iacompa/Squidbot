@@ -87,7 +87,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | ST2 | AI Studio UI (catalog, canvas, KPI, deploy) | ⬜ | ⬜ | 🟡 **Blueprint Catalog page shipped (list+detail+export), behavior-tested** | **6** | ✅ catalog slice done (StudioPage); canvas/KPI-dashboard/deploy-controls/benchmark-runner tabs pending |
 | **DISTRIBUTION** |
 | D1 | Daemon/service, Docker, cloud deploy | ✅ rich | ✅ rich | ⬜ desktop only | **4** | Deferred (vision §20.3) |
-| D2 | Auto-update + doctor + migration import | ✅ | ✅ | 🟡 doctor yes; no updater/import | **6** | Doctor strong; rest deferred |
+| D2 | Auto-update + doctor + migration import | ✅ | ✅ | ✅ **`doctor` (JSON health checks + exit code), `update check` (npm registry), `migrate export/import` (portable settings bundle)** | **8.5** | ✅ all three wired and tested; auto-updater deferred (installer-level, not CLI-level) |
 | **EXTENSIBILITY** |
 | E1 | Plugin SDK | ✅ ClawHub | ✅ | ✅ **typed manifest + validator + registry + `definePlugin` + governed `loadPlugin` (manifest-contract enforced, atomic) + core ToolRegistry auto-load** | **8.5** | ✅ plugins load their *declared* tools into the runtime registry & execute; undeclared/invalid/throwing loads register nothing; marketplace UI is the remaining follow-up |
 
