@@ -33,13 +33,39 @@ export type PluginManifest = {
 };
 
 /**
- * A code plugin: a manifest plus a `register` hook the host calls with a
- * typed context. v1 keeps the context opaque so the SDK stays decoupled from
- * the runtime's concrete tool/connector registries.
+ * A tool a plugin contributes at load time. Structurally mirrors the host's
+ * registered-tool shape, but declared locally so the SDK stays decoupled from
+ * `@squidbot/core` (no import cycle). The host adapts these into its real
+ * ToolRegistry; governance still gates execution at call time.
+ */
+export type PluginToolDefinition = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  permissionScopes?: string[];
+  riskLevel?: PluginRiskLevel;
+  handler: (args: Record<string, unknown>, context?: unknown) => unknown | Promise<unknown>;
+};
+
+/** The capability surface the host hands a plugin's `register` hook. */
+export type PluginHost = {
+  registerTool(tool: PluginToolDefinition): void;
+};
+
+/** Context passed to a plugin's `register` hook — the manifest plus a guarded host. */
+export type PluginRegisterContext = {
+  manifest: PluginManifest;
+  registerTool(tool: PluginToolDefinition): void;
+};
+
+/**
+ * A code plugin: a manifest plus a `register` hook the host calls with a typed
+ * context. The host enforces that `register` only contributes capabilities the
+ * manifest declared (see `loadPlugin`).
  */
 export type SquidbotPlugin = {
   manifest: PluginManifest;
-  register?: (context: unknown) => void | Promise<void>;
+  register?: (context: PluginRegisterContext) => void | Promise<void>;
 };
 
 /** Type-safe helper for authoring a plugin. */

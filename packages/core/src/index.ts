@@ -9,6 +9,7 @@ export * from "./modelAccountTools.js";
 export * from "./modelRouter.js";
 export * from "./providerCatalog.js";
 export * from "./onboarding.js";
+export * from "./pluginLoader.js";
 export * from "./policyEngine.js";
 export * from "./repoTask.js";
 export * from "./redaction.js";

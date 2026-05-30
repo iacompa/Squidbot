@@ -17,6 +17,7 @@
     "@squidbot/db": "0.1.0",
     "@squidbot/memory": "0.1.0",
     "@squidbot/models": "0.1.0",
+    "@squidbot/productization": "0.1.0",
     "@squidbot/reflection": "0.1.0",
     "@squidbot/sandbox": "0.1.0"
   }
