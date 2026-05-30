@@ -436,8 +436,8 @@ describe("developer workflow connectors", () => {
     expect(result.mode).toBe("real");
     expect(result.executed).toBe(true);
     expect(fetchMock).toHaveBeenCalledOnce();
-    const callArgs = fetchMock.mock.calls[0];
+    const callArgs = fetchMock.mock.calls[0] as unknown as [string | URL | Request, RequestInit];
     expect(String(callArgs[0])).toContain("/items");
-    expect((callArgs[1] as RequestInit).method).toBe("POST");
+    expect(callArgs[1].method).toBe("POST");
   });
 });
