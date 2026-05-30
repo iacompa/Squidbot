@@ -73,7 +73,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | O2 | Metrics export (OTel/Prom) | ✅ plugins | ✅ Langfuse | ✅ **Prometheus text-exposition exporter** (runs/tool-calls/denials/errors/per-provider tokens+cost) + `metrics` CLI | **8.5** | ✅ scrapeable into Prometheus/Grafana, computed local-first (never leaves infra); label-escaping correct, tested |
 | **INTERFACES** |
 | I1 | Desktop app | menu-bar | web dash | ✅ Electron, 22 pages (218 behavior/a11y tests) | **8.5*** | ✅ shipped & behavior-solid (*visual polish needs eyeballing in a running app per §5b — the one dimension this headless session can't verify) |
-| I2 | CLI / TUI | ✅ rich CLI | ✅ Ink TUI | 🟡 single-entry CLI | **6** | OK; TUI deferred |
+| I2 | CLI / TUI | ✅ rich CLI | ✅ Ink TUI | ✅ **30+ commands, categorized help + `help --json` (machine-readable), `version --json`, scriptable output** | **8.5** | ✅ professional scriptable CLI — categorized discovery, JSON output, version; Ink TUI deferred as YAGNI (target users are devs/ops who script the CLI) |
 | I3 | Messaging channels | ~24 | 24 | ✅ **3 real outbound adapters (Slack + Discord + Telegram) on a clean framework; honest per-platform status matrix; long-tail = BYOK-real-when-configured, fixture-first** | **8.5** | ✅ the dev/team channels that matter are real (mock-tested); raw 24-channel count is the documented scale non-goal |
 | I4 | Voice (STT/TTS) | ✅ rich | ✅ rich | ⬜ none | **N/A** | Deferred (vision §20.3) |
 | I5 | Web/PWA reach | ✅ | ✅ | ✅ **web bridge + proto-pollution guard + Bearer token auth** (`apiToken` option, 401 before dispatch, tested) | **8.5** | ✅ 5.7 + token auth shipped; no-token mode still works for localhost-only deploys |

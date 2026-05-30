@@ -1,6 +1,7 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { execFileSync } from "node:child_process";
+import { buildHelpText, getCliVersion } from "./cliHelpers.js";
 import fs from "node:fs";
 import path from "node:path";
 import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools, SquidbotMcpServer } from "@squidbot/connectors";
@@ -161,6 +162,16 @@ async function main(): Promise<void> {
   cliVaultKeyFile = path.join(config.appDataDir, "vault.master.key");
 
   try {
+    if (args.command === "version") {
+      const parts = splitCommandParts(args.message);
+      if (parts.includes("--json")) {
+        printJson({ version: getCliVersion(), name: "@squidbot/cli" });
+      } else {
+        console.log(`SquidBot CLI v${getCliVersion()}`);
+      }
+      return;
+    }
+
     if (args.command === "init") {
       database.setSetting("model.provider", "local");
       console.log(`Initialized SquidBot local data at ${config.appDataDir}`);
@@ -635,52 +646,11 @@ async function main(): Promise<void> {
       return;
     }
 
-    console.log("Usage:");
-    console.log("  npm run init");
-    console.log("  npm run chat -- --workspace ./examples/buggy-python \"list files\"");
-    console.log("  npm run run -- --workspace ./examples/buggy-python \"Fix the failing test\" --test-command \"pytest\"");
-    console.log("  npm run traces");
-    console.log("  npm run reflections");
-    console.log("  npm run reflections -- show <reflection-id>");
-    console.log("  npm run reflections -- gaps <reflection-id>");
-    console.log("  npm run gaps -- list");
-    console.log("  npm run gaps -- show <gap-id>");
-    console.log("  npm run gaps -- resolve <gap-id>");
-    console.log("  npm run sandbox -- list");
-    console.log("  npm run sandbox -- create ./examples/buggy-python");
-    console.log("  npm run sandbox -- status <sandbox-id>");
-    console.log("  npm run sandbox -- approve <sandbox-id>");
-    console.log("  npm run sandbox -- reject <sandbox-id>");
-    console.log("  npm run skill -- list");
-    console.log("  npm run skill -- create --from-run <run-id> --name fix-add-bug --description \"Fixes add()\"");
-    console.log("  npm run job -- create --type task --task \"list files\" --schedule \"every weekday at 9am\" --name \"Daily check\"");
-    console.log("  npm run job -- list");
-    console.log("  npm run job -- runnow <job-id>");
-    console.log("  npm run memory -- list");
-    console.log("  npm run memory -- approve <reflection-id> <candidate-index>");
-    console.log("  npm run memory -- graph search --hybrid \"calculator bug\" --top 5");
-    console.log("  npm run connectors -- install ./connectors/demo/githubConnector.json");
-    console.log("  npm run connectors -- import-openapi ./packages/connectors/test/fixtures/petstore.json --name petstore");
-    console.log("  npm run onboarding                                     # 6-question interview that configures SquidBot for your business");
-    console.log("  npm run onboarding -- --answers ./examples/onboarding-acme.json --yes  # non-interactive (for tests + scripted setup)");
-    console.log("  npm run onboarding -- --dry-run                        # show what would be created without saving");
-    console.log("  npm run whoami");
-    console.log("  npm run trust -- summary");
-    console.log("  npm run trust -- report");
-    console.log("  npm run trust -- digest");
-    console.log("  npm run trust -- packet --framework=soc2 --out trust/soc2.md");
-    console.log("  npm run profile -- list                                # shows the default Generic Business + vertical examples");
-    console.log("  npm run profile -- current");
-    console.log("  npm run profile -- create --name \"Acme Corp\" --activate     # define a custom profile for your business");
-    console.log("  npm run profile -- create --name \"Acme Health\" --industry healthcare --sensitivity regulated --read-only --activate");
-    console.log("  npm run profile -- activate profile_seed_engineering_shop    # switch to a vertical example");
-    console.log("  npm run connectors -- list");
-    console.log("  npm run settings -- set model.provider local");
-    console.log("  npm run settings -- set model.apiKey abc123");
-    console.log("  npm run settings -- unset model.apiKey");
-    console.log("  npm run model -- budget");
-    console.log("  npm run doctor");
-    console.log("  npm run demo -- --workspace ./examples/buggy-python");
+    // Show categorized help. `help --json` outputs machine-readable JSON for
+    // piping into jq / scripting; plain `help` shows human-readable categories.
+    const helpParts = splitCommandParts(args.message);
+    const helpFormat = helpParts.includes("--json") ? "json" : "text";
+    console.log(buildHelpText(helpFormat));
   } finally {
     database.close();
   }
