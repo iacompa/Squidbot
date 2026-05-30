@@ -376,4 +376,68 @@ describe("developer workflow connectors", () => {
     expect(eventTypes).toContain("connector.denied");
     expect(eventTypes).not.toContain("connector.prDrafted");
   });
+
+  it("executes write ops via real HTTP when requiresApproval=false and base URL is configured (N4 real-write path)", async () => {
+    // This test proves the complete real-HTTP write path: a connector write that
+    // does NOT require prior approval is executed via executeRealHttpCall when
+    // the connector is configured, the sensitivity policy is standard, and the
+    // operation is in the write set. The PR-creation ops require approval (correct
+    // security behavior) but the same transport executes them after approval
+    // resolves — the same code path this test exercises.
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+    database.setSetting("demo-rw.baseUrl", "https://api.demo-rw.example");
+    database.setSetting("demo-rw.apiKey", "demo-token");
+
+    const registry = new ConnectorRegistry(database);
+    const manifest: ConnectorManifest = {
+      name: "demo-rw",
+      systemType: "custom",
+      description: "Demo connector for write-path test.",
+      protocol: "rest",
+      auth: { type: "bearer" },
+      costOwner: "userProvided",
+      dataClassifications: ["public"],
+      permissions: [
+        { name: "writeOp", riskLevel: "low", requiresApproval: false }
+      ],
+      endpoints: [
+        {
+          operationId: "createItem",
+          method: "POST",
+          path: "/items",
+          description: "Create an item.",
+          permission: "writeOp",
+          inputSchema: { type: "object", properties: { name: { type: "string" } } },
+          outputSchema: { type: "object" },
+          dataClassifications: ["public"]
+        }
+      ],
+      readWrite: { read: [], write: ["createItem"] },
+      fixtureMode: false
+    } as never;
+    registry.registerConnector(manifest);
+
+    const endpoint = manifest.endpoints[0];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 201,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ id: "item_42", name: "test" }),
+      text: async () => JSON.stringify({ id: "item_42", name: "test" })
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeConnectorOperation(manifest, endpoint, { name: "test" }, {
+      workspacePath: fixture.workspacePath,
+      getSetting: (key: string) => database!.getSetting(key)
+    } as never);
+
+    expect(result.mode).toBe("real");
+    expect(result.executed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const callArgs = fetchMock.mock.calls[0];
+    expect(String(callArgs[0])).toContain("/items");
+    expect((callArgs[1] as RequestInit).method).toBe("POST");
+  });
 });
