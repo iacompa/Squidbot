@@ -125,11 +125,27 @@ type StoredMemoryEdge = {
 const VECTOR_DIMENSIONS = 96;
 const RRF_K = 60;
 
+/**
+ * An embedding model maps text to a dense vector. The store ships a
+ * deterministic, dependency-free default (`embedText`), but accepts any
+ * implementation — e.g. a real local model (Ollama/`nomic-embed-text`, ONNX
+ * MiniLM) — through the constructor, so retrieval quality can be upgraded
+ * without changing any store or runtime call site. Vectors need not be a
+ * fixed length; `cosineSimilarity` compares ragged vectors safely.
+ */
+export type EmbeddingModel = (text: string) => number[];
+
+export type MemoryGraphStoreOptions = {
+  embed?: EmbeddingModel;
+};
+
 export class MemoryGraphStore {
   private readonly database: SquidDatabase;
+  private readonly embed: EmbeddingModel;
 
-  constructor(database: SquidDatabase) {
+  constructor(database: SquidDatabase, options: MemoryGraphStoreOptions = {}) {
     this.database = database;
+    this.embed = options.embed ?? embedText;
   }
 
   createNode(input: CreateMemoryNodeInput): MemoryNodeRecord {
@@ -416,7 +432,7 @@ export class MemoryGraphStore {
   }
 
   searchVector(query: string, topK = 10): MemorySearchResult[] {
-    const queryVector = embedText(query);
+    const queryVector = this.embed(query);
     const VECTOR_SEARCH_BATCH_LIMIT = 5000;
     const rows = this.database.db
       .prepare(
@@ -589,7 +605,7 @@ export class MemoryGraphStore {
   }
 
   private upsertVector(node: MemoryNodeRecord): void {
-    const vector = JSON.stringify(embedText(`${node.title}\n${node.body}`));
+    const vector = JSON.stringify(this.embed(`${node.title}\n${node.body}`));
     this.database.db
       .prepare(
         `INSERT INTO memories_vectors (nodeId, vector, updatedAt)
