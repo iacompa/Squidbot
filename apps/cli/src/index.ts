@@ -87,6 +87,7 @@ import {
   redactValue,
   registerModelAccountTools,
   registerTerminalTools,
+  exportPrometheusMetrics,
   registerTestTools,
   registerWorkspaceTools,
   searchEvents,
@@ -284,6 +285,13 @@ async function main(): Promise<void> {
 
     if (args.command === "demo") {
       await handleDemoCommand(database, args);
+      return;
+    }
+
+    if (args.command === "metrics") {
+      // Prometheus text-exposition format — pipe to a file or scrape endpoint.
+      // Local-first: the data is computed from the local DB and never leaves.
+      process.stdout.write(exportPrometheusMetrics(database));
       return;
     }
 

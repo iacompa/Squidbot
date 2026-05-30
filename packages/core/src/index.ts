@@ -4,6 +4,7 @@ export * from "./enterpriseProfile.js";
 export * from "./eventLog.js";
 export * from "./identity.js";
 export * from "./memory.js";
+export * from "./metricsExporter.js";
 export * from "./modelAccounts.js";
 export * from "./modelAccountTools.js";
 export * from "./modelRouter.js";
