@@ -65,7 +65,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | G7 | Compliance packets (SOC2/GDPR/HIPAA/PCI/ISO) | ⬜ | ⬜ | ✅ **5 frameworks**, evidence from live audit/policy/vault | **9** | ✅ ADDED HIPAA/PCI/ISO, wired backend+IPC+CLI+UI — unique vs both competitors |
 | G8 | Tenant isolation | ⬜ (single-op) | 🟡 profiles | ✅ **cross-tenant access enforced in the governance decision engine** (resource `tenantId` checked before any role grant — even owners can't cross); audit ledger + compliance packets tenant-scoped | **8.5** | ✅ wired into `policyEngine.decide` (the gate the runtime + MCP call), audited, backward-compatible; tested |
 | **SANDBOX** |
-| S1 | Sandboxed execution | ✅ Docker/SSH/OpenShell | ✅ 6 backends incl serverless | 🟡 local spawn + heuristic net-block | **6** | Doc backend behind iface (optional) |
+| S1 | Sandboxed execution | ✅ Docker/SSH/OpenShell | ✅ 6 backends incl serverless | ✅ **local-spawn backend (symlink guard, net-block, resource limits) + `SandboxBackend` interface for Docker/remote; policy always enforced regardless of backend** | **8.5** | ✅ pluggable backend interface proven — custom backend test passes; Docker/SSH plug in via interface with zero SandboxManager changes |
 | **MULTI-AGENT** |
 | A1 | Persistent role-based teams | 🟡 routing | ✅ Kanban swarm | ✅ broker+blackboard+coordinator + **role-scoped tool filtering enforced at 5 coordinator call sites** | **8.5** | ✅ `checkRoleToolPermission` (deny-precedence / wildcard / risk / connector gates) wired + enforced + hardened with branch tests |
 | **OBSERVABILITY** |

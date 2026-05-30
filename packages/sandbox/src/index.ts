@@ -44,6 +44,39 @@ export type SandboxRunOptions = {
   timeoutMs?: number;
 };
 
+/**
+ * Options passed to a SandboxBackend.run call. The backend receives the
+ * resolved command, args, and the sandbox working directory so it can
+ * delegate to the right execution engine (local spawn, Docker, SSH, etc.)
+ * without knowing about SandboxManager internals.
+ */
+export type SandboxBackendRunOptions = {
+  command: string;
+  args?: string[];
+  cwd: string;
+  env?: Record<string, string | undefined>;
+  timeoutMs?: number;
+};
+
+export type SandboxBackendRunResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+};
+
+/**
+ * Extension point for non-local sandbox execution (Docker, SSH, serverless,
+ * etc.). Implement this interface and pass it to `new SandboxManager({ backend })`
+ * to replace the default local-spawn execution without changing any other code.
+ * Policy enforcement (network block, symlink guard, resource limits) always
+ * runs in SandboxManager regardless of which backend is active.
+ */
+export interface SandboxBackend {
+  readonly name: string;
+  run(options: SandboxBackendRunOptions): Promise<SandboxBackendRunResult>;
+}
+
 const ignoredNames = new Set([
   ".git",
   "node_modules",
@@ -160,9 +193,16 @@ export class SandboxPolicyError extends Error {
 
 export class SandboxManager {
   private readonly baseDir: string;
+  private readonly customBackend?: SandboxBackend;
+  private readonly sandboxIndex = new Map<string, Sandbox>();
 
-  constructor(options: { baseDir?: string } = {}) {
+  get backendName(): string {
+    return this.customBackend?.name ?? "local";
+  }
+
+  constructor(options: { baseDir?: string; backend?: SandboxBackend } = {}) {
     this.baseDir = options.baseDir ?? os.tmpdir();
+    this.customBackend = options.backend;
   }
 
   async create(workspacePath: string, options: SandboxCreateOptions = {}): Promise<Sandbox> {
@@ -212,7 +252,70 @@ export class SandboxManager {
     };
 
     await assertDiskLimit(sandbox);
+    this.sandboxIndex.set(sandbox.id, sandbox);
     return sandbox;
+  }
+
+  /**
+   * Run a command in a sandbox identified by id. Routes through the custom
+   * backend if one was configured, otherwise delegates to the local spawner.
+   * Policy enforcement (network, symlink, resource limits) always runs here,
+   * not in the backend — backends only decide *how* to execute the command.
+   */
+  async run(
+    sandboxId: string,
+    command: string,
+    args: string[] = [],
+    options: SandboxRunOptions & { database?: unknown } = {}
+  ): Promise<SandboxRunResult> {
+    const sandbox = this.sandboxIndex.get(sandboxId);
+    if (!sandbox) {
+      return {
+        stdout: "",
+        stderr: `Sandbox not found: ${sandboxId}`,
+        exitCode: 1,
+        durationMs: 0,
+        timedOut: false,
+        sandboxId,
+        command,
+        args
+      };
+    }
+    if (this.customBackend) {
+      const startedAt = Date.now();
+      const policyError = validateCommandPolicy(sandbox, command, args);
+      if (policyError) {
+        return {
+          stdout: "",
+          stderr: policyError.message,
+          exitCode: 126,
+          durationMs: Date.now() - startedAt,
+          timedOut: false,
+          sandboxId,
+          command,
+          args,
+          blockedByPolicy: true
+        };
+      }
+      const backendResult = await this.customBackend.run({
+        command,
+        args,
+        cwd: sandbox.path,
+        env: buildSandboxEnv(sandbox),
+        timeoutMs: options.timeoutMs
+      });
+      return {
+        stdout: backendResult.stdout,
+        stderr: backendResult.stderr,
+        exitCode: backendResult.exitCode,
+        durationMs: Date.now() - startedAt,
+        timedOut: backendResult.timedOut ?? false,
+        sandboxId,
+        command,
+        args
+      };
+    }
+    return this.runCommand(sandbox, command, args, options);
   }
 
   async runCommand(sandbox: Sandbox, command: string, args: string[], options: SandboxRunOptions = {}): Promise<SandboxRunResult> {
