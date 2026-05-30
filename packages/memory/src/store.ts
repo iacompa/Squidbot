@@ -1,4 +1,5 @@
 import type { SquidDatabase } from "@squidbot/db";
+import { assessContradiction, type ContradictionEvidence } from "./contradictions.js";
 
 export const memoryNodeTypes = [
   "user",
@@ -53,6 +54,13 @@ export type MemorySearchResult = {
 export type MemoryTraversalResult = {
   nodes: MemoryNodeRecord[];
   edges: MemoryEdgeRecord[];
+};
+
+export type ContradictionCandidate = {
+  node: MemoryNodeRecord;
+  /** 0..1 confidence from the polarity/overlap detector. */
+  score: number;
+  evidence: ContradictionEvidence;
 };
 
 export type CreateMemoryNodeInput = {
@@ -521,6 +529,47 @@ export class MemoryGraphStore {
       .sort((a, b) => b.score - a.score || b.node.importance - a.node.importance)
       .slice(0, topK)
       .map((result, index) => ({ ...result, rank: index + 1 }));
+  }
+
+  /**
+   * Scan a node's topical neighbourhood for same-type peers that contradict it
+   * (M3 / item 1.4). This powers an **operator-review** workflow: it surfaces
+   * candidates *with their evidence* and never auto-creates the `contradicts`
+   * edge — staying true to SquidBot's "inspect & govern, don't silently mutate"
+   * thesis. Candidates an operator has already linked are excluded so they
+   * aren't re-prompted. Bounded by `candidatePoolSize` (default 25): the
+   * semantic layer ranks the most topically-similar peers first, and a
+   * contradiction shares almost all of a node's words, so it ranks high.
+   */
+  detectContradictions(
+    nodeId: string,
+    options: { candidatePoolSize?: number; minScore?: number } = {}
+  ): ContradictionCandidate[] {
+    const node = this.requireNode(nodeId);
+    const poolSize = options.candidatePoolSize ?? 25;
+    const minScore = options.minScore ?? 0;
+
+    // Don't re-surface contradictions an operator has already confirmed.
+    const linked = new Set(
+      this.listEdgesForNode(node.id)
+        .filter((edge) => edge.type === "contradicts")
+        .map((edge) => (edge.fromNodeId === node.id ? edge.toNodeId : edge.fromNodeId))
+    );
+
+    const candidates = this.hybridSearch(`${node.title} ${node.body}`, poolSize);
+    const results: ContradictionCandidate[] = [];
+    for (const candidate of candidates) {
+      const other = candidate.node;
+      if (other.id === node.id || other.type !== node.type || linked.has(other.id)) {
+        continue;
+      }
+      const verdict = assessContradiction(node, other);
+      if (verdict.isContradiction && verdict.score >= minScore) {
+        results.push({ node: other, score: verdict.score, evidence: verdict.evidence });
+      }
+    }
+
+    return results.sort((a, b) => b.score - a.score);
   }
 
   private requireNode(nodeId: string, options: { includeDeleted?: boolean; includeArchived?: boolean } = {}): MemoryNodeRecord {

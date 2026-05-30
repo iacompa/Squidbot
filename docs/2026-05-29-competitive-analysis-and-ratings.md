@@ -42,14 +42,14 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 |---|---|---|---|---|---|---|
 | **CORE AGENT** |
 | C1 | Multi-step agentic tool loop (model sees tool results, iterates) | ✅ | ✅ | ✅ **real loop + cap(8) + dedup; results fed back** | **8.5** | ✅ **FIXED** (BUG-001) — TDD'd, full suite green |
-| C2 | Streaming tool/token output | ✅ | ✅ | 🟡 **runtime onToken streaming + AbortSignal cancellation (backend, tested)** | **7** | renderer live-token render + cancelChat IPC are the remaining UI wiring |
+| C2 | Streaming tool/token output | ✅ | ✅ | ✅ **runtime onToken streaming + AbortSignal cancellation; renderer renders live tokens in a responding bubble (behavior-tested end-to-end)** | **8.5** | ✅ wired backend→IPC→preload→renderer; cancelChat IPC is an optional follow-up |
 | C3 | Tool registry w/ schema, risk, permission, dry-run | ✅ | ✅ | ✅ strong (governance-gated) | **8** | Validate args vs inputSchema (3.6) |
 | C4 | Model router: capability/cost/latency + fallback + budgets | ✅ | ✅ | ✅ router+fallback+**per-account budget**+timeout+fallback-note | **8.5** | ✅ 2.7, 3.1, 2.3 all fixed |
 | C5 | Provider breadth (BYOK) | 60+ | 25+ | 🟡 1 OpenAI-compat + local + mock | **6** | Add Anthropic + Ollama native; provider catalog |
 | **MEMORY** |
 | M1 | Structured/semantic memory | ✅ hybrid+Dreaming+Wiki | ✅ pluggable | ✅ typed graph + FTS + provenance | **8** | Real strength |
 | M2 | Vector/embedding retrieval | ✅ real embeds | ✅ | 🟡 **hash pseudo-embeddings** | **6** | Optional real local embeddings behind contract |
-| M3 | Contradiction detection | 🟡 (Wiki) | 🟡 | ⬜ missing (1.4) | **5** | Add `contradicts` edge + operator prompt |
+| M3 | Contradiction detection | 🟡 (Wiki) | 🟡 | ✅ **deterministic polarity-flip detector + graph scan + CLI operator surface; returns evidence, never auto-mutates** | **8.5** | ✅ 1.4 — pure `assessContradiction` (negation-XOR / antonym-pair, false-positive-guarded) + `detectContradictions` scan + `memory graph contradictions` CLI; 11 tests |
 | M4 | Sensitivity-scoped retrieval | 🟡 | ✅ (promptware) | 🟡 **`hybridSearch` enforces `maxSensitivity`** (tested) | **7** | store-level enforcement done; runtime passes highest level (single-operator) — multi-tenant actor-privilege wiring is the remaining piece |
 | **REFLECTION / EVOLUTION** |
 | R1 | Reflection + missing-affordance capture | 🟡 | ✅ | ✅ taxonomy + gaps + graph | **8** | Strength |
@@ -106,7 +106,7 @@ Confirmed by direct code read or by SquidBot's own two-audit backlog (`docs/supe
 **✅ RESOLVED this session:** BUG-001, BUG-002 (1.2+1.3), 1.7, 2.3, 2.4, 2.7. **2.6 verified NOT a bug** (owner bypasses RBAC permission grants by design, but ABAC deny/zero-spend/approval/sandbox still apply — gated correctly in `policyEngine.ts`).
 
 ### P1 — correctness / security
-- ✅ ~~1.7 FTS truncated to 12 tokens~~ · ✅ ~~1.6 sensitivity labels not enforced at retrieval~~ *(store-level `maxSensitivity` enforcement)* · 1.4 Memory contradiction detection missing *(needs semantic judgment)* · 1.5 memory approval check-then-insert race *(low impact — synchronous single-process)*
+- ✅ ~~1.7 FTS truncated to 12 tokens~~ · ✅ ~~1.6 sensitivity labels not enforced at retrieval~~ *(store-level `maxSensitivity` enforcement)* · ✅ ~~1.4 Memory contradiction detection missing~~ *(deterministic polarity-flip detector + graph scan + CLI operator surface)* · 1.5 memory approval check-then-insert race *(low impact — synchronous single-process)*
 - ✅ ~~2.1 connector creds leak into traces~~ · ✅ ~~2.2 approval queue bypasses governance~~ · ✅ ~~2.3 BYOK→local fallback silent~~ · ✅ ~~2.4 trace dropped when sendMessage throws~~ · ✅ ~~2.7 BYOK fetch has no timeout~~ · 2.6 owner role bypasses RBAC *(by design — closed)*
 - ✅ ~~3.1 per-account budget keyed by provider not account~~ · 3.6 tool args not validated vs inputSchema *(deferred — breakage risk; loop now surfaces tool errors for self-correction)*
 
@@ -166,6 +166,8 @@ Browser/visual verification was **attempted and is environment-blocked in the he
 
 ## 6. Progress Log
 
+- **2026-05-29 — C2 streaming wired to the renderer (end-to-end).** The backend `onToken` stream now reaches the UI: `ipc.ts` forwards deltas over `squidbot:chatToken`, the preload bridges them, and `ChatPage` renders a live "responding" bubble that fills word-by-word before the final message lands (falling back to the typing-dots bubble until the first token). Root-caused + fixed a proxy bug: the `squidbotApi` Proxy routed *every* method through the RPC transport, but `onChatToken` is an event subscription returning a synchronous unsubscribe handle — it now binds directly to the bridge's push channel (no-op in the web bundle). Behavior-tested in `ChatPage.test.tsx`. **C2 7 → 8.5.**
+- **2026-05-29 — M3 contradiction detection shipped (feature, 1.4).** New `packages/memory/src/contradictions.ts`: a pure, deterministic `assessContradiction` that flags a conflict only on **high topical overlap + a polarity flip** (negation-XOR or an antonym-pair) — the key insight being that contradictions are *lexically near-identical* to their opposite, so similarity alone yields false "duplicate" verdicts. Guarded against the three classic false positives (paraphrase, opposite-polarity-different-subject, both-negate-agreement). `MemoryGraphStore.detectContradictions` scans a node's topical neighbourhood for same-type peers, excludes already-linked pairs, and returns candidates **with evidence** for operator review — it never auto-creates the `contradicts` edge (SquidBot's "inspect & govern, don't silently mutate" thesis). CLI surface: `npm run memory -- graph contradictions <nodeId>`. 11 new tests; both competitors only do this partially/opaquely. **M3 5 → 8.5.**
 - **2026-05-29 — 2.5 connector HTTP error-body preserved.** `executeRealHttpCall` error result gained a `body` field carrying the full parsed server error (was collapsed to `HTTP <status>`). · **3.9 CLI REPL resilience** — a failed chat turn no longer kills the session (try/catch in the readline loop).
 
 - **2026-05-29 — E1 plugin SDK built.** Filled the empty `packages/productization` with a real plugin SDK: typed `PluginManifest` (declares contributed tools/connectors/skills + permissions + risk), `validatePluginManifest` (collects all errors; rejects empty/malformed plugins), an in-memory `PluginRegistry` (install/list/get/uninstall + `requiredPermissions` for admin review), and a `definePlugin` helper. New package integrates into the monorepo typecheck/test; 7 tests. **E1 3 → 7** — runtime auto-load + marketplace are follow-ups.

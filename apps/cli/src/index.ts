@@ -3732,7 +3732,26 @@ function handleMemoryGraphCommand(database: ReturnType<typeof initializeDatabase
     return;
   }
 
-  throw new Error("Usage: npm run memory -- graph list|show|create|link|search|merge|archive|delete");
+  if (subcommand === "contradictions") {
+    const nodeId = parts[1];
+    if (!nodeId) {
+      throw new Error("Usage: npm run memory -- graph contradictions <nodeId> [--pool 25] [--min-score 0.5]");
+    }
+    // Operator-review surface: list same-subject peers that contradict this
+    // node, with the evidence (shared terms + polarity signals). We never
+    // auto-create the contradicts edge — the operator confirms via `graph link`.
+    printJson({
+      candidates: store.detectContradictions(nodeId, {
+        candidatePoolSize: collectFlagNumber(parts, "--pool"),
+        minScore: collectFlagFloat(parts, "--min-score")
+      })
+    });
+    return;
+  }
+
+  throw new Error(
+    "Usage: npm run memory -- graph list|show|create|link|search|merge|archive|delete|contradictions"
+  );
 }
 
 function printJson(value: unknown): void {
