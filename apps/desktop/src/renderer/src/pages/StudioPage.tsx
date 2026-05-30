@@ -44,6 +44,7 @@ export function StudioPage() {
   const [blueprints, setBlueprints] = useState<StudioBlueprint[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selected = useMemo(
@@ -71,6 +72,19 @@ export function StudioPage() {
     setExported(null);
     const result = await squidbotApi.exportBlueprint(slug);
     setExported(result.json);
+  }
+
+  async function handlePromote(slug: string, targetStatus: string): Promise<void> {
+    setPromoting(true);
+    setError(null);
+    try {
+      await squidbotApi.promoteBlueprint(slug, targetStatus);
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Promotion failed.");
+    } finally {
+      setPromoting(false);
+    }
   }
 
   return (
@@ -193,6 +207,17 @@ export function StudioPage() {
                   <Download size={15} />
                   <span>Export JSON</span>
                 </button>
+                {selected.rollout?.status !== "stable" && selected.rollout?.status !== "archived" ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={promoting}
+                    aria-label="Promote blueprint"
+                    onClick={() => void handlePromote(selected.slug, selected.rollout?.status === "draft" ? "pilot" : "stable")}
+                  >
+                    {promoting ? "Promoting…" : selected.rollout?.status === "draft" ? "Promote to Pilot" : "Promote to Stable"}
+                  </button>
+                ) : null}
               </div>
               {exported ? (
                 <section className="trace-artifact">

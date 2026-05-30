@@ -34,7 +34,8 @@ describe("StudioPage", () => {
       configurable: true,
       value: {
         listBlueprints: vi.fn(async () => ({ blueprints: [] })),
-        exportBlueprint: vi.fn(async () => ({ json: "{}" }))
+        exportBlueprint: vi.fn(async () => ({ json: "{}" })),
+        promoteBlueprint: vi.fn(async () => ({ slug: "x", status: "pilot" }))
       }
     });
 
@@ -53,7 +54,7 @@ describe("StudioPage", () => {
 
     Object.defineProperty(window, "squidbot", {
       configurable: true,
-      value: { listBlueprints, exportBlueprint }
+      value: { listBlueprints, exportBlueprint, promoteBlueprint: vi.fn(async () => ({ slug: "ai-ceo-operations", status: "stable" })) }
     });
 
     const { StudioPage } = await import("./StudioPage");
@@ -72,5 +73,31 @@ describe("StudioPage", () => {
       expect(exportBlueprint).toHaveBeenCalledWith("ai-ceo-operations");
     });
     expect(await screen.findByText(/"exported":true/)).toBeTruthy();
+  });
+
+  it("shows a 'Promote to Stable' button for pilot blueprints and calls promoteBlueprint", async () => {
+    vi.resetModules();
+    const promoteBlueprint = vi.fn(async () => ({ slug: "ai-ceo-operations", status: "stable" }));
+    const listBlueprintsForPromote = vi.fn(async () => ({ blueprints: [sampleBlueprint] }));
+
+    Object.defineProperty(window, "squidbot", {
+      configurable: true,
+      value: {
+        listBlueprints: listBlueprintsForPromote,
+        exportBlueprint: vi.fn(async () => ({ json: "{}" })),
+        promoteBlueprint
+      }
+    });
+
+    const { StudioPage } = await import("./StudioPage");
+    render(<StudioPage />);
+    await screen.findByText("AI CEO Operations");
+
+    // The sampleBlueprint has status "pilot" so the button should say "Promote to Stable"
+    const promoteBtns = screen.getAllByRole("button", { name: /Promote/i });
+    const promoteBtn = promoteBtns[0];
+    expect(promoteBtn).toBeTruthy();
+    fireEvent.click(promoteBtn);
+    await waitFor(() => expect(promoteBlueprint).toHaveBeenCalledWith("ai-ceo-operations", "stable"));
   });
 });

@@ -1444,6 +1444,12 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     return { versions: blueprintRegistry.versions(slug) };
   });
 
+  ipcMain.handle("squidbot:promoteBlueprint", (_event, slug: string, targetStatus: string, actor?: string) => {
+    const result = blueprintRegistry.promote(slug, targetStatus as import("@squidbot/blueprints").RolloutStatus, actor ?? "user");
+    if (!result.ok) throw new Error(result.error);
+    return { slug, status: result.manifest.rollout.status };
+  });
+
   // ---------------- Identity / Profile / Trust / Onboarding ----------------
 
   // Capability snapshot needs a tool registry built like the CLI's

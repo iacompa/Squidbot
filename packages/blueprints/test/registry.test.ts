@@ -107,4 +107,34 @@ describe("BlueprintRegistry", () => {
     const slugs = installed.map((m) => m.slug).sort();
     expect(slugs).toEqual(["second", "test-bp"]);
   });
+
+  it("promote updates rollout.status and persists the change (ST2 deploy control)", () => {
+    const db = makeMockDb();
+    const reg = new BlueprintRegistry(db as never);
+    reg.install(makeManifest({ rollout: { status: "draft", haltOnFailure: true } }), "user-1");
+
+    const result = reg.promote("test-bp", "pilot", "operator-1");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.manifest.rollout.status).toBe("pilot");
+    }
+    // Verify the status was persisted by reading back
+    const fetched = reg.get("test-bp");
+    expect(fetched?.rollout.status).toBe("pilot");
+  });
+
+  it("promote returns an error for an unknown blueprint", () => {
+    const db = makeMockDb();
+    const reg = new BlueprintRegistry(db as never);
+    const result = reg.promote("no-such-bp", "stable", "operator-1");
+    expect(result.ok).toBe(false);
+  });
+
+  it("promote rejects an invalid target status", () => {
+    const db = makeMockDb();
+    const reg = new BlueprintRegistry(db as never);
+    reg.install(makeManifest(), "user-1");
+    const result = reg.promote("test-bp", "invalid-status" as never, "operator-1");
+    expect(result.ok).toBe(false);
+  });
 });

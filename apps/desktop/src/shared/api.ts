@@ -1133,6 +1133,7 @@ export type SquidbotApi = {
   exportBlueprint: (slug: string) => Promise<{ json: string }>;
   deleteBlueprint: (slug: string, actor?: string) => Promise<{ ok: boolean }>;
   listBlueprintVersions: (slug: string) => Promise<{ versions: unknown[] }>;
+  promoteBlueprint: (slug: string, targetStatus: string, actor?: string) => Promise<{ slug: string; status: string }>;
 
   // ---------------- Identity / Trust / Profile / Onboarding ----------------
   getIdentityReport: () => Promise<IdentityReportDto>;

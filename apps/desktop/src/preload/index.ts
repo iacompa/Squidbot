@@ -116,6 +116,7 @@ const api: SquidbotApi = {
   exportBlueprint: (slug) => ipcRenderer.invoke("squidbot:exportBlueprint", slug),
   deleteBlueprint: (slug, actor) => ipcRenderer.invoke("squidbot:deleteBlueprint", slug, actor),
   listBlueprintVersions: (slug) => ipcRenderer.invoke("squidbot:listBlueprintVersions", slug),
+  promoteBlueprint: (slug, targetStatus, actor) => ipcRenderer.invoke("squidbot:promoteBlueprint", slug, targetStatus, actor),
 
   // Identity / Trust / Profile / Onboarding / Terminal-in-app
   getIdentityReport: () => ipcRenderer.invoke("squidbot:getIdentityReport"),
