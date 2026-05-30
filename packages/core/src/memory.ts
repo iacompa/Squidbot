@@ -1,5 +1,5 @@
 import type { AffordanceGapRecord, MemoryRecord, ReflectionRecord, SquidDatabase } from "@squidbot/db";
-import { MemoryGraphStore, type MemoryNodeRecord } from "@squidbot/memory";
+import { MemoryGraphStore, type MemoryNodeRecord, type MemorySensitivity } from "@squidbot/memory";
 import { buildTrace } from "./trace.js";
 import {
   createId,
@@ -32,13 +32,41 @@ export function getRecentApprovedMemories(database: SquidDatabase, limit = 5): A
   return database.listApprovedMemories(limit).map(toApprovedMemory);
 }
 
-export function getRelevantGraphMemories(database: SquidDatabase, query: string, limit = 5): ApprovedMemory[] {
+export function getRelevantGraphMemories(
+  database: SquidDatabase,
+  query: string,
+  limit = 5,
+  maxSensitivity?: MemorySensitivity
+): ApprovedMemory[] {
   const store = new MemoryGraphStore(database);
   return store
-    .hybridSearch(query, limit)
+    .hybridSearch(query, limit, maxSensitivity ? { maxSensitivity } : {})
     .filter((result) => !result.node.affordanceId)
     .map((result) => graphNodeToApprovedMemory(result.node))
     .filter((memory) => memory.type !== "task" && memory.type !== "reflection");
+}
+
+/**
+ * Memory-sensitivity ceiling for a model endpoint (M4). When the active model
+ * is *off-machine* (a remote provider URL), we cap memory retrieval to
+ * "restricted" so "secret"-classified memories never enter an external model's
+ * prompt — the data-leak-prevention counterpart to the governance rule that
+ * blocks secret data from external providers. Local providers (localhost /
+ * 127.0.0.1 / *.local) and the mock/no-account default return undefined: on
+ * your own machine, the agent gets full memory access.
+ */
+export function externalModelSensitivityCeiling(apiUrl: string | null | undefined): MemorySensitivity | undefined {
+  if (!apiUrl) {
+    return undefined;
+  }
+  try {
+    const host = new URL(apiUrl).hostname.toLowerCase();
+    const isLocal =
+      host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0" || host.endsWith(".local");
+    return isLocal ? undefined : "restricted";
+  } catch {
+    return undefined;
+  }
 }
 
 export function combineMemorySources(primary: ApprovedMemory[], secondary: ApprovedMemory[], limit = 8): ApprovedMemory[] {

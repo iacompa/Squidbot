@@ -10,6 +10,7 @@ import { registerModelAccountTools } from "./modelAccountTools.js";
 import {
   buildMemoryBulletin,
   combineMemorySources,
+  externalModelSensitivityCeiling,
   generateReflection,
   getRecentApprovedMemories,
   getRelevantGraphMemories,
@@ -171,6 +172,17 @@ export class AgentRuntime {
     }
   }
 
+  /**
+   * Memory-sensitivity ceiling for the run (M4): if the active model account
+   * talks to an off-machine endpoint, cap retrieved memories to "restricted"
+   * so "secret" memories never enter an external model's prompt. Local / no
+   * account → undefined (full access on the operator's own machine).
+   */
+  private memorySensitivityCeiling(): ReturnType<typeof externalModelSensitivityCeiling> {
+    const account = getActiveModelAccount(this.database, this.secretCipher);
+    return externalModelSensitivityCeiling(account?.apiUrl ?? null);
+  }
+
   private buildMessagesForModel(memoryBulletin?: string, resolvedApprovalsNote?: string): ChatMessage[] {
     const report = buildIdentityReport(this.database, this.toolRegistry);
     const systemPrompt = buildSystemPrompt(report, { memoryBulletin });
@@ -272,7 +284,7 @@ export class AgentRuntime {
     // float above lower-importance entries even as the user generates more
     // memories over time.
     const retrievedMemories = combineMemorySources(
-      getRelevantGraphMemories(this.database, content, 6),
+      getRelevantGraphMemories(this.database, content, 6, this.memorySensitivityCeiling()),
       getRecentApprovedMemories(this.database, 12)
     );
     const memoryBulletin = buildMemoryBulletin(retrievedMemories);
@@ -468,7 +480,7 @@ export class AgentRuntime {
     }
 
     const retrievedMemories = combineMemorySources(
-      getRelevantGraphMemories(this.database, task, 5),
+      getRelevantGraphMemories(this.database, task, 5, this.memorySensitivityCeiling()),
       getRecentApprovedMemories(this.database, 5)
     );
     const memoryBulletin = buildMemoryBulletin(retrievedMemories);
