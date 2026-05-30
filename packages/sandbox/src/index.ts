@@ -139,17 +139,47 @@ const networkIndicatorPatterns: RegExp[] = [
   /\bNet::HTTP\b/i,
   /\bLWP::UserAgent\b/i,
   /\bfile_get_contents\s*\(\s*['"]https?:/i,
-  /\bcurl_/i
+  /\bcurl_/i,
+  // Inline code that names an actual network tool — catches shell-outs like
+  // python3 -c "import os; os.system('curl ...')". We key on the network TOOL,
+  // not the subprocess primitive: matching `subprocess`/`system`/`child_process`
+  // alone would block ordinary local subprocess use in tests (a false positive).
+  /\b(?:curl|wget|nc|netcat|telnet)\b/i
 ];
+
+// Commands that run ANOTHER command — the network tool hides behind them
+// (env curl, timeout 5 curl, xargs curl, nice -n 10 wget). We unwrap to the
+// real command and re-classify it.
+const wrapperCommands = new Set(["env", "timeout", "xargs", "nice", "stdbuf", "nohup", "setsid", "time", "ionice", "chrt"]);
+
+/** Skip a wrapper's own flags / duration / KEY=VALUE assignments to find the wrapped command. */
+function unwrapCommand(args: string[]): { command: string; args: string[] } | null {
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a.startsWith("-")) continue; // wrapper flag
+    if (/^\d+(?:\.\d+)?[smhd]?$/.test(a)) continue; // timeout duration
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(a)) continue; // env KEY=VALUE
+    return { command: a, args: args.slice(i + 1) };
+  }
+  return null;
+}
 
 export function inlineCodeLooksLikeNetwork(code: string): boolean {
   return networkIndicatorPatterns.some((pattern) => pattern.test(code));
 }
 
-export function classifyNetworkPolicyBlock(command: string, args: string[]): { blocked: boolean; reason?: string } {
+export function classifyNetworkPolicyBlock(command: string, args: string[], depth = 0): { blocked: boolean; reason?: string } {
   const executable = path.basename(command).toLowerCase().replace(/\.exe$/, "");
   if (networkExecutables.has(executable)) {
     return { blocked: true, reason: `Network command ${executable} is blocked by sandbox network policy.` };
+  }
+  // Unwrap wrapper commands (env/timeout/xargs/...) and re-classify the real
+  // command they invoke. Depth-bounded so deeply-nested wrappers can't loop.
+  if (wrapperCommands.has(executable) && depth < 5) {
+    const unwrapped = unwrapCommand(args);
+    if (unwrapped) {
+      return classifyNetworkPolicyBlock(unwrapped.command, unwrapped.args, depth + 1);
+    }
   }
   const subcommands = networkSubcommandsByTool[executable];
   if (subcommands) {
@@ -178,6 +208,12 @@ export function classifyNetworkPolicyBlock(command: string, args: string[]): { b
   }
   return { blocked: false };
 }
+// NOTE: of these limits, only `diskMb` is ENFORCED by the local-spawn backend
+// (post-run via assertDiskLimit) and the wall-clock timeout bounds runtime.
+// `cpu` and `memoryMb` are recorded and surfaced in events but NOT enforced —
+// the local backend applies no cgroup/ulimit. A fork bomb or memory hog is only
+// contained by the timeout. Hard CPU/memory isolation requires a container
+// backend via the SandboxBackend interface (see sandboxBackend.ts).
 const defaultResourceLimits: SandboxResourceLimits = {
   cpu: 1,
   memoryMb: 512,
@@ -612,10 +648,17 @@ function validateCommandPolicy(sandbox: Sandbox, command: string, args: string[]
 
   const sandboxRoot = fs.realpathSync(sandbox.path);
   for (const arg of args) {
-    if (!path.isAbsolute(arg) || arg === nullDevice()) {
+    if (arg === nullDevice()) {
       continue;
     }
-    const target = fs.existsSync(arg) ? fs.realpathSync(arg) : path.resolve(arg);
+    // Resolve EVERY arg against the sandbox root, not just absolute ones. The
+    // child runs with cwd = sandbox.path, so a relative arg like "../../x"
+    // escapes the workspace exactly like an absolute path does — the previous
+    // check only inspected absolute args and let relative traversal through.
+    // Non-path args (flags, plain values with no traversal) resolve to a
+    // harmless in-sandbox path and pass.
+    const resolved = path.resolve(sandboxRoot, arg);
+    const target = fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
     if (target !== sandboxRoot && !target.startsWith(sandboxRoot + path.sep)) {
       return new SandboxPolicyError(`Path ${arg} is outside the sandbox workspace.`);
     }
@@ -626,10 +669,18 @@ function validateCommandPolicy(sandbox: Sandbox, command: string, args: string[]
 
 function validatePatchPaths(sandbox: Sandbox, patch: string): void {
   const root = fs.realpathSync(sandbox.path);
-  const pathPattern = /^(?:---|\+\+\+) [ab]\/(.+)$/gm;
+  // Match EVERY file header line, whether or not it carries the a/ b/ prefix.
+  // The git-apply fallback (applyMinimalUnifiedPatch + cleanPatchPath) honors
+  // unprefixed paths, so an unprefixed "--- ../../x" header would otherwise skip
+  // validation and let the fallback write outside the sandbox.
+  const pathPattern = /^(?:---|\+\+\+) (.+)$/gm;
   let match: RegExpExecArray | null;
   while ((match = pathPattern.exec(patch)) !== null) {
-    const relativePath = match[1];
+    // Strip a trailing timestamp some diff tools append after a tab, then the
+    // optional a/ b/ prefix — mirroring cleanPatchPath so validation sees the
+    // same path the fallback will actually write to.
+    const headerPath = match[1].trim().split("\t")[0];
+    const relativePath = headerPath.startsWith("a/") || headerPath.startsWith("b/") ? headerPath.slice(2) : headerPath;
     if (!relativePath || relativePath === "/dev/null") {
       continue;
     }

@@ -214,11 +214,17 @@ export class IdentityStore {
   }
 
   getActorRoleNames(principalType: PrincipalType, principalId: string, tenantId = DEFAULT_TENANT_ID): string[] {
-    if (principalType === "user") {
-      const user = this.getUser(principalId, tenantId);
-      if (!user || user.status !== "active") {
-        return [];
-      }
+    // Enforce disabled-status for ANY principal backed by a users row — service
+    // accounts and groups are stored as users rows too, so `disableUser()` on
+    // them must actually revoke authorization (it previously only did for
+    // principalType === "user"). A `user`-type principal with no row stays
+    // denied; a system principal (no row) has no status to check and proceeds.
+    const user = this.getUser(principalId, tenantId);
+    if (principalType === "user" && !user) {
+      return [];
+    }
+    if (user && user.status !== "active") {
+      return [];
     }
     const now = Date.now();
     return this.listAssignmentsForPrincipal(principalType, principalId, tenantId)

@@ -140,7 +140,7 @@ export class ModelRouter {
         const modelResult = isModelResponse(result) ? result : null;
         const tokenUsage = modelResult?.tokenUsage ?? usageFromText(routed.tokenEstimate, JSON.stringify(result).slice(0, 2_000));
         const costEstimate = modelResult?.costEstimate ?? estimateCost(provider, tokenUsage.totalTokens);
-        this.recordUsage(provider, tokenUsage, costEstimate);
+        this.recordUsage(provider, callKind, tokenUsage, costEstimate);
         this.lastProvider = provider;
         request.emitEvent?.("model.result", {
           provider: provider.name,
@@ -258,8 +258,17 @@ export class ModelRouter {
     };
   }
 
-  private recordUsage(provider: ModelProvider, tokenUsage: TokenUsage, costEstimate: number): void {
+  private recordUsage(provider: ModelProvider, callKind: ProviderCallKind, tokenUsage: TokenUsage, costEstimate: number): void {
     if (provider.name !== "api") {
+      return;
+    }
+
+    // A task plan never makes a real API call — every provider's
+    // generateTaskPlan returns a deterministic local plan (zero network I/O).
+    // Charging the BYOK daily budget for it would burn an account's token
+    // allowance for free work and could prematurely trip budgetExceeded,
+    // silently downgrading later chat turns to a free provider.
+    if (callKind === "plan") {
       return;
     }
 

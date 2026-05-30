@@ -353,17 +353,6 @@ export class AgentRuntime {
           break;
         }
 
-        // Record the assistant's tool-call turn in the working history so the
-        // next model call sees it paired with the tool results pushed below.
-        // Only the final answer is persisted to chat_messages — intermediate
-        // turns live in-memory for this turn and in the trace for audit, which
-        // keeps cross-session hydration a clean user/assistant transcript.
-        this.messages.push({
-          role: "assistant",
-          content: modelResponse.content,
-          toolCalls: modelResponse.toolCalls
-        });
-
         // Stop if every requested call was already executed this turn — the
         // model is repeating itself with no new information (no progress).
         const progressing = modelResponse.toolCalls.some(
@@ -372,6 +361,20 @@ export class AgentRuntime {
         if (!progressing) {
           break;
         }
+
+        // Record the assistant's tool-call turn in the working history so the
+        // next model call sees it paired with the tool results pushed below.
+        // Pushed ONLY after the progress check, so we never leave an assistant
+        // tool_calls turn with no matching tool results in the history — a real
+        // OpenAI API rejects that sequence on the next turn (and a long-lived
+        // CLI REPL keeps this in-memory history across turns). Only the final
+        // answer is persisted to chat_messages — intermediate turns live
+        // in-memory for this turn and in the trace for audit.
+        this.messages.push({
+          role: "assistant",
+          content: modelResponse.content,
+          toolCalls: modelResponse.toolCalls
+        });
 
         for (const toolCall of modelResponse.toolCalls) {
           executedSignatures.add(toolCallSignature(toolCall));

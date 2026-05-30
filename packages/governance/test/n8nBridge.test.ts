@@ -38,6 +38,25 @@ describe("n8n bridge", () => {
     expect(governance.n8n.receiveFixture(invalidPath).accepted).toBe(false);
   });
 
+  it("signs with a per-install secret, not a shared hardcoded constant", () => {
+    // Two independent installs must not produce the same signature for the same
+    // payload — otherwise the signing secret is a public constant anyone can use
+    // to forge a valid signature (the original bug).
+    const dbA = tempDb();
+    const dbB = tempDb();
+    const govA = new GovernanceEngine(dbA);
+    const govB = new GovernanceEngine(dbB);
+    govA.bootstrap();
+    govB.bootstrap();
+    const payload = { eventType: "audit.export.requested", action: "audit.request", marker: "x" };
+    const sigA = govA.n8n.signPayload(payload);
+    const sigB = govB.n8n.signPayload(payload);
+    expect(sigA).not.toBe(sigB);
+    // And each install verifies its own signature.
+    dbA.close();
+    dbB.close();
+  });
+
   it("refuses to create authMode='none' integrations by default", () => {
     db = tempDb();
     const governance = new GovernanceEngine(db);

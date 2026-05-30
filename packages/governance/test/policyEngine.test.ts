@@ -113,6 +113,76 @@ describe("policy decision tenant scoping", () => {
   });
 });
 
+describe("trusted local system runtime authorization", () => {
+  it("allows the local system runtime actor to invoke tools", () => {
+    db = tempDb();
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    // This is the EXACT input AgentRuntime.executeToolCall passes (runtime.ts).
+    // Before the fix, the system actor had no role → deny → every tool blocked
+    // in the desktop (which wires the real enforcer).
+    const decision = governance.policies.decide(
+      {
+        actor: { type: "system", id: "runtime:sess_1" },
+        action: "tool.invoke",
+        resource: { type: "tool", id: "workspace.readFile" }
+      },
+      { persist: false }
+    );
+    expect(decision.decision).toBe("allow");
+  });
+
+  it("still requires approval for a high-risk system tool invocation", () => {
+    db = tempDb();
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    const decision = governance.policies.decide(
+      {
+        actor: { type: "system", id: "runtime:sess_1" },
+        action: "tool.invoke",
+        resource: { type: "tool", id: "connector.github.merge" },
+        context: { riskLevel: "critical" }
+      },
+      { persist: false }
+    );
+    // Base allow for the trusted runtime, but the high-risk ABAC obligation
+    // must still upgrade it to requireApproval — granting base access must NOT
+    // bypass the safety layer.
+    expect(decision.decision).toBe("requireApproval");
+  });
+
+  it("still denies a system tool invocation that violates zero-spend", () => {
+    db = tempDb();
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    const decision = governance.policies.decide(
+      {
+        actor: { type: "system", id: "runtime:sess_1" },
+        action: "tool.invoke",
+        resource: { type: "tool", id: "model.call" },
+        context: { costOwner: "user-paid" }
+      },
+      { persist: false }
+    );
+    expect(decision.decision).toBe("deny");
+  });
+
+  it("does not grant base authorization to untrusted service accounts", () => {
+    db = tempDb();
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    const decision = governance.policies.decide(
+      {
+        actor: { type: "serviceAccount", id: "svc_untrusted" },
+        action: "tool.invoke",
+        resource: { type: "tool", id: "workspace.readFile" }
+      },
+      { persist: false }
+    );
+    expect(decision.decision).toBe("deny");
+  });
+});
+
 describe("policy decision context redaction", () => {
   it("redacts secret-shaped values in persisted context", () => {
     db = tempDb();

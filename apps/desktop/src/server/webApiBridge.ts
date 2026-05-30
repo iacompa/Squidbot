@@ -1,5 +1,14 @@
+import { timingSafeEqual } from "node:crypto";
 import type { Express } from "express";
 import express from "express";
+
+/** Constant-time Bearer-token comparison (avoids a timing side channel). */
+function tokenMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export type WebApiBridgeAdapter = {
   /**
@@ -62,7 +71,7 @@ export function mountWebApiBridge(app: Express, adapter: WebApiBridgeAdapter, op
     if (options.apiToken) {
       const authHeader = req.headers.authorization ?? "";
       const supplied = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      if (supplied !== options.apiToken) {
+      if (!tokenMatches(supplied, options.apiToken)) {
         res.status(401).json({ error: "Unauthorized: valid Bearer token required." });
         return;
       }

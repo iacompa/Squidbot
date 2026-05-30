@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { SquidDatabase } from "@squidbot/db";
 import { DEFAULT_ADMIN_USER_ID, DEFAULT_TENANT_ID, type GovernancePolicyInput } from "./types.js";
 import { IdentityStore } from "./identity.js";
@@ -27,7 +28,10 @@ export class GovernanceEngine {
     this.policies = new GovernancePolicyEngine(database);
     this.enforcer = new GovernanceEnforcer(this.policies);
     this.secrets = new SecretVault(database, masterKey, keyFilePath);
-    this.audit = new AuditLedger(database);
+    // Anchor the audit head next to the vault key (a 0600 file outside the DB)
+    // so tail-truncation of the ledger is detectable. No keyFilePath (tests /
+    // library use) falls back to chain-only verification.
+    this.audit = new AuditLedger(database, keyFilePath ? path.join(path.dirname(keyFilePath), "audit.head.json") : undefined);
     this.retention = new RetentionEngine(database);
     this.lineage = new LineageRecorder(database);
     this.n8n = new N8nGovernanceBridge(database);

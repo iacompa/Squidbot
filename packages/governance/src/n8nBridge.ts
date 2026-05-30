@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { SquidDatabase } from "@squidbot/db";
 import {
   DEFAULT_N8N_SERVICE_ACCOUNT_ID,
@@ -19,10 +19,27 @@ type IntegrationRow = Omit<N8nIntegrationRecord, "direction" | "authMode" | "all
 
 export class N8nGovernanceBridge {
   private readonly policy: GovernancePolicyEngine;
-  private readonly fixtureSecret = "squidbot-n8n-fixture-secret";
 
   constructor(private readonly database: SquidDatabase) {
     this.policy = new GovernancePolicyEngine(database);
+  }
+
+  /**
+   * Per-install HMAC signing secret. Previously a hardcoded constant shared by
+   * every install and committed to source — so anyone could forge a valid
+   * signature. Now a random 256-bit secret generated on first use and stored
+   * per-install. An operator may override it via the
+   * `governance.n8n.signingSecret` setting (e.g. to match the secret configured
+   * on the n8n side).
+   */
+  private signingSecret(): string {
+    const configured = this.database.getSetting<string>("governance.n8n.signingSecret");
+    if (configured && configured.trim()) {
+      return configured;
+    }
+    const generated = randomBytes(32).toString("hex");
+    this.database.setSetting("governance.n8n.signingSecret", generated);
+    return generated;
   }
 
   private unsignedWebhooksAllowed(): boolean {
@@ -156,7 +173,7 @@ export class N8nGovernanceBridge {
   }
 
   signPayload(payload: unknown): string {
-    return createHmac("sha256", this.fixtureSecret).update(JSON.stringify(redactForStorage(payload))).digest("hex");
+    return createHmac("sha256", this.signingSecret()).update(JSON.stringify(redactForStorage(payload))).digest("hex");
   }
 
   private verifyPayloadSignature(payload: Record<string, unknown>, signature: string): boolean {

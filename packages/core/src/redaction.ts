@@ -1,4 +1,29 @@
-const sensitiveKeyPattern = /^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth|authorization|bearer|client[_-]?secret|password|credential|secret)$/i;
+/**
+ * Sensitive key-name substrings, matched against the lowercased, separator-
+ * stripped key. The previous pattern was anchored (^...$), so common nested or
+ * prefixed keys — `dbPassword`, `githubToken`, `userApiKey`, `clientSecret`,
+ * bare `token` — passed through unredacted. Kept specific enough to avoid
+ * innocuous keys (no bare "auth", which would also hit "author").
+ */
+const SENSITIVE_KEY_SUBSTRINGS = [
+  "password",
+  "passwd",
+  "secret",
+  "token",
+  "apikey",
+  "accesskey",
+  "credential",
+  "privatekey",
+  "authorization",
+  "bearer"
+];
+
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[_-]/g, "");
+  // Exact match for "auth" — a substring rule would also hit "author".
+  if (normalized === "auth") return true;
+  return SENSITIVE_KEY_SUBSTRINGS.some((substring) => normalized.includes(substring));
+}
 
 const redactionPatterns: Array<{ pattern: RegExp; replacement: string }> = [
   {
@@ -24,6 +49,26 @@ const redactionPatterns: Array<{ pattern: RegExp; replacement: string }> = [
     // AWS access key id (AKIA + 16 uppercase alphanumerics).
     pattern: /\bAKIA[0-9A-Z]{16}\b/g,
     replacement: "[REDACTED]"
+  },
+  {
+    // Google AI / Cloud API keys (AIza + ~35 url-safe chars).
+    pattern: /\bAIza[0-9A-Za-z_-]{20,}\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // Groq API keys (gsk_).
+    pattern: /\bgsk_[A-Za-z0-9]{20,}\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // xAI API keys (xai-).
+    pattern: /\bxai-[A-Za-z0-9]{20,}\b/g,
+    replacement: "[REDACTED]"
+  },
+  {
+    // PEM private key blocks (RSA/EC/OpenSSH/DSA/PGP/generic).
+    pattern: /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g,
+    replacement: "[REDACTED_PRIVATE_KEY]"
   },
   {
     // JWT (header.payload.signature, base64url; header starts with `eyJ`).
@@ -55,8 +100,39 @@ export type RedactionResult<T> = {
   count: number;
 };
 
+function luhnValid(digits: string): boolean {
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = digits.charCodeAt(i) - 48;
+    if (n < 0 || n > 9) return false;
+    if (alt) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+/**
+ * Redact credit-card-like PANs: a 13-19 digit run (optional single space/dash
+ * between digits) that passes the Luhn checksum. Luhn-gating filters out most
+ * non-card numbers, but ~1 in 10 long numeric IDs/timestamps are Luhn-valid by
+ * chance and will also be redacted. This errs toward redaction — a safe failure
+ * in logs/traces (over-redaction), never disclosure.
+ */
+function redactPan(text: string): string {
+  return text.replace(/\b\d(?:[ -]?\d){12,18}\b/g, (match) => {
+    const digits = match.replace(/[ -]/g, "");
+    return luhnValid(digits) ? "[REDACTED_PAN]" : match;
+  });
+}
+
 export function redactSecrets(text: string): string {
-  let redacted = text;
+  // PAN first — before the phone/SSN patterns can nibble a digit substring.
+  let redacted = redactPan(text);
   for (const { pattern, replacement } of redactionPatterns) {
     redacted = redacted.replace(pattern, replacement);
   }
@@ -75,7 +151,7 @@ export function redactValue<T>(value: T): RedactionResult<T> {
 function redactUnknown(value: unknown, keyPath: string[]): RedactionResult<unknown> {
   const key = keyPath.at(-1) ?? "";
   if (typeof value === "string") {
-    if (sensitiveKeyPattern.test(key) && value.trim()) {
+    if (isSensitiveKey(key) && value.trim()) {
       return { value: "[REDACTED]", redacted: true, count: 1 };
     }
 

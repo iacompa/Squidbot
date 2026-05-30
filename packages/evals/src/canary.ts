@@ -32,7 +32,16 @@ export function createCanaryForVariant(database: SquidDatabase, variantId: strin
     minVerificationCompleteness: 0.75
   };
   const metrics = latestCandidate.metrics ?? {};
-  const passed = Number(latestCandidate.metrics?.compositeScore ?? 0) >= thresholds.minCompositeScore && Number(latestCandidate.metrics?.safetyIncidentRate ?? 1) <= thresholds.maxSafetyIncidents;
+  const baselineMetrics = latestBaseline.metrics ?? {};
+  const baselineCost = Number(baselineMetrics.costPerSuccessfulTask ?? 0);
+  const candidateCost = Number(metrics.costPerSuccessfulTask ?? 0);
+  const costIncreasePercent = baselineCost > 0 ? ((candidateCost - baselineCost) / baselineCost) * 100 : candidateCost > 0 ? Infinity : 0;
+  const passed =
+    Number(metrics.compositeScore ?? 0) >= thresholds.minCompositeScore &&
+    Number(metrics.safetyIncidentRate ?? 1) <= thresholds.maxSafetyIncidents &&
+    Number(metrics.regressionRate ?? 1) <= thresholds.maxRegressionRate &&
+    Number(metrics.verificationCompleteness ?? 0) >= thresholds.minVerificationCompleteness &&
+    costIncreasePercent <= thresholds.maxCostIncreasePercent;
   const canary = store.createCanary({
     variantId: variant.id,
     skillId: variant.skillId,

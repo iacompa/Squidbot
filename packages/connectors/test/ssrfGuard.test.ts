@@ -13,6 +13,13 @@ describe("assertPublicHttpUrl", () => {
     "http://[::1]/x",
     "http://[fc00::1]/x",
     "http://[fe80::1]/x",
+    // IPv4-mapped IPv6 — the WHATWG URL parser normalizes these to the hex
+    // form (::ffff:7f00:1), which the dotted-quad-only check used to miss.
+    "http://[::ffff:127.0.0.1]/x",
+    "http://[::ffff:169.254.169.254]/latest/meta-data/",
+    // Trailing-dot FQDN forms resolve identically to the bare host.
+    "http://localhost./x",
+    "http://127.0.0.1./x",
     "ftp://example.com/x",
     "file:///etc/passwd",
     "javascript:alert(1)"

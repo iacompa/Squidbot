@@ -16,4 +16,19 @@ describe("governance identity bootstrap", () => {
     expect(governance.identities.listRoles().map((role) => role.name)).toContain("developer");
     expect(governance.identities.getActorRoleNames("user", "user_local_admin")).toContain("owner");
   });
+
+  it("revokes roles from a disabled service account, not just disabled users", () => {
+    db = tempDb();
+    const governance = new GovernanceEngine(db);
+    governance.bootstrap();
+    const id = "svc_disabled_test";
+    governance.identities.createUser({ id, username: "svc", displayName: "Service" });
+    governance.identities.assignRole({ principalType: "serviceAccount", principalId: id, roleName: "developer" });
+    expect(governance.identities.getActorRoleNames("serviceAccount", id)).toContain("developer");
+
+    governance.identities.disableUser(id);
+    // Service accounts are stored as users rows; disabling must revoke roles
+    // for ALL principal types backed by a users row, not only type === "user".
+    expect(governance.identities.getActorRoleNames("serviceAccount", id)).toEqual([]);
+  });
 });

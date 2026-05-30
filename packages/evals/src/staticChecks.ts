@@ -18,6 +18,9 @@ export function runStaticChecks(variant: SkillVariantRecord): StaticCheckResult 
   const policyText = JSON.stringify(variant.policy ?? {});
   const promptsText = JSON.stringify(variant.prompts ?? {});
   const requiredTools = readRequiredTools(variant);
+  const policy = variant.policy ?? {};
+  const requireSandbox = policy.requireSandbox === true;
+  const connectorWritesRequireApproval = policy.connectorWritesRequireApproval === true;
   const checks: StaticCheckResult["checks"] = [
     {
       id: "manifest-valid",
@@ -36,14 +39,14 @@ export function runStaticChecks(variant: SkillVariantRecord): StaticCheckResult 
     {
       id: "sandbox-required",
       name: "Sandbox required for writes",
-      passed: !/(workspace\.writeFile|sandbox\.promote|pushCommit|mergePullRequest)/i.test(patchText + manifestText) || /sandbox|approval/i.test(patchText + policyText),
+      passed: !/(workspace\.writeFile|sandbox\.promote|pushCommit|mergePullRequest)/i.test(patchText + manifestText) || requireSandbox,
       severity: "high",
       message: "Workspace writes, promotion, branch pushes, and merges must be sandboxed or approval-gated."
     },
     {
       id: "connector-approval",
       name: "Connector writes require approval",
-      passed: !/connector\.[^.]+?\.(create|update|close|add|open|merge|push|delete|trigger|cancel)/i.test(patchText + manifestText) || /approval|fixture/i.test(patchText + policyText),
+      passed: !/connector\.[^.]+?\.(create|update|close|add|open|merge|push|delete|trigger|cancel)/i.test(patchText + manifestText) || connectorWritesRequireApproval,
       severity: "high",
       message: "Connector write variants must require approval or fixture mode."
     },

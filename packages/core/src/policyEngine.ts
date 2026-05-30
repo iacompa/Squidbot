@@ -139,6 +139,20 @@ export class PolicyEngine {
       };
     }
 
+    // Default-deny anything that didn't match an explicit allow clause above
+    // when its declared risk is high/critical. The clauses above enumerate the
+    // known-safe local tools (workspace draft/test/terminal-sandbox/connector-
+    // read); anything else at high/critical risk — e.g. an MCP-proxied tool
+    // exposed to an external client via SquidbotMcpServer — must require an
+    // explicit allow, not silently fall through to "allowed".
+    if (manifest.riskLevel === "high" || manifest.riskLevel === "critical") {
+      return {
+        allowed: false,
+        reason: "High-risk tool is not permitted without an explicit allow policy.",
+        riskLevel: manifest.riskLevel
+      };
+    }
+
     return {
       allowed: true,
       reason: "Read-only local operation is allowed.",

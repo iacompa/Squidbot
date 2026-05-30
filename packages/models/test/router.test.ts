@@ -102,6 +102,31 @@ describe("ModelRouter", () => {
     expect(routerB.getBudgetStatus("api").usedTokens).toBe(0);
   });
 
+  it("does not charge the BYOK budget for a deterministic task plan", async () => {
+    const store = new MemoryBudgetStore();
+    const events: Array<{ type: ModelEventType; data: Record<string, unknown> }> = [];
+    const router = new ModelRouter({
+      settings: { provider: "api", apiKey: "test-key", apiBudgetTokens: 10_000, apiBudgetKey: "acct_plan" },
+      budgetStore: store,
+      providers: [new ApiModelProvider({ apiKey: "test-key" }), new MockModelProvider()]
+    });
+
+    // generateTaskPlan resolves to a deterministic local plan (no real HTTP
+    // call), so it must not consume any of the account's daily token budget.
+    const plan = await router.generateTaskPlan({
+      sessionId: "session_test",
+      runId: "run_test",
+      task: "Fix the failing add() implementation",
+      workspaceSummary: { workspacePath: "/tmp/ws", topLevelEntries: ["calculator.py"], keyFiles: [] },
+      tools: [{ name: "workspace.readFile", description: "Read a file", inputSchema: {} }],
+      emitEvent: emitTo(events)
+    });
+
+    expect(plan.actions.length).toBeGreaterThan(0);
+    expect(router.getBudgetStatus("api").usedTokens).toBe(0);
+    expect(router.getBudgetStatus("api").cost).toBe(0);
+  });
+
   it("falls back when BYOK budget is exhausted", async () => {
     const store = new MemoryBudgetStore();
     const events: Array<{ type: ModelEventType; data: Record<string, unknown> }> = [];

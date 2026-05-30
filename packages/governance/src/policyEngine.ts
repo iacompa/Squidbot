@@ -17,6 +17,27 @@ type PolicyRow = {
   enabled: number;
 };
 
+/**
+ * The local agent runtime executes governance checks as a `system` principal
+ * (`runtime:<sessionId>` for tool calls, `approval:<sessionId>` for approved
+ * connector executions). On a local-first, single-operator install this process
+ * IS the operator's own trusted runtime — as trusted as the owner — so it must be
+ * base-authorized to invoke tools; otherwise the agent can't do anything (every
+ * tool call would be denied with "No matching role permission").
+ *
+ * This is NOT a blanket bypass. It only satisfies the RBAC *presence* check. Every
+ * ABAC obligation still runs on top: zero-spend + external-model restriction are
+ * evaluated BEFORE this clause and deny first; sandbox-for-writes, high-risk
+ * approval, and explicit ABAC deny policies are evaluated AFTER and still apply.
+ *
+ * Untrusted/external automation does NOT use the `system` type — it uses
+ * `serviceAccount` (e.g. n8n), which is not granted base access here and remains
+ * gated by explicit role assignments plus the service-automation low-risk-only rule.
+ */
+function isTrustedLocalRuntime(actor: GovernancePolicyInput["actor"]): boolean {
+  return actor.type === "system";
+}
+
 export class GovernancePolicyEngine {
   private readonly identity: IdentityStore;
 
@@ -56,6 +77,10 @@ export class GovernancePolicyEngine {
         decision = "deny";
         reason = "Zero-spend governance denies user-paid provider usage by default.";
         matchedPolicies.push("abac.zeroSpendDefault");
+      } else if (isTrustedLocalRuntime(input.actor)) {
+        decision = "allow";
+        reason = "Allowed for the trusted local agent runtime (ABAC obligations still apply).";
+        matchedPolicies.push("rbac.localRuntime");
       } else if (roles.includes("owner") || anyPermissionAllows(permissions, input.action) || (input.action.endsWith(".read") && anyPermissionAllows(permissions, `${input.resource.type}.read`)) || (input.action.endsWith(".read") && anyPermissionAllows(permissions, "*.read"))) {
         decision = "allow";
         reason = "Allowed by assigned governance role.";

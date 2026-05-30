@@ -89,6 +89,74 @@ describe("SandboxManager", () => {
     expect(network.blockedByPolicy).toBe(true);
   });
 
+  it("blocks RELATIVE-path filesystem escapes under deny policy", async () => {
+    const workspace = createFixtureWorkspace();
+    const manager = new SandboxManager();
+    const sandbox = await manager.create(workspace, { networkPolicy: "deny" });
+    tempRoots.push(path.dirname(sandbox.path));
+
+    // The child runs with cwd = sandbox.path, so a RELATIVE arg escapes the
+    // workspace just as surely as an absolute one. The guard previously only
+    // inspected absolute args, so `cat ../../etc/...` / `tee ../../outside`
+    // slipped through and read/wrote OUTSIDE the sandbox.
+    const relRead = await manager.runCommand(sandbox, "cat", ["../../../../../../etc/hosts"], { timeoutMs: 2000 });
+    const relWrite = await manager.runCommand(sandbox, "cp", ["calculator.py", "../../escape-target.txt"], { timeoutMs: 2000 });
+
+    expect(relRead.blockedByPolicy).toBe(true);
+    expect(relRead.exitCode).toBe(126);
+    expect(relWrite.blockedByPolicy).toBe(true);
+    expect(relWrite.exitCode).toBe(126);
+  });
+
+  it.each([
+    ["env", ["curl", "https://x"]],
+    ["timeout", ["5", "curl", "https://x"]],
+    ["xargs", ["curl"]],
+    ["nice", ["-n", "10", "curl", "https://x"]]
+  ])("classifies a network command wrapped by %s as blocked", (cmd, args) => {
+    expect(classifyNetworkPolicyBlock(cmd, args).blocked).toBe(true);
+  });
+
+  it.each([
+    ["python3", ["-c", "import os; os.system('curl https://x')"]],
+    ["node", ["-e", "require('child_process').execSync('curl https://x')"]]
+  ])("classifies inline code that shells out to curl via %s as blocked", (cmd, args) => {
+    expect(classifyNetworkPolicyBlock(cmd, args).blocked).toBe(true);
+  });
+
+  it("does NOT block a wrapper around an offline command", () => {
+    expect(classifyNetworkPolicyBlock("env", ["NODE_ENV=test", "pytest"]).blocked).toBe(false);
+  });
+
+  it.each([
+    ["python3", ["-c", "import subprocess; subprocess.run(['ls'])"]],
+    ["python3", ["-c", "print('system check complete')"]],
+    ["node", ["-e", "const child_process = 1; console.log(child_process)"]]
+  ])("does NOT block local-only inline code that names a subprocess primitive (%s)", (cmd, args) => {
+    // A subprocess primitive alone is not network I/O — only a reference to an
+    // actual network tool (curl/wget/...) should block.
+    expect(classifyNetworkPolicyBlock(cmd, args).blocked).toBe(false);
+  });
+
+  it("rejects a patch whose UNPREFIXED header escapes the sandbox", async () => {
+    const workspace = createFixtureWorkspace();
+    const manager = new SandboxManager();
+    const sandbox = await manager.create(workspace);
+    tempRoots.push(path.dirname(sandbox.path));
+
+    // A victim file one level above the sandbox workspace root.
+    const victim = path.join(path.dirname(sandbox.path), "patch-escape-victim.txt");
+    fs.writeFileSync(victim, "safe\n");
+
+    // git apply rejects unprefixed paths, so the minimal-patch fallback runs and
+    // honors the raw (unprefixed) path via cleanPatchPath → path.join escapes.
+    // The validator only checked a/ b/-prefixed headers, so this slipped through.
+    const malicious = ["--- ../patch-escape-victim.txt", "+++ ../patch-escape-victim.txt", "@@", "-safe", "+pwned"].join("\n") + "\n";
+
+    await expect(manager.applyPatch(sandbox, malicious)).rejects.toThrow(/outside the sandbox/i);
+    expect(fs.readFileSync(victim, "utf8")).toBe("safe\n");
+  });
+
   it("creates a local sandbox quickly enough for interactive staging", async () => {
     const workspace = createFixtureWorkspace();
     const manager = new SandboxManager();

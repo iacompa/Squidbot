@@ -324,13 +324,22 @@ async function main(): Promise<void> {
         return;
       }
 
+      // Bind to loopback by default — the banner used to claim "localhost"
+      // while Node bound 0.0.0.0 (LAN-reachable). Operators opt into a public
+      // interface with --host 0.0.0.0 (e.g. inside a container), which should
+      // always be paired with --token.
+      const host = collectFlagValue(parts, "--host") ?? "127.0.0.1";
       const app = createSquidbotServer(database, { workspace: workspacePath, apiToken });
-      app.listen(port, () => {
-        console.log(`SquidBot server running at http://localhost:${port}`);
+      app.listen(port, host, () => {
+        const shownHost = host === "0.0.0.0" || host === "::" ? "0.0.0.0" : host;
+        console.log(`SquidBot server running at http://${shownHost}:${port} (bound to ${host})`);
         console.log(`  GET  /health   — readiness check`);
         console.log(`  GET  /metrics  — Prometheus scrape`);
         console.log(`  POST /api/*    — IPC bridge`);
         if (apiToken) console.log(`  Auth: Bearer token required`);
+        if (host !== "127.0.0.1" && host !== "localhost" && !apiToken) {
+          console.log(`  WARNING: bound to ${host} without --token — anyone who can reach this port can call the API.`);
+        }
       });
       // Keep the process alive — SIGINT/SIGTERM stop it.
       await new Promise(() => {});

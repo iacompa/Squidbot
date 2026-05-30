@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { SquidDatabase } from "@squidbot/db";
 import { DEFAULT_TENANT_ID, type AuditEntryInput, type AuditEntryRecord } from "./types.js";
 import { createId, nowIso, parseJson, redactForStorage, sha256, stableJson } from "./internal.js";
@@ -25,7 +26,14 @@ type AuditRow = {
 };
 
 export class AuditLedger {
-  constructor(private readonly database: SquidDatabase) {}
+  /**
+   * @param headAnchorPath Optional 0600 file (OUTSIDE the SQLite DB it protects,
+   *   like the vault key) recording the latest entryHash per tenant. Lets
+   *   `verify()` detect tail-truncation — deleting the most recent N entries
+   *   leaves an internally-valid shorter chain that a hash-link check alone
+   *   cannot catch. When omitted, verification falls back to chain-only.
+   */
+  constructor(private readonly database: SquidDatabase, private readonly headAnchorPath?: string) {}
 
   append(input: AuditEntryInput): AuditEntryRecord {
     const tenantId = input.tenantId ?? DEFAULT_TENANT_ID;
@@ -85,6 +93,7 @@ export class AuditLedger {
         entryHash,
         createdAt
       );
+    this.recordHead(tenantId, entryHash);
     return this.get(id)!;
   }
 
@@ -98,7 +107,14 @@ export class AuditLedger {
     return rows.map(mapAudit);
   }
 
-  verify(entries = this.all()): { ok: boolean; failedAt?: number; reason?: string } {
+  verify(
+    entries = this.all(),
+    options: { tenantId?: string; checkAnchor?: boolean } = {}
+  ): { ok: boolean; failedAt?: number; reason?: string } {
+    // Derive the tenant from the entries when not given explicitly, so an
+    // anchor lookup for `verify(all("tenant_b"))` checks tenant_b's head, not
+    // the default tenant's.
+    const tenantId = options.tenantId ?? (entries.length > 0 ? entries[entries.length - 1].tenantId : DEFAULT_TENANT_ID);
     let previousHash: string | null = null;
     for (const entry of entries) {
       const hashInput = {
@@ -130,7 +146,80 @@ export class AuditLedger {
       }
       previousHash = entry.entryHash;
     }
+
+    // Tail-truncation / emptied-chain detection. The loop above is internally
+    // consistent even after the most recent entries are deleted, so it cannot
+    // see a truncation. The out-of-DB head anchor records the latest entryHash
+    // per tenant; a mismatch (or a non-empty anchor against an empty chain)
+    // means entries were removed. Skipped for snapshot verification of an
+    // exported file (checkAnchor:false), which carries its own head.
+    if (this.headAnchorPath && options.checkAnchor !== false) {
+      const expectedHead = this.readAnchorMap()[tenantId] ?? null;
+      const actualHead = entries.length ? entries[entries.length - 1].entryHash : null;
+      // Only flag when an anchor was actually recorded for this tenant. A null
+      // anchor means "no head recorded yet" (a chain written before the anchor
+      // existed — e.g. an upgraded install), NOT a truncation; treating it as a
+      // mismatch would false-positive on every pre-anchor history. Once any
+      // entry is appended, recordHead populates the anchor and later truncation
+      // (expectedHead non-null, actualHead differs/null) is detected.
+      if (expectedHead !== null && expectedHead !== actualHead) {
+        return { ok: false, reason: "audit head anchor mismatch — entries were truncated or removed" };
+      }
+    }
     return { ok: true };
+  }
+
+  /** Distinct tenants present in the ledger or recorded in the head anchor. */
+  tenantIds(): string[] {
+    const rows = this.database.db.prepare(`SELECT DISTINCT tenantId FROM audit_ledger`).all() as Array<{ tenantId: string }>;
+    const ids = new Set<string>(rows.map((r) => r.tenantId));
+    for (const t of Object.keys(this.readAnchorMap())) ids.add(t);
+    return [...ids];
+  }
+
+  /** Verify EVERY tenant's chain (not just the default tenant). */
+  verifyAll(): { ok: boolean; perTenant: Record<string, { ok: boolean; failedAt?: number; reason?: string }> } {
+    const perTenant: Record<string, { ok: boolean; failedAt?: number; reason?: string }> = {};
+    let ok = true;
+    for (const tenantId of this.tenantIds()) {
+      const result = this.verify(this.all(tenantId), { tenantId });
+      perTenant[tenantId] = result;
+      if (!result.ok) ok = false;
+    }
+    return { ok, perTenant };
+  }
+
+  /** All entries across all tenants (for a complete audit export). */
+  allAcrossTenants(): AuditEntryRecord[] {
+    const rows = this.database.db.prepare(`SELECT * FROM audit_ledger ORDER BY tenantId ASC, sequence ASC`).all() as AuditRow[];
+    return rows.map(mapAudit);
+  }
+
+  private recordHead(tenantId: string, entryHash: string): void {
+    if (!this.headAnchorPath) return;
+    const map = this.readAnchorMap();
+    map[tenantId] = entryHash;
+    this.writeAnchorMap(map);
+  }
+
+  private readAnchorMap(): Record<string, string> {
+    if (!this.headAnchorPath || !fs.existsSync(this.headAnchorPath)) return {};
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.headAnchorPath, "utf8")) as unknown;
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private writeAnchorMap(map: Record<string, string>): void {
+    if (!this.headAnchorPath) return;
+    fs.writeFileSync(this.headAnchorPath, JSON.stringify(map), { encoding: "utf8", mode: 0o600 });
+    try {
+      fs.chmodSync(this.headAnchorPath, 0o600);
+    } catch {
+      /* best-effort on platforms without chmod */
+    }
   }
 
   get(id: string): AuditEntryRecord | null {

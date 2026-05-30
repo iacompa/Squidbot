@@ -1,7 +1,16 @@
+import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { SquidDatabase } from "@squidbot/db";
 import { collectMetrics, exportPrometheusMetrics } from "@squidbot/core";
 import { getCliVersion } from "./cliHelpers.js";
+
+/** Constant-time Bearer-token comparison (avoids a timing side channel). */
+function tokenMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 // Inline minimal web-bridge (avoids cross-app import boundary). Identical
 // behaviour to apps/desktop/src/server/webApiBridge.ts.
@@ -47,12 +56,14 @@ export function createSquidbotServer(
   const app = express();
   app.use(express.json({ limit: "5mb" }));
 
-  // Bearer-token guard (same as the desktop web bridge).
-  if (options.apiToken) {
+  // Bearer-token guard (same as the desktop web bridge). Captured in a const so
+  // it narrows to `string` inside the request closure.
+  const requiredToken = options.apiToken;
+  if (requiredToken) {
     app.use((req, res, next) => {
       const auth = req.headers.authorization ?? "";
       const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-      if (token !== options.apiToken) {
+      if (!tokenMatches(token, requiredToken)) {
         res.status(401).json({ error: "Unauthorized: valid Bearer token required." });
         return;
       }
@@ -122,14 +133,20 @@ export function generateDockerfile(options: { port?: number } = {}): DockerfileR
 # Run:   docker run -p ${port}:${port} -e SQUIDBOT_TOKEN=<token> squidbot
 FROM node:22-alpine
 WORKDIR /app
+# better-sqlite3 builds a native addon; alpine needs the build toolchain.
+RUN apk add --no-cache python3 make g++
 COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
+# Install ALL deps — the TypeScript entrypoint runs via tsx (a dev dependency),
+# so --omit=dev would strip the loader and the image could not start.
+RUN npm ci
 COPY . .
 ENV NODE_ENV=production
 ENV PORT=${port}
 EXPOSE ${port}
-ENTRYPOINT ["node", "--experimental-vm-modules", "apps/cli/src/index.ts"]
-CMD ["serve", "--port", "${port}"]
+# Bind 0.0.0.0 inside the container so the published port is reachable; protect
+# it with SQUIDBOT_TOKEN. tsx executes the .ts entrypoint (plain node cannot).
+ENTRYPOINT ["npx", "tsx", "apps/cli/src/index.ts"]
+CMD ["serve", "--port", "${port}", "--host", "0.0.0.0"]
 `;
 
   const dockerignore = `.git

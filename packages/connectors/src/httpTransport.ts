@@ -1,6 +1,6 @@
 import type { JsonObject, ToolContext } from "@squidbot/core";
 import type { ConnectorEndpoint, ConnectorManifest } from "./manifest.js";
-import { assertPublicHttpUrl, SsrfError } from "./ssrfGuard.js";
+import { assertPublicHttpUrl, assertResolvedHostPublic, SsrfError } from "./ssrfGuard.js";
 
 const DEFAULT_GITHUB_TIMEOUT_MS = 15_000;
 
@@ -368,6 +368,10 @@ export async function executeRealHttpCall(
   // narrower and was the only outbound defense.
   try {
     assertPublicHttpUrl(url);
+    // Resolve the hostname and reject if it points at a private address — a
+    // string check alone can't see a public-looking name with an internal A
+    // record (DNS-based SSRF / metadata exfiltration).
+    await assertResolvedHostPublic(new URL(url).hostname);
   } catch (err) {
     if (err instanceof SsrfError) {
       return {
@@ -405,7 +409,35 @@ export async function executeRealHttpCall(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, { method, headers, body, signal: controller.signal });
+    // Follow redirects MANUALLY so each hop is re-validated against the SSRF
+    // guard — `fetch`'s default redirect:"follow" would silently chase a 302
+    // from a public host to 169.254.169.254 (cloud metadata). Auth headers are
+    // dropped on a cross-origin hop so a redirect can't exfiltrate credentials.
+    let currentUrl = url;
+    let currentHeaders = headers;
+    let response = await fetch(currentUrl, { method, headers: currentHeaders, body, signal: controller.signal, redirect: "manual" });
+    let redirects = 0;
+    while ([301, 302, 303, 307, 308].includes(response.status) && response.headers.get("location") && redirects < 5) {
+      const location = new URL(response.headers.get("location") as string, currentUrl).toString();
+      try {
+        assertPublicHttpUrl(location);
+        await assertResolvedHostPublic(new URL(location).hostname);
+      } catch (err) {
+        clearTimeout(timer);
+        if (err instanceof SsrfError) {
+          return { ok: false, code: "ssrf", durationMs: Date.now() - start, message: `Redirect to disallowed host blocked: ${err.message}` };
+        }
+        throw err;
+      }
+      if (new URL(location).origin !== new URL(currentUrl).origin) {
+        currentHeaders = Object.fromEntries(
+          Object.entries(currentHeaders).filter(([k]) => k.toLowerCase() !== "authorization" && k.toLowerCase() !== "x-api-key")
+        );
+      }
+      currentUrl = location;
+      redirects += 1;
+      response = await fetch(currentUrl, { method, headers: currentHeaders, body, signal: controller.signal, redirect: "manual" });
+    }
     clearTimeout(timer);
     const durationMs = Date.now() - start;
     const contentType = response.headers.get("content-type") ?? "";

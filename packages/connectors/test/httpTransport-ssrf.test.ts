@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { executeRealHttpCall } from "../src/httpTransport.js";
+import { assertResolvedHostPublic, SsrfError } from "../src/ssrfGuard.js";
 import type { ConnectorEndpoint, ConnectorManifest } from "../src/manifest.js";
 
 const manifest = {
@@ -39,6 +40,27 @@ describe("executeRealHttpCall SSRF rejection", () => {
     }
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it("blocks a redirect to a private host (no 302→metadata exfiltration)", async () => {
+    // Public literal IP base (so the DNS pre-check is a no-op), but the server
+    // responds with a 302 to the cloud-metadata endpoint. The manual-redirect
+    // re-validation must refuse to follow it.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } }) as Response
+    );
+    const result = await executeRealHttpCall(manifest, endpoint, {}, { baseUrl: "https://93.184.216.34", apiKey: "test-key" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("ssrf");
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("assertResolvedHostPublic rejects a hostname that resolves to loopback", async () => {
+    // localhost deterministically resolves to 127.0.0.1 / ::1 — a DNS name
+    // pointing at a private address must be rejected after resolution.
+    await expect(assertResolvedHostPublic("localhost")).rejects.toThrow(SsrfError);
   });
 
   it("does NOT reject public URLs (but we don't actually make a real call)", async () => {

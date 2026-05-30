@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initializeDatabase, type SquidDatabase } from "@squidbot/db";
-import { GovernanceEnforcer } from "@squidbot/governance";
+import { GovernanceEnforcer, GovernancePolicyEngine } from "@squidbot/governance";
 import { AgentRuntime } from "../src/index.js";
 
 let database: SquidDatabase | null = null;
@@ -86,6 +86,27 @@ describe("AgentRuntime governance enforcement", () => {
     const result = await runtime.sendMessage("please list files");
 
     expect(enforcer.assertAllowed).toHaveBeenCalled();
+    expect(result.toolResults[0].ok).toBe(true);
+  });
+
+  it("runs tools end-to-end with the REAL GovernancePolicyEngine (production desktop wiring)", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+
+    // Exactly how apps/desktop/src/main/ipc.ts builds the enforcer for the
+    // AgentRuntime. The prior tests injected a MOCK enforcer, which is why the
+    // P0 (real engine denies the system runtime actor → every tool blocked in
+    // the desktop) was never caught. This exercises the real production path.
+    const enforcer = new GovernanceEnforcer(new GovernancePolicyEngine(database));
+
+    const runtime = new AgentRuntime({
+      database,
+      workspacePath: fixture.workspacePath,
+      governanceEnforcer: enforcer
+    });
+    const result = await runtime.sendMessage("please list files");
+
+    expect(result.toolResults.length).toBeGreaterThanOrEqual(1);
     expect(result.toolResults[0].ok).toBe(true);
   });
 });

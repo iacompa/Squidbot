@@ -137,4 +137,41 @@ describe("AgentRuntime agentic tool loop", () => {
     // Executed once, then stopped — not 8 times.
     expect(result.toolResults.length).toBe(1);
   });
+
+  it("does not leave a dangling assistant tool_calls turn after a dedup break", async () => {
+    const fixture = createWorkspace();
+    database = initializeDatabase(fixture.dbPath);
+
+    const seen: Array<Array<{ role: string; toolCalls?: unknown[] }>> = [];
+    const provider = makeProvider((request, round) => {
+      seen.push(request.messages.map((m) => ({ ...m })));
+      if (round < 2) {
+        // Turn 1 (rounds 0,1): repeat the SAME call to trip the dedup guard.
+        return response("calling again", [{ id: "same", name: "workspace.listFiles", args: {} }]);
+      }
+      return response("final answer"); // Turn 2: a clean final answer.
+    });
+
+    // ONE long-lived runtime (the CLI REPL case — in-memory history is never
+    // re-hydrated mid-session, unlike the desktop's per-IPC fresh runtime).
+    const runtime = new AgentRuntime({
+      database,
+      workspacePath: fixture.workspacePath,
+      modelRouter: new ModelRouter(provider)
+    });
+
+    await runtime.sendMessage("repeat"); // dedup break — must NOT leave a dangling tool_calls turn
+    await runtime.sendMessage("and now?"); // turn 2 sees the full in-memory history
+
+    // OpenAI invariant: an assistant message carrying tool_calls MUST be
+    // immediately followed by tool messages for each call. A real API rejects a
+    // dangling tool_calls turn on the next request.
+    const lastSent = seen[seen.length - 1];
+    for (let i = 0; i < lastSent.length; i++) {
+      const m = lastSent[i];
+      if (m.role === "assistant" && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
+        expect(lastSent[i + 1]?.role).toBe("tool");
+      }
+    }
+  });
 });
