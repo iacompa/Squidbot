@@ -59,4 +59,14 @@ describe("SquidbotMcpServer", () => {
     const result = await makeServer().callTool("does.not.exist", {});
     expect(result.isError).toBe(true);
   });
+
+  it("rejects args that violate the tool's inputSchema before executing (untrusted MCP input)", async () => {
+    // demo.echo declares text:string — an external client sending a number
+    // must be rejected at the boundary, not silently handed to the handler.
+    const result = await makeServer().callTool("demo.echo", { text: 123 });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/invalid arguments/i);
+    // Handler never ran — { echoed: 123 } must not appear.
+    expect(JSON.stringify(result.content)).not.toContain("echoed");
+  });
 });

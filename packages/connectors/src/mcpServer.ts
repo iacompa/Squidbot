@@ -6,6 +6,7 @@ import {
   EventLog,
   PolicyEngine,
   ToolRegistry,
+  validateToolArgs,
   type AgentEvent,
   type JsonObject,
   type ToolContext
@@ -72,6 +73,18 @@ export class SquidbotMcpServer {
     const tool = this.registry.get(name);
     if (!tool) {
       return errorResult(`Unknown tool: ${name}`);
+    }
+
+    // Validate the external client's args against the tool's inputSchema before
+    // anything else. MCP input is untrusted (it crosses a process/trust
+    // boundary), so a malformed call must be rejected at the edge rather than
+    // silently coerced by the handler. Same permissive validator the agent
+    // runtime uses.
+    const argCheck = validateToolArgs(tool.inputSchema, args);
+    if (!argCheck.ok) {
+      const reason = `Invalid arguments for ${name}: ${argCheck.errors.join("; ")}`;
+      this.emit(runId, "tool.denied", { toolName: name, reason, via: "mcp" });
+      return errorResult(reason);
     }
 
     // Same governance gate the agent runtime applies — risky/write tools are
