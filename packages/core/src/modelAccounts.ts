@@ -97,15 +97,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     kind: "anthropic",
-    displayName: "Anthropic Claude (via OpenRouter)",
-    defaultApiUrl: "https://openrouter.ai/api/v1/chat/completions",
+    displayName: "Anthropic Claude (native API)",
+    defaultApiUrl: "https://api.anthropic.com/v1/messages",
     requiresApiKey: true,
     description:
-      "Anthropic's native /v1/messages schema isn't yet wired in SquidBot, so Claude accounts route through OpenRouter. The apiModel field takes `anthropic/claude-…` ids. Direct Anthropic API support is a tracked TODO.",
+      "Native Anthropic Messages API (/v1/messages) — direct tool-use, no proxy or markup. The router auto-selects the native provider for api.anthropic.com endpoints. Use bare model ids like `claude-sonnet-4-6` (no `anthropic/` prefix). To route Claude through OpenRouter instead, use the OpenRouter preset with `anthropic/claude-…` ids.",
     commonModels: [
-      { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5 (cheap)" },
-      { id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { id: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7 (flagship)" }
+      { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (cheap)" },
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+      { id: "claude-opus-4-8", label: "Claude Opus 4.8 (flagship)" }
     ]
   },
   {

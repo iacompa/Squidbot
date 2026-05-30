@@ -1,3 +1,4 @@
+export * from "./anthropicProvider.js";
 export * from "./apiProvider.js";
 export * from "./base.js";
 export * from "./localProvider.js";

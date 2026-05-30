@@ -1,3 +1,4 @@
+import { AnthropicModelProvider } from "./anthropicProvider.js";
 import { ApiModelProvider } from "./apiProvider.js";
 import type {
   JsonObject,
@@ -45,11 +46,7 @@ export class ModelRouter {
     this.forcedProviderName = singleProvider?.name;
     const defaultProviders = [
       new LocalModelProvider({ modelName: this.settings.localModel ?? undefined }),
-      new ApiModelProvider({
-        apiKey: this.settings.apiKey,
-        apiUrl: this.settings.apiUrl,
-        modelName: this.settings.apiModel
-      }),
+      buildByokProvider(this.settings),
       new MockModelProvider()
     ];
 
@@ -321,6 +318,30 @@ function estimateCost(provider: ModelProvider, tokens: number): number {
 
 function isModelProvider(value: unknown): value is ModelProvider {
   return Boolean(value && typeof value === "object" && "generate" in value && "name" in value);
+}
+
+/**
+ * Build the BYOK ("api") provider from settings. When the endpoint is the
+ * native Anthropic Messages API we use AnthropicModelProvider (native tool-use,
+ * no proxy); every other endpoint uses the OpenAI-compatible provider. Both
+ * register under the name "api", so the rest of the router is unchanged — the
+ * endpoint URL alone decides the wire protocol.
+ */
+function buildByokProvider(settings: ModelRouterSettings): ModelProvider {
+  const apiUrl = settings.apiUrl ?? undefined;
+  if (apiUrl && isAnthropicUrl(apiUrl)) {
+    return new AnthropicModelProvider({ apiKey: settings.apiKey, apiUrl, modelName: settings.apiModel });
+  }
+  return new ApiModelProvider({ apiKey: settings.apiKey, apiUrl: settings.apiUrl, modelName: settings.apiModel });
+}
+
+function isAnthropicUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "anthropic.com" || host === "api.anthropic.com" || host.endsWith(".anthropic.com");
+  } catch {
+    return /\banthropic\.com\b/i.test(url);
+  }
 }
 
 function isModelResponse(value: unknown): value is ModelResponse {

@@ -231,7 +231,7 @@ function serializeMessageForOpenAi(message: ChatMessage): Record<string, unknown
   return { role: message.role, content: message.content };
 }
 
-function sanitizeToolName(name: string): string {
+export function sanitizeToolName(name: string): string {
   // OpenAI spec: `^[a-zA-Z0-9_-]{1,64}$`. Replace anything outside that
   // class with `_` and clip to 64 chars. We don't expect anything other
   // than `.` in practice but the guard is cheap.
@@ -259,7 +259,7 @@ function sanitizeToolName(name: string): string {
  * single-string type. The mutation is on a clone so the upstream tool registry
  * is never modified.
  */
-function sanitizeJsonSchemaForStrictProviders(schema: unknown): unknown {
+export function sanitizeJsonSchemaForStrictProviders(schema: unknown): unknown {
   if (!schema || typeof schema !== "object") return schema;
   if (Array.isArray(schema)) {
     return schema.map((item) => sanitizeJsonSchemaForStrictProviders(item));

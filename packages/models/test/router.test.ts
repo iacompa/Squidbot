@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiModelProvider, LocalModelProvider, MockModelProvider, ModelRouter, type ModelBudgetStore, type ModelEventType, type ModelUsageRecord } from "../src/index.js";
+import { AnthropicModelProvider, ApiModelProvider, LocalModelProvider, MockModelProvider, ModelRouter, type ModelBudgetStore, type ModelEventType, type ModelUsageRecord } from "../src/index.js";
 
 class MemoryBudgetStore implements ModelBudgetStore {
   private readonly usage = new Map<string, ModelUsageRecord>();
@@ -123,5 +123,23 @@ describe("ModelRouter", () => {
     expect(events.map((event) => event.type)).toContain("model.budgetExceeded");
     expect(events.map((event) => event.type)).toContain("model.fallback");
     expect(router.getBudgetStatus("api").usedTokens).toBe(0);
+  });
+});
+
+describe("ModelRouter — native Anthropic provider selection", () => {
+  it("uses the native AnthropicModelProvider when the apiUrl is the Anthropic Messages API", () => {
+    const router = new ModelRouter({
+      settings: { apiKey: "sk-ant-x", apiUrl: "https://api.anthropic.com/v1/messages", apiModel: "claude-sonnet-4-6" }
+    });
+    const api = router.listProviders().find((provider) => provider.name === "api");
+    expect(api).toBeInstanceOf(AnthropicModelProvider);
+  });
+
+  it("uses the OpenAI-compatible ApiModelProvider for non-Anthropic endpoints", () => {
+    const router = new ModelRouter({
+      settings: { apiKey: "or-x", apiUrl: "https://openrouter.ai/api/v1/chat/completions", apiModel: "anthropic/claude-sonnet-4-6" }
+    });
+    const api = router.listProviders().find((provider) => provider.name === "api");
+    expect(api).toBeInstanceOf(ApiModelProvider);
   });
 });
