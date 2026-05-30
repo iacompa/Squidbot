@@ -34,18 +34,33 @@ export class GovernancePolicyEngine {
     let decision: GovernanceDecision["decision"] = "deny";
     let reason = "No matching role permission.";
 
-    if (violatesExternalModelRestriction(input)) {
-      decision = "deny";
-      reason = "Restricted or secret data cannot be sent to an external/paid model provider.";
-      matchedPolicies.push("abac.restrictedDataNoExternalModel");
-    } else if (violatesZeroSpend(input)) {
-      decision = "deny";
-      reason = "Zero-spend governance denies user-paid provider usage by default.";
-      matchedPolicies.push("abac.zeroSpendDefault");
-    } else if (roles.includes("owner") || anyPermissionAllows(permissions, input.action) || (input.action.endsWith(".read") && anyPermissionAllows(permissions, `${input.resource.type}.read`)) || (input.action.endsWith(".read") && anyPermissionAllows(permissions, "*.read"))) {
-      decision = "allow";
-      reason = "Allowed by assigned governance role.";
-      matchedPolicies.push(`rbac.${roles.join("+") || "none"}`);
+    // Tenant isolation (G8): a resource that declares an owning tenant
+    // (`resource.attributes.tenantId`) can only be reached from within that
+    // tenant. Enforced BEFORE any role grant, so even an owner cannot cross
+    // tenants. Resources without a tenantId attribute are unrestricted — the
+    // single-tenant / backward-compatible default.
+    const resourceTenantId =
+      typeof input.resource.attributes?.tenantId === "string" ? (input.resource.attributes.tenantId as string) : null;
+    const crossTenant = resourceTenantId !== null && resourceTenantId !== tenantId;
+    if (crossTenant) {
+      reason = `Cross-tenant access denied: ${tenantId} → ${resourceTenantId}`;
+      matchedPolicies.push("tenant.isolation");
+    }
+
+    if (!crossTenant) {
+      if (violatesExternalModelRestriction(input)) {
+        decision = "deny";
+        reason = "Restricted or secret data cannot be sent to an external/paid model provider.";
+        matchedPolicies.push("abac.restrictedDataNoExternalModel");
+      } else if (violatesZeroSpend(input)) {
+        decision = "deny";
+        reason = "Zero-spend governance denies user-paid provider usage by default.";
+        matchedPolicies.push("abac.zeroSpendDefault");
+      } else if (roles.includes("owner") || anyPermissionAllows(permissions, input.action) || (input.action.endsWith(".read") && anyPermissionAllows(permissions, `${input.resource.type}.read`)) || (input.action.endsWith(".read") && anyPermissionAllows(permissions, "*.read"))) {
+        decision = "allow";
+        reason = "Allowed by assigned governance role.";
+        matchedPolicies.push(`rbac.${roles.join("+") || "none"}`);
+      }
     }
 
     for (const policy of this.matchingAbacPolicies(input, tenantId)) {
