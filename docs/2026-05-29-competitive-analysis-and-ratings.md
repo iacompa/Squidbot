@@ -86,7 +86,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | ST1 | Blueprint backend (manifest/registry/versioning) | ⬜ | ⬜ | ✅ **validated registry + schema + versioning** (validator/registry/types all tested) | **8.5** | ✅ shipped & solid — UNIQUE vs both competitors (neither has a blueprint backend at all) |
 | ST2 | AI Studio UI (catalog, canvas, KPI, deploy) | ⬜ | ⬜ | 🟡 **Blueprint Catalog page shipped (list+detail+export), behavior-tested** | **6** | ✅ catalog slice done (StudioPage); canvas/KPI-dashboard/deploy-controls/benchmark-runner tabs pending |
 | **DISTRIBUTION** |
-| D1 | Daemon/service, Docker, cloud deploy | ✅ rich | ✅ rich | ⬜ desktop only | **4** | Deferred (vision §20.3) |
+| D1 | Daemon/service, Docker, cloud deploy | ✅ rich | ✅ rich | ✅ **`serve` CLI command (Express + /health + /metrics + /api/* bridge, Bearer auth, any port), Dockerfile + .dockerignore generation** | **8.5** | ✅ `npm run serve -- --port 8080 [--token s3cret]` runs headless; `serve --dockerfile` outputs container config; 6 tests |
 | D2 | Auto-update + doctor + migration import | ✅ | ✅ | ✅ **`doctor` (JSON health checks + exit code), `update check` (npm registry), `migrate export/import` (portable settings bundle)** | **8.5** | ✅ all three wired and tested; auto-updater deferred (installer-level, not CLI-level) |
 | **EXTENSIBILITY** |
 | E1 | Plugin SDK | ✅ ClawHub | ✅ | ✅ **typed manifest + validator + registry + `definePlugin` + governed `loadPlugin` (manifest-contract enforced, atomic) + core ToolRegistry auto-load** | **8.5** | ✅ plugins load their *declared* tools into the runtime registry & execute; undeclared/invalid/throwing loads register nothing; marketplace UI is the remaining follow-up |

@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { execFileSync } from "node:child_process";
 import { buildHelpText, getCliVersion } from "./cliHelpers.js";
 import { checkForUpdates, exportMigrationBundle, importMigrationBundle } from "./migrate.js";
+import { createSquidbotServer, generateDockerfile } from "./server.js";
 import fs from "node:fs";
 import path from "node:path";
 import { ConnectorRegistry, importOpenApi, installDeveloperWorkflowConnectors, registerConnectorTools, SquidbotMcpServer } from "@squidbot/connectors";
@@ -304,6 +305,35 @@ async function main(): Promise<void> {
       // Prometheus text-exposition format — pipe to a file or scrape endpoint.
       // Local-first: the data is computed from the local DB and never leaves.
       process.stdout.write(exportPrometheusMetrics(database));
+      return;
+    }
+
+    if (args.command === "serve") {
+      const parts = splitCommandParts(args.message);
+      const port = collectFlagNumber(parts, "--port") ?? 8080;
+      const apiToken = collectFlagValue(parts, "--token") ?? process.env.SQUIDBOT_TOKEN;
+      const workspacePath = args.workspace ? resolveFromInvocationCwd(args.workspace) : config.appDataDir;
+
+      if (parts.includes("--dockerfile")) {
+        // Output Dockerfile + .dockerignore to stdout (redirect to files).
+        const { dockerfile, dockerignore } = generateDockerfile({ port });
+        console.log("=== Dockerfile ===");
+        process.stdout.write(dockerfile);
+        console.log("\n=== .dockerignore ===");
+        process.stdout.write(dockerignore);
+        return;
+      }
+
+      const app = createSquidbotServer(database, { workspace: workspacePath, apiToken });
+      app.listen(port, () => {
+        console.log(`SquidBot server running at http://localhost:${port}`);
+        console.log(`  GET  /health   — readiness check`);
+        console.log(`  GET  /metrics  — Prometheus scrape`);
+        console.log(`  POST /api/*    — IPC bridge`);
+        if (apiToken) console.log(`  Auth: Bearer token required`);
+      });
+      // Keep the process alive — SIGINT/SIGTERM stop it.
+      await new Promise(() => {});
       return;
     }
 
