@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsDto } from "../../../shared/api";
 
@@ -38,6 +38,7 @@ function mount(overrides: {
   activeAccount?: string | null;
   accounts?: unknown[];
   sendChatMessage?: (req: unknown) => Promise<unknown>;
+  onChatToken?: (callback: (delta: string) => void) => () => void;
 } = {}) {
   const accounts = overrides.accounts ?? [
     {
@@ -72,7 +73,8 @@ function mount(overrides: {
           toolCalls: [],
           toolResults: [],
           trace: { runId: "r1", events: [], steps: [] }
-        }))
+        })),
+      onChatToken: overrides.onChatToken ?? vi.fn(() => () => undefined)
     }
   });
 }
@@ -175,5 +177,56 @@ describe("ChatPage — typing indicator during in-flight sends", () => {
     });
     // Final assistant message replaced the indicator.
     expect(screen.getByText("Hi there!")).toBeTruthy();
+  });
+});
+
+describe("ChatPage — token streaming", () => {
+  it("renders streamed tokens live in an assistant bubble before the final response lands", async () => {
+    let emit: ((delta: string) => void) | null = null;
+    const onChatToken = vi.fn((cb: (delta: string) => void) => {
+      emit = cb;
+      return () => undefined;
+    });
+    let resolveSend: ((value: unknown) => void) | null = null;
+    const sendChatMessage = vi.fn(() => new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
+    mount({ sendChatMessage, onChatToken });
+    const { ChatPage } = await import("./ChatPage");
+    render(
+      <ChatPage
+        settings={baseSettings}
+        sessionId={undefined}
+        onSessionChange={vi.fn()}
+        onTraceChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+      />
+    );
+    await waitFor(() => screen.getByText("OR Gemini"));
+
+    const input = screen.getByLabelText("Message") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "hi" } });
+    fireEvent.submit(input.closest("form")!);
+
+    // The page subscribed to streamed tokens.
+    await waitFor(() => expect(onChatToken).toHaveBeenCalled());
+
+    // Feed deltas — they appear live in a responding bubble.
+    act(() => {
+      emit!("Hello ");
+      emit!("world");
+    });
+    await waitFor(() => expect(screen.getByText("Hello world")).toBeTruthy());
+    expect(screen.getByLabelText("SquidBot is responding")).toBeTruthy();
+
+    // Final response lands; the streaming bubble is replaced by the message.
+    resolveSend!({
+      sessionId: "s",
+      content: "Hello world",
+      toolCalls: [],
+      toolResults: [],
+      trace: { runId: "r1", events: [], steps: [] }
+    });
+    await waitFor(() => expect(screen.queryByLabelText("SquidBot is responding")).toBeNull());
   });
 });

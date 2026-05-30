@@ -55,6 +55,26 @@ if (typeof window !== "undefined") {
 export const squidbotApi: SquidbotApi = new Proxy({} as SquidbotApi, {
   get(_target, prop: string | symbol) {
     if (typeof prop !== "string") return undefined;
+    // Event subscriptions (onChatToken) are a different shape from RPC calls:
+    // they bind a listener on a live push channel (Electron's ipcRenderer.on)
+    // and return a *synchronous* unsubscribe handle — they are NOT request/
+    // response round-trips, so they must bypass callApi (which returns a
+    // Promise) and bind directly to the bridge. Where no push channel exists
+    // (the web/HTTP bundle, or a test bridge that omits the method), we degrade
+    // to a no-op subscription so the caller's unsubscribe() is always safe to
+    // invoke and the final response still arrives via sendChatMessage.
+    if (prop === "onChatToken") {
+      return (callback: (delta: string) => void) => {
+        const live =
+          typeof window !== "undefined"
+            ? (window as unknown as {
+                squidbot?: { onChatToken?: (cb: (delta: string) => void) => () => void };
+              }).squidbot
+            : undefined;
+        const fn = live?.onChatToken;
+        return typeof fn === "function" ? fn(callback) : () => undefined;
+      };
+    }
     return (...args: unknown[]) => callApi(prop, ...args);
   }
 }) as SquidbotApi;

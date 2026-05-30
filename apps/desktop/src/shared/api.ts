@@ -974,6 +974,8 @@ export type SquidbotApi = {
     timeoutMs?: number;
   }) => Promise<DiscoverModelsApiResult>;
   sendChatMessage: (request: ChatRequest) => Promise<ChatResponse>;
+  /** Subscribe to streamed assistant tokens for the in-flight chat turn. Returns an unsubscribe fn. */
+  onChatToken: (callback: (delta: string) => void) => () => void;
   getLatestTrace: () => Promise<TraceDto | null>;
   listTraces: () => Promise<TraceDto[]>;
   listRuns: (options?: { limit?: number; offset?: number; sortBy?: "createdAt" | "duration" | "cost" }) => Promise<TraceRunSummaryDto[]>;

@@ -53,6 +53,9 @@ export function ChatPage({
   const [input, setInput] = useState("list files");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live-accumulating assistant text streamed from the agent loop while a turn
+  // is in flight; cleared once the final message is appended.
+  const [streamingContent, setStreamingContent] = useState("");
   // The active model account, refreshed every send so chat-driven switches
   // (the user asks SquidBot to "switch to my OpenAI account") immediately
   // surface in the header without needing a page reload.
@@ -120,8 +123,11 @@ export function ChatPage({
 
     setError(null);
     setIsSending(true);
+    setStreamingContent("");
     setMessages((current) => [...current, { id: createMessageId(), role: "user", content: trimmed }]);
 
+    // Stream tokens into a live bubble while the turn runs.
+    const unsubscribe = squidbotApi.onChatToken((delta) => setStreamingContent((prev) => prev + delta));
     try {
       const response = await squidbotApi.sendChatMessage({
         message: trimmed,
@@ -151,6 +157,8 @@ export function ChatPage({
       // user retries is confusing because the next send appends another copy.
       setMessages((current) => current.slice(0, -1));
     } finally {
+      unsubscribe();
+      setStreamingContent("");
       setIsSending(false);
       // The model may have called `model.useAccount` mid-turn to switch
       // providers — refresh the active-account state so the header reflects
@@ -211,7 +219,13 @@ export function ChatPage({
             Renders while we're awaiting the model's response. Lives at the
             bottom of the message-log so it naturally appears where the next
             assistant message will land. */}
-        {isSending && (
+        {isSending && streamingContent ? (
+          <article className="message-row assistant" aria-live="polite" aria-label="SquidBot is responding">
+            <div className="message-bubble">
+              <pre>{streamingContent}</pre>
+            </div>
+          </article>
+        ) : isSending ? (
           <article className="message-row assistant" aria-live="polite" aria-label="SquidBot is thinking">
             <div className="message-bubble chat-typing-bubble">
               <span className="chat-typing-dot" />
@@ -222,7 +236,7 @@ export function ChatPage({
               </span>
             </div>
           </article>
-        )}
+        ) : null}
       </section>
 
       {error ? <div className="error-strip">{error}</div> : null}

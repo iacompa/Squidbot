@@ -468,7 +468,7 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
     }
   );
 
-  ipcMain.handle("squidbot:sendChatMessage", async (_event, request: ChatRequest) => {
+  ipcMain.handle("squidbot:sendChatMessage", async (event, request: ChatRequest) => {
     const settings = readSettings(database, paths);
     const workspacePath = request.workspacePath ?? settings.workspacePath;
 
@@ -478,7 +478,17 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
 
     const runtime = createRuntime(database, workspacePath, request.sessionId);
 
-    const response = await runtime.sendMessage(request.message);
+    // Stream the answer to the renderer as it's produced. `event.sender.send`
+    // can throw if the window closed mid-stream — swallow that.
+    const response = await runtime.sendMessage(request.message, {
+      onToken: (delta) => {
+        try {
+          event.sender.send("squidbot:chatToken", delta);
+        } catch {
+          /* renderer gone — ignore */
+        }
+      }
+    });
     return {
       ...response,
       trace: redactTrace(response.trace)

@@ -14,6 +14,11 @@ const api: SquidbotApi = {
   getProviderCatalog: (providerKind) => ipcRenderer.invoke("squidbot:getProviderCatalog", providerKind),
   discoverModels: (request) => ipcRenderer.invoke("squidbot:discoverModels", request),
   sendChatMessage: (request: ChatRequest) => ipcRenderer.invoke("squidbot:sendChatMessage", request),
+  onChatToken: (callback: (delta: string) => void) => {
+    const listener = (_event: unknown, delta: string): void => callback(delta);
+    ipcRenderer.on("squidbot:chatToken", listener);
+    return () => ipcRenderer.removeListener("squidbot:chatToken", listener);
+  },
   getLatestTrace: () => ipcRenderer.invoke("squidbot:getLatestTrace"),
   listTraces: () => ipcRenderer.invoke("squidbot:listTraces"),
   listRuns: (options) => ipcRenderer.invoke("squidbot:listRuns", options),
