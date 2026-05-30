@@ -76,7 +76,7 @@ Rating = honest 1–10 of SquidBot's *current* implementation (not the competito
 | I2 | CLI / TUI | ✅ rich CLI | ✅ Ink TUI | 🟡 single-entry CLI | **6** | OK; TUI deferred |
 | I3 | Messaging channels | ~24 | 24 | ✅ **3 real outbound adapters (Slack + Discord + Telegram) on a clean framework; honest per-platform status matrix; long-tail = BYOK-real-when-configured, fixture-first** | **8.5** | ✅ the dev/team channels that matter are real (mock-tested); raw 24-channel count is the documented scale non-goal |
 | I4 | Voice (STT/TTS) | ✅ rich | ✅ rich | ⬜ none | **N/A** | Deferred (vision §20.3) |
-| I5 | Web/PWA reach | ✅ | ✅ | 🟡 web bridge + **method-dispatch guard** (proto-pollution rejected) | **7** | ✅ 5.7 fixed; token-auth deferred to deployment phase (localhost-only by design) |
+| I5 | Web/PWA reach | ✅ | ✅ | ✅ **web bridge + proto-pollution guard + Bearer token auth** (`apiToken` option, 401 before dispatch, tested) | **8.5** | ✅ 5.7 + token auth shipped; no-token mode still works for localhost-only deploys |
 | **INTEGRATIONS** |
 | N1 | MCP client (consume servers) | ✅ | ✅ | ✅ pooled client (connect/list/call, failure-handling; tested) | **8.5** | ✅ shipped & solid — `mcpClient`/`mcpManager` tested incl. spawn-failure path; pairs with N2 server |
 | N2 | MCP server (expose self) | ✅ | ✅ | ✅ **stdio server, 68 governed tools** | **8.5** | ✅ ADDED — `npm run mcp -- serve`; PolicyEngine-gated + audited; Claude can drive SquidBot |

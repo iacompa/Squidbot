@@ -82,3 +82,50 @@ describe("webApiBridge", () => {
     expect(recordedArgs).toEqual([[]]);
   });
 });
+
+describe("webApiBridge — bearer token authentication (I5)", () => {
+  function authApp(token: string) {
+    const app = express();
+    mountWebApiBridge(app, { invoke: async () => ({ ok: true }) }, { apiToken: token });
+    return app;
+  }
+
+  it("allows a request with the correct Bearer token", async () => {
+    const res = await request(authApp("secret-token"))
+      .post("/api/listJobs")
+      .set("Authorization", "Bearer secret-token")
+      .send({ args: [] });
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 401 when Authorization header is missing", async () => {
+    const res = await request(authApp("secret-token"))
+      .post("/api/listJobs")
+      .send({ args: [] });
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ error: expect.stringMatching(/unauthorized/i) });
+  });
+
+  it("returns 401 when token is wrong", async () => {
+    const res = await request(authApp("secret-token"))
+      .post("/api/listJobs")
+      .set("Authorization", "Bearer wrong-token")
+      .send({ args: [] });
+    expect(res.status).toBe(401);
+  });
+
+  it("never calls the handler when auth fails", async () => {
+    const invoke = vi.fn(async () => ({ ok: true }));
+    const app = express();
+    mountWebApiBridge(app, { invoke }, { apiToken: "tok" });
+    await request(app).post("/api/listJobs").send({ args: [] });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("passes through unauthenticated when no apiToken is configured (localhost-only default)", async () => {
+    const app = express();
+    mountWebApiBridge(app, { invoke: async () => ({ ok: true }) });
+    const res = await request(app).post("/api/listJobs").send({ args: [] });
+    expect(res.status).toBe(200);
+  });
+});

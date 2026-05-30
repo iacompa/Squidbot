@@ -35,20 +35,39 @@ export function isSafeBridgeMethod(method: string): boolean {
   return typeof method === "string" && SAFE_METHOD_PATTERN.test(method) && !UNSAFE_METHOD_NAMES.has(method);
 }
 
+export type WebApiBridgeOptions = {
+  /**
+   * When set, all requests must carry `Authorization: Bearer <apiToken>`.
+   * Absent or wrong token → 401. Omit the option entirely for
+   * localhost-only deployments where no auth is needed.
+   */
+  apiToken?: string;
+};
+
 /**
  * Mounts POST /api/:method routes on the given Express app. Each request
  * body is { args: unknown[] }; the response is the JSON result of the
  * corresponding IPC handler. Errors are returned as { error: string }
  * with HTTP 500.
  *
- * No auth in Phase 1 — assumes localhost only. Phase 6 (Deployment +
- * Observability) wraps this in TLS + session auth for production
- * multi-user deploys.
+ * Pass `options.apiToken` to require Bearer-token auth on every request —
+ * suitable for non-localhost (LAN / cloud) deployments.
  */
-export function mountWebApiBridge(app: Express, adapter: WebApiBridgeAdapter): void {
+export function mountWebApiBridge(app: Express, adapter: WebApiBridgeAdapter, options: WebApiBridgeOptions = {}): void {
   app.use(express.json({ limit: "5mb" }));
 
   app.post("/api/:method", async (req, res) => {
+    // Bearer-token auth gate — enforced before method validation so the
+    // error surface for unauthenticated callers is always 401, never 400/500.
+    if (options.apiToken) {
+      const authHeader = req.headers.authorization ?? "";
+      const supplied = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      if (supplied !== options.apiToken) {
+        res.status(401).json({ error: "Unauthorized: valid Bearer token required." });
+        return;
+      }
+    }
+
     const { method } = req.params;
     // Reject prototype-pollution / malformed method names before dispatch.
     if (!isSafeBridgeMethod(method)) {
