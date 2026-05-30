@@ -26,6 +26,7 @@ import { createSession } from "./session.js";
 import { registerTerminalTools } from "./terminalTools.js";
 import { registerTestTools } from "./testTools.js";
 import { ToolRegistry } from "./toolRegistry.js";
+import { validateToolArgs } from "./argValidation.js";
 import { buildTrace, parseStoredTrace, redactTrace } from "./trace.js";
 import {
   createId,
@@ -685,6 +686,30 @@ export class AgentRuntime {
         toolName: toolCall.name,
         ok: false,
         output: { error: "Tool is not registered." }
+      };
+    }
+
+    // Validate the call's shape against the tool's declared inputSchema BEFORE
+    // any gate or execution (request well-formedness is a precondition — the
+    // HTTP 400-before-403 convention). A malformed call becomes a structured
+    // tool-result the model can self-correct from rather than a handler that
+    // silently coerces bad input or throws an opaque error. Validation is
+    // permissive (see argValidation.ts): it fails only on a missing required
+    // property or a known property of the wrong type.
+    const argCheck = validateToolArgs(tool.inputSchema, toolCall.args);
+    if (!argCheck.ok) {
+      const reason = `Invalid arguments for ${toolCall.name}: ${argCheck.errors.join("; ")}`;
+      append("tool.denied", {
+        toolName: toolCall.name,
+        callId: toolCall.id,
+        actionDescription,
+        reason
+      });
+      return {
+        callId: toolCall.id,
+        toolName: toolCall.name,
+        ok: false,
+        output: { error: reason }
       };
     }
 
