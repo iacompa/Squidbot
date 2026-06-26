@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import { validateModelAccountApiUrl, validateProviderApiUrl } from "./urlGuards.js";
+import { getCodexAuthState, startCodexDeviceAuth } from "./codexAuth.js";
 import { replaceMcpManager } from "./mcpPool.js";
 import { McpCommandError, redactMcpEnv, validateMcpCommand } from "./mcpAllowlist.js";
 import { withApprovalLock } from "./approvalLock.js";
@@ -447,6 +448,9 @@ export function registerIpcHandlers(database: SquidDatabase, paths: DesktopAppPa
       return { ...result, merged };
     }
   );
+
+  ipcMain.handle("squidbot:getCodexAuthState", async () => getCodexAuthState());
+  ipcMain.handle("squidbot:startCodexDeviceAuth", async () => startCodexDeviceAuth());
 
   ipcMain.handle("squidbot:sendChatMessage", async (_event, request: ChatRequest) => {
     const settings = readSettings(database, paths);

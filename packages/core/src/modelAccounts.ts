@@ -35,6 +35,7 @@ import { createId } from "./types.js";
  * The DB CHECK constraint must also be expanded — see migration 16.
  */
 export type ProviderKind =
+  | "codex"
   | "openrouter"
   | "openai"
   | "anthropic"
@@ -79,6 +80,19 @@ export type ProviderPreset = {
  * the richer per-model metadata (tier, pricing, description) lives.
  */
 export const PROVIDER_PRESETS: ProviderPreset[] = [
+  {
+    kind: "codex",
+    displayName: "OpenAI Codex",
+    defaultApiUrl: "codex://local",
+    requiresApiKey: false,
+    description:
+      "Uses your local Codex login instead of a raw OpenAI API key. Supports ChatGPT-plan Codex access when Codex is signed in with ChatGPT.",
+    commonModels: [
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+      { id: "gpt-5.4", label: "GPT-5.4" },
+      { id: "gpt-5.5", label: "GPT-5.5" }
+    ]
+  },
   {
     kind: "openrouter",
     displayName: "OpenRouter",
@@ -150,7 +164,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     displayName: "OpenAI",
     defaultApiUrl: "https://api.openai.com/v1/chat/completions",
     requiresApiKey: true,
-    description: "Direct OpenAI API. Use when you have OpenAI credits or an org-paid key.",
+    description:
+      "Direct OpenAI API. Paste an OpenAI API key or another bearer credential for your OpenAI account. This is not ChatGPT sign-in.",
     commonModels: [
       { id: "gpt-5.4-mini", label: "GPT-5.4 Mini (cheap)" },
       { id: "gpt-5.4", label: "GPT-5.4 (balanced)" },

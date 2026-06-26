@@ -73,6 +73,26 @@ export function formatModelPricing(pricing: ModelPricing | undefined): string | 
 }
 
 export const PROVIDER_MODEL_CATALOG: Record<ProviderKind, readonly ModelCatalogEntry[]> = {
+  codex: [
+    {
+      id: "gpt-5.4-mini",
+      label: "GPT-5.4 Mini",
+      tier: "fast",
+      description: "Fast Codex-compatible default for lighter coding and chat tasks."
+    },
+    {
+      id: "gpt-5.4",
+      label: "GPT-5.4",
+      tier: "balanced",
+      description: "Strong default Codex model for general coding work."
+    },
+    {
+      id: "gpt-5.5",
+      label: "GPT-5.5",
+      tier: "flagship",
+      description: "Latest frontier Codex-capable model for harder engineering tasks."
+    }
+  ],
   // ---------------- Gateway ----------------
   openrouter: [
     {

@@ -157,6 +157,42 @@ describe("ModelAccountsSection", () => {
     });
   });
 
+  it("prefers the OpenAI preset as the default form when it is available", async () => {
+    mount({
+      accounts: [],
+      presets: [
+        {
+          providerKind: "openrouter",
+          label: "OpenRouter",
+          defaultApiUrl: "https://openrouter.ai/api/v1/chat/completions",
+          defaultModel: "anthropic/claude-opus-4-5",
+          notes: "BYOK gateway with hundreds of models.",
+          catalog: [{ id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", tier: "flagship" }]
+        },
+        {
+          providerKind: "openai",
+          label: "OpenAI",
+          defaultApiUrl: "https://api.openai.com/v1/chat/completions",
+          defaultModel: "gpt-5.4-mini",
+          notes: "Direct OpenAI API.",
+          catalog: [{ id: "gpt-5.4-mini", label: "GPT-5.4 Mini", tier: "balanced" }]
+        }
+      ]
+    });
+    const { ModelAccountsSection } = await import("./ModelAccountsSection");
+    render(<ModelAccountsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /add account/i })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("https://api.openai.com/v1/chat/completions")).toBeTruthy();
+    });
+    expect(screen.getByLabelText(/OpenAI API key or access token/i)).toBeTruthy();
+  });
+
   it("switching the provider dropdown changes the API URL and model dropdown contents", async () => {
     mount({ accounts: [] });
     const { ModelAccountsSection } = await import("./ModelAccountsSection");

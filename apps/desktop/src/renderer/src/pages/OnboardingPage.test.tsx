@@ -134,6 +134,7 @@ describe("OnboardingPage Step 0 — Connect a model (chat intro)", () => {
     });
     // The page subtitle now reflects the model-first flow.
     expect(screen.getByText(/First, connect SquidBot to an AI model/i)).toBeTruthy();
+    expect(screen.getByText(/OpenAI is the default quick path/i)).toBeTruthy();
     // The empty-state inside the model-accounts panel tells the user why they
     // need an account, not just *that* they need one.
     expect(screen.getByText("No model accounts yet")).toBeTruthy();

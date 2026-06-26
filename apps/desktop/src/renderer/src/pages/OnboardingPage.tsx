@@ -343,9 +343,10 @@ export function OnboardingPage({ onNavigate }: OnboardingPageProps = {}) {
             <Wand2 size={18} aria-hidden /> Get SquidBot configured for your business
           </h2>
           <p className="page-subtitle">
-            First, connect SquidBot to an AI model. Then six short questions tune it to your business
-            — SquidBot adapts in real time on the right, and everything you say becomes a memory with
-            provenance.
+            First, connect SquidBot to an AI model. OpenAI is the default quick path, and if you pick
+            it you can paste an API key or access token. Then six short questions tune it to your
+            business — SquidBot adapts in real time on the right, and everything you say becomes a
+            memory with provenance.
           </p>
         </div>
       </header>
@@ -460,12 +461,14 @@ function ModelStep({ ready, accountsCount, onAccountSaved, onContinue }: ModelSt
         <div className="onboarding-chat-bubble__body">
           <p>
             <strong>Hi, I&apos;m SquidBot.</strong> Before we get into the questions about your business,
-            let&apos;s plug me into a real AI model. Pick a provider below, paste a key, and I&apos;ll fetch
+            let&apos;s plug me into a real AI model. OpenAI is preselected as the fastest path, but you
+            can switch providers. If you use OpenAI, paste an API key or access token and I&apos;ll fetch
             the exact list of models your account can use.
           </p>
           <p className="muted">
-            You can also skip this for now and add a model later from Settings — but I&apos;ll be answering
-            with the deterministic mock provider in the meantime, which is just a placeholder.
+            This is not a ChatGPT sign-in flow. You can also skip this for now and add a model later
+            from Settings — but I&apos;ll be answering with the deterministic mock provider in the
+            meantime, which is just a placeholder.
           </p>
         </div>
       </div>

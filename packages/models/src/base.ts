@@ -109,11 +109,12 @@ export interface ModelProvider {
   generateTaskPlan?(request: TaskPlanRequest): Promise<TaskPlan>;
 }
 
-export type ModelProviderName = "local" | "api" | "mock";
+export type ModelProviderName = "local" | "api" | "codex" | "mock";
 
 export type ModelRouterSettings = {
   provider?: ModelProviderName | string;
   legacyProvider?: string;
+  workspacePath?: string | null;
   apiKey?: string | null;
   apiUrl?: string | null;
   apiModel?: string | null;

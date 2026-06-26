@@ -1396,6 +1396,49 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_chat_messages_session
         ON chat_messages (session_id, id);
     `
+  },
+  {
+    id: 21,
+    name: "model_accounts_add_codex_provider",
+    up: `
+      CREATE TABLE model_accounts_v3 (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        providerKind TEXT NOT NULL
+          CHECK(providerKind IN (
+            'codex','openrouter','openai','anthropic',
+            'deepseek','gemini','groq','together','xai','ollama','custom'
+          )),
+        apiUrl TEXT NOT NULL,
+        apiKey TEXT,
+        apiModel TEXT NOT NULL,
+        costPerToken REAL NOT NULL DEFAULT 0,
+        dailyBudgetTokens INTEGER,
+        description TEXT,
+        isActive INTEGER NOT NULL DEFAULT 0 CHECK(isActive IN (0,1)),
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+
+      INSERT INTO model_accounts_v3 (
+        id, name, providerKind, apiUrl, apiKey, apiModel, costPerToken,
+        dailyBudgetTokens, description, isActive, createdAt, updatedAt
+      )
+      SELECT
+        id, name, providerKind, apiUrl, apiKey, apiModel, costPerToken,
+        dailyBudgetTokens, description, isActive, createdAt, updatedAt
+      FROM model_accounts;
+
+      DROP TABLE model_accounts;
+      ALTER TABLE model_accounts_v3 RENAME TO model_accounts;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_model_accounts_active_one
+        ON model_accounts (isActive)
+        WHERE isActive = 1;
+
+      CREATE INDEX IF NOT EXISTS idx_model_accounts_provider_kind
+        ON model_accounts (providerKind);
+    `
   }
 ];
 

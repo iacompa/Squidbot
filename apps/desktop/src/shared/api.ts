@@ -973,6 +973,8 @@ export type SquidbotApi = {
     apiKey: string;
     timeoutMs?: number;
   }) => Promise<DiscoverModelsApiResult>;
+  getCodexAuthState: () => Promise<CodexAuthStateDto>;
+  startCodexDeviceAuth: () => Promise<CodexDeviceAuthStartDto>;
   sendChatMessage: (request: ChatRequest) => Promise<ChatResponse>;
   getLatestTrace: () => Promise<TraceDto | null>;
   listTraces: () => Promise<TraceDto[]>;
@@ -1508,6 +1510,7 @@ export type CommandRunResultDto = {
 // this codebase.
 
 export type ProviderKindDto =
+  | "codex"
   | "openrouter"
   | "openai"
   | "anthropic"
@@ -1593,3 +1596,19 @@ export type DiscoverModelsApiResult =
         catalog: readonly ModelCatalogEntryDto[];
       };
     };
+
+export type CodexAuthStateDto = {
+  available: boolean;
+  loggedIn: boolean;
+  authMode: "chatgpt" | "apikey" | "unknown" | null;
+  planType: string | null;
+  email: string | null;
+  requiresOpenaiAuth: boolean;
+  error?: string;
+};
+
+export type CodexDeviceAuthStartDto = {
+  loginId: string;
+  verificationUrl: string;
+  userCode: string;
+};

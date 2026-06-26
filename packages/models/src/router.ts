@@ -1,4 +1,5 @@
 import { ApiModelProvider } from "./apiProvider.js";
+import { CodexModelProvider } from "./codexProvider.js";
 import type {
   JsonObject,
   ModelBudgetStore,
@@ -49,6 +50,10 @@ export class ModelRouter {
         apiKey: this.settings.apiKey,
         apiUrl: this.settings.apiUrl,
         modelName: this.settings.apiModel
+      }),
+      new CodexModelProvider({
+        modelName: this.settings.apiModel,
+        workspacePath: this.settings.workspacePath ?? process.cwd()
       }),
       new MockModelProvider()
     ];
@@ -275,6 +280,7 @@ export class ModelRouter {
     const selected = normalizeProviderName(this.settings.provider ?? this.settings.legacyProvider ?? "local");
     const namesByPreference: Record<ModelProviderName, string[]> = {
       api: ["api", "local", "mock"],
+      codex: ["codex", "local", "mock"],
       local: ["local", "mock"],
       mock: ["mock"]
     };
@@ -284,7 +290,7 @@ export class ModelRouter {
 }
 
 function normalizeProviderName(value: string): ModelProviderName {
-  if (value === "api" || value === "local" || value === "mock") {
+  if (value === "api" || value === "codex" || value === "local" || value === "mock") {
     return value;
   }
 

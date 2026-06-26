@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Loader2, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
 import { squidbotApi } from "../lib/api";
 import type {
+  CodexAuthStateDto,
+  CodexDeviceAuthStartDto,
   ModelAccountInputDto,
   ModelAccountSummaryDto,
   ModelCatalogEntryDto,
@@ -82,6 +84,19 @@ export function ModelAccountsSection({
   const [form, setForm] = useState<ModelAccountFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [codexAuth, setCodexAuth] = useState<CodexAuthStateDto | null>(null);
+  const [codexLoginStart, setCodexLoginStart] = useState<CodexDeviceAuthStartDto | null>(null);
+  const [codexAuthLoading, setCodexAuthLoading] = useState(false);
+  const selectedPreset = presets.find((preset) => preset.providerKind === form.providerKind);
+  const isCodexProvider = form.providerKind === "codex";
+  const credentialLabel = form.providerKind === "openai" ? "OpenAI API key or access token" : "API key";
+  const credentialPlaceholder = form.providerKind === "openai" ? "sk-… or pasted bearer token" : "sk-…";
+  const accountNamePlaceholder =
+    form.providerKind === "openai"
+      ? "e.g. OpenAI — main"
+      : form.providerKind === "codex"
+        ? "e.g. Codex — ChatGPT plan"
+        : "e.g. OpenRouter — main";
 
   const reloadAccounts = useCallback(async () => {
     const next = await squidbotApi.listModelAccounts();
@@ -115,7 +130,8 @@ export function ModelAccountsSection({
    */
   useEffect(() => {
     if (forceOpenForm && presets.length > 0 && !form.apiUrl) {
-      const first = presets[0];
+      const first = getDefaultPreset(presets);
+      if (!first) return;
       setForm({
         ...EMPTY_FORM,
         providerKind: first.providerKind,
@@ -140,10 +156,10 @@ export function ModelAccountsSection({
    * effect below handles that with its own debounce.
    */
   useEffect(() => {
-    if (!showForm || !form.apiKey || !form.apiUrl) return;
+    if (!showForm || isCodexProvider || !form.apiKey || !form.apiUrl) return;
     void refreshModels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.providerKind]);
+  }, [form.providerKind, isCodexProvider]);
 
   /**
    * Debounced auto-refresh whenever the user finishes editing the API key.
@@ -156,13 +172,18 @@ export function ModelAccountsSection({
    * effect should run).
    */
   useEffect(() => {
-    if (!showForm || !form.apiKey || !form.apiUrl) return;
+    if (!showForm || isCodexProvider || !form.apiKey || !form.apiUrl) return;
     const handle = setTimeout(() => {
       void refreshModels();
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.apiKey, showForm]);
+  }, [form.apiKey, showForm, isCodexProvider]);
+
+  useEffect(() => {
+    if (!showForm || !isCodexProvider) return;
+    void refreshCodexAuth();
+  }, [showForm, isCodexProvider]);
 
   /**
    * Reset the form to a chosen provider's defaults. This is the magic that
@@ -189,7 +210,7 @@ export function ModelAccountsSection({
   }
 
   function openAddForm(): void {
-    const firstPreset = presets[0];
+    const firstPreset = getDefaultPreset(presets);
     if (firstPreset) {
       setForm({
         ...EMPTY_FORM,
@@ -213,11 +234,19 @@ export function ModelAccountsSection({
   }
 
   async function refreshModels(): Promise<void> {
+    if (isCodexProvider) {
+      setForm((c) => ({
+        ...c,
+        discoveryError: null,
+        discoverySuccess: "Codex uses your local Codex login instead of a provider /v1/models endpoint."
+      }));
+      return;
+    }
     if (!form.apiUrl || !form.apiKey) {
       setForm((c) => ({
         ...c,
         discoveryError:
-          "Enter an API URL and key first — that's how SquidBot asks the provider which models you can use.",
+          "Enter an API URL and credential first — that's how SquidBot asks the provider which models you can use.",
         discoverySuccess: null
       }));
       return;
@@ -267,6 +296,10 @@ export function ModelAccountsSection({
       setSaveError("Pick a model from the dropdown, or refresh from the provider's catalog.");
       return;
     }
+    if (isCodexProvider && !codexAuth?.loggedIn) {
+      setSaveError("Codex is not logged in yet. Start the ChatGPT device-code login first, then refresh status.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -274,7 +307,7 @@ export function ModelAccountsSection({
         name: trimmedName,
         providerKind: form.providerKind,
         apiUrl: form.apiUrl,
-        apiKey: form.apiKey || undefined,
+        apiKey: isCodexProvider ? undefined : form.apiKey || undefined,
         apiModel: form.apiModel,
         activate: accounts.length === 0
       };
@@ -288,6 +321,29 @@ export function ModelAccountsSection({
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function refreshCodexAuth(): Promise<void> {
+    setCodexAuthLoading(true);
+    try {
+      setCodexAuth(await squidbotApi.getCodexAuthState());
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexAuthLoading(false);
+    }
+  }
+
+  async function startCodexDeviceAuthFlow(): Promise<void> {
+    setCodexAuthLoading(true);
+    try {
+      setCodexLoginStart(await squidbotApi.startCodexDeviceAuth());
+      setCodexAuth(await squidbotApi.getCodexAuthState());
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexAuthLoading(false);
     }
   }
 
@@ -321,8 +377,8 @@ export function ModelAccountsSection({
         <div>
           <h3>Model accounts</h3>
           <p className="model-accounts__intro">
-            Save one or more API keys. Switch the active account here, or just ask SquidBot in chat
-            (&quot;use my OpenAI account instead&quot;).
+            Save one or more model credentials. Switch the active account here, or just ask SquidBot
+            in chat (&quot;use my OpenAI account instead&quot;).
           </p>
         </div>
         {!showForm && (
@@ -338,9 +394,9 @@ export function ModelAccountsSection({
         <div className="empty-state compact">
           <h4>No model accounts yet</h4>
           <p>
-            Add an OpenRouter, OpenAI, Anthropic, Groq, Together, or Ollama key to start chatting with
-            a real model. Until you do, SquidBot routes everything through the deterministic mock
-            provider.
+            Add an OpenAI, OpenRouter, Anthropic, Groq, Together, or Ollama credential to start
+            chatting with a real model. Until you do, SquidBot routes everything through the
+            deterministic mock provider.
           </p>
         </div>
       ) : (
@@ -408,7 +464,7 @@ export function ModelAccountsSection({
               <input
                 autoComplete="off"
                 type="text"
-                placeholder="e.g. OpenRouter — main"
+                placeholder={accountNamePlaceholder}
                 value={form.name}
                 onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))}
               />
@@ -437,19 +493,53 @@ export function ModelAccountsSection({
               placeholder="https://provider/v1/chat/completions"
               value={form.apiUrl}
               onChange={(e) => setForm((c) => ({ ...c, apiUrl: e.target.value }))}
+              disabled={isCodexProvider}
             />
           </label>
 
-          <label className="model-account-form__full">
-            <span>API key</span>
-            <input
-              autoComplete="off"
-              type="password"
-              placeholder="sk-…"
-              value={form.apiKey}
-              onChange={(e) => setForm((c) => ({ ...c, apiKey: e.target.value }))}
-            />
-          </label>
+          {!isCodexProvider ? (
+            <label className="model-account-form__full">
+              <span>{credentialLabel}</span>
+              <input
+                autoComplete="off"
+                type="password"
+                placeholder={credentialPlaceholder}
+                value={form.apiKey}
+                onChange={(e) => setForm((c) => ({ ...c, apiKey: e.target.value }))}
+              />
+            </label>
+          ) : (
+            <div className="model-account-form__full">
+              <span>Codex account login</span>
+              <div className="model-account-form__warn">
+                {codexAuth?.loggedIn
+                  ? `Codex is logged in${codexAuth.planType ? ` with ChatGPT plan ${codexAuth.planType}` : ""}${codexAuth.email ? ` as ${codexAuth.email}` : ""}.`
+                  : codexAuth?.available === false
+                    ? `Codex auth unavailable${codexAuth.error ? `: ${codexAuth.error}` : ""}`
+                    : "Codex is not logged in yet. Start device-code login or run `codex login` separately."}
+              </div>
+              <div className="model-account-form__actions">
+                <button type="button" className="secondary-button" onClick={() => void refreshCodexAuth()} disabled={codexAuthLoading}>
+                  <span>{codexAuthLoading ? "Checking…" : "Refresh status"}</span>
+                </button>
+                <button type="button" className="secondary-button" onClick={() => void startCodexDeviceAuthFlow()} disabled={codexAuthLoading}>
+                  <span>Start ChatGPT device login</span>
+                </button>
+              </div>
+              {codexLoginStart && (
+                <p className="muted-copy">
+                  Open <code>{codexLoginStart.verificationUrl}</code> and enter code <code>{codexLoginStart.userCode}</code>, then click Refresh status.
+                </p>
+              )}
+            </div>
+          )}
+          {selectedPreset?.notes && (
+            <p className="muted-copy">
+              {selectedPreset.notes}
+              {form.providerKind === "openai" &&
+                " This is not ChatGPT sign-in; SquidBot uses the bearer credential you paste here and bills it to your OpenAI account."}
+            </p>
+          )}
 
           <div className="model-account-form__model-row">
             <label className="model-account-form__model">
@@ -482,7 +572,7 @@ export function ModelAccountsSection({
               type="button"
               className="secondary-button"
               onClick={() => void refreshModels()}
-              disabled={form.isDiscovering || !form.apiUrl || !form.apiKey}
+              disabled={isCodexProvider || form.isDiscovering || !form.apiUrl || !form.apiKey}
               title="Ask the provider which models your key has access to"
             >
               {form.isDiscovering ? (
@@ -557,4 +647,8 @@ function formatCatalogPricing(pricing: ModelCatalogEntryDto["pricing"]): string 
     return `$${n.toFixed(2)}`;
   };
   return `${fmt(inputPerMTokens)}/${fmt(outputPerMTokens)} per 1M`;
+}
+
+function getDefaultPreset(presets: readonly ProviderPresetDto[]): ProviderPresetDto | undefined {
+  return presets.find((preset) => preset.providerKind === "openai") ?? presets[0];
 }

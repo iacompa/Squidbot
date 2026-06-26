@@ -45,6 +45,9 @@ export function validateModelAccountApiUrl(rawUrl: string): string | null {
   if (typeof rawUrl !== "string" || !rawUrl.trim()) {
     return null; // empty is OK at this layer; account-level enforcement happens elsewhere
   }
+  if (rawUrl.trim() === "codex://local") {
+    return null;
+  }
   let parsed: URL;
   try {
     parsed = new URL(rawUrl.trim());
@@ -52,7 +55,7 @@ export function validateModelAccountApiUrl(rawUrl: string): string | null {
     return `Invalid apiUrl: ${rawUrl}`;
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return "apiUrl must use http or https protocol.";
+    return "apiUrl must use http, https, or codex://local protocol.";
   }
   if (isPrivateOrLoopbackHostname(parsed.hostname)) {
     return `Refusing apiUrl pointing at a private/loopback host: ${parsed.hostname}`;

@@ -113,7 +113,7 @@ export class AgentRuntime {
     this.workspacePath = options.workspacePath;
     this.sessionId = options.sessionId ?? createSession(options.workspacePath).id;
     this.eventLog = new EventLog(options.database);
-    this.modelRouter = options.modelRouter ?? createModelRouterFromSettings(options.database);
+    this.modelRouter = options.modelRouter ?? createModelRouterFromSettings(options.database, options.workspacePath);
     this.modelRouterIsInjected = options.modelRouter !== undefined;
     this.modelRouterAccountId = getActiveModelAccount(options.database)?.id ?? null;
     this.toolRegistry = options.toolRegistry ?? new ToolRegistry();
@@ -156,7 +156,7 @@ export class AgentRuntime {
     if (this.modelRouterIsInjected) return;
     const activeId = getActiveModelAccount(this.database)?.id ?? null;
     if (activeId !== this.modelRouterAccountId) {
-      this.modelRouter = createModelRouterFromSettings(this.database);
+      this.modelRouter = createModelRouterFromSettings(this.database, this.workspacePath);
       this.modelRouterAccountId = activeId;
     }
   }
@@ -903,7 +903,7 @@ export function getLatestTrace(database: SquidDatabase): Trace | null {
   return redactTrace(parseStoredTrace(database.getLatestTrace()));
 }
 
-function createModelRouterFromSettings(database: SquidDatabase): ModelRouter {
+function createModelRouterFromSettings(database: SquidDatabase, workspacePath?: string): ModelRouter {
   // The model_accounts table is the new source of truth for BYOK config.
   // We hydrate any legacy flat model.* settings into a "Legacy BYOK" account
   // on first read (idempotent), then use the active account if one exists.
@@ -914,10 +914,9 @@ function createModelRouterFromSettings(database: SquidDatabase): ModelRouter {
 
   const settings: ModelRouterSettings = activeAccount
     ? {
-        // Force the API provider whenever an account is active. The legacy
-        // model.provider setting is ignored — the account itself is the
-        // routing decision.
-        provider: "api",
+        // Active accounts override the legacy flat provider setting.
+        provider: activeAccount.providerKind === "codex" ? "codex" : "api",
+        workspacePath,
         apiKey: activeAccount.apiKey,
         apiUrl: activeAccount.apiUrl,
         apiModel: activeAccount.apiModel,
@@ -926,6 +925,7 @@ function createModelRouterFromSettings(database: SquidDatabase): ModelRouter {
       }
     : {
         provider: database.getSetting<string>("model.provider") ?? undefined,
+        workspacePath,
         apiKey: database.getSetting<string>("model.apiKey"),
         apiUrl: database.getSetting<string>("model.apiUrl"),
         apiModel: database.getSetting<string>("model.apiModel"),
